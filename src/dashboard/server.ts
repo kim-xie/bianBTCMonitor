@@ -1,0 +1,442 @@
+import 'dotenv/config'; // 加载.env文件配置
+import express from 'express';
+import http from 'http';
+import { Server } from 'socket.io';
+import cors from 'cors';
+import mongoose from 'mongoose';
+import path from 'path';
+import { TradingSignalService } from '../services/TradingSignal';
+import { StatisticsService } from '../services/StatisticsService';
+import { BinanceService } from '../services/BinanceService';
+import PriceDataModel from '../models/PriceData';
+import TradeModel from '../models/Trade';
+const app = express();
+const server = http.createServer(app);
+const io = new Server(server, {
+  cors: {
+    origin: "*",
+    methods: ["GET", "POST"]
+  }
+});
+
+// 中间件
+app.use(cors());
+app.use(express.json());
+
+// 静态文件服务
+app.use(express.static(path.join(__dirname, 'public')));
+
+// 认证路由
+import authRoutes from '../routes/authRoutes';
+app.use('/api/auth', authRoutes);
+
+// 订阅套餐路由
+import subscriptionRoutes from '../routes/subscriptionRoutes';
+app.use('/api/subscription', subscriptionRoutes);
+
+// 订阅状态路由
+import subscriptionStatusRoutes from '../routes/subscriptionStatusRoutes';
+app.use('/api/subscription', subscriptionStatusRoutes);
+
+// 支付路由
+import paymentRoutes from '../routes/paymentRoutes';
+app.use('/api/payment', paymentRoutes);
+
+// 确保 index.html 可以被访问
+app.get('/', (_req, res) => {
+  res.sendFile(path.join(__dirname, 'index.html'));
+});
+
+// 数据库连接
+const MONGODB_URI = process.env.MONGODB_URI || 'mongodb://localhost:27017/btc-trading';
+
+mongoose.connect(MONGODB_URI)
+  .then(async () => {
+    console.log('MongoDB连接成功');
+    // 初始化资金状态
+    await calculateCurrentBalance();
+    console.log(`初始资金状态: ${currentBalance.toFixed(2)}U`);
+  })
+  .catch(err => console.error('MongoDB连接失败:', err));
+
+// 服务实例
+const tradingSignalService = new TradingSignalService();
+const statisticsService = new StatisticsService();
+
+// 添加资金跟踪
+let currentBalance = 100; // 初始资金100U
+
+// 计算当前资金基于所有已完成交易
+const calculateCurrentBalance = async () => {
+  try {
+    const completedTrades = await TradeModel.find({
+      isCorrect: { $exists: true },
+      profitLoss: { $exists: true }
+    }).lean();
+
+    let balance = 100; // 初始资金
+    completedTrades.forEach(trade => {
+      balance += (trade.profitLoss || 0);
+    });
+
+    currentBalance = balance;
+    return balance;
+  } catch (error) {
+    console.error('计算资金失败:', error);
+    return currentBalance;
+  }
+};
+
+// 计算完整的资金历史变化
+const calculateBalanceHistory = async () => {
+  try {
+    const completedTrades = await TradeModel.find({
+      isCorrect: { $exists: true },
+      profitLoss: { $exists: true }
+    }).sort({ closeTime: 1 }).lean(); // 按平仓时间排序
+
+    const history = [];
+    let balance = 100; // 初始资金
+
+    // 添加初始资金点（固定起点）
+    history.push({
+      time: new Date(Date.now() - completedTrades.length * 60000).toISOString(), // 估算的起始时间
+      balance: 100 // 初始资金固定为100
+    });
+
+    // 按时间顺序重建资金变化历史
+    for (const trade of completedTrades) {
+      balance += (trade.profitLoss || 0);
+      history.push({
+        time: trade.closeTime || new Date().toISOString(),
+        balance: balance
+      });
+    }
+
+    return history;
+  } catch (error) {
+    console.error('计算资金历史失败:', error);
+    return [];
+  }
+};
+
+// 代理配置（可选）
+const proxyConfig = process.env.PROXY_HOST ? {
+  host: process.env.PROXY_HOST,
+  port: parseInt(process.env.PROXY_PORT || '8080'),
+  auth: process.env.PROXY_USER ? {
+    username: process.env.PROXY_USER,
+    password: process.env.PROXY_PASS || ''
+  } : undefined
+} : undefined;
+
+const binanceService = new BinanceService(proxyConfig);
+
+// API路由
+// 认证相关导入
+import { AuthRequest } from '../middleware/auth';
+import UserSubscriptionModel from '../models/UserSubscription';
+
+app.get('/api/stats', async (req: AuthRequest, res) => {
+  try {
+    const [stats, balance, balanceHistory] = await Promise.all([
+      statisticsService.calculateWinRate(),
+      calculateCurrentBalance(),
+      calculateBalanceHistory()
+    ]);
+
+    // 为所有用户提供基础统计数据（包括未订阅用户）
+    let subscriptionInfo = null;
+
+    // 只有已登录且有活跃订阅的用户才显示详细信息
+    if (req.user) {
+      try {
+        const activeSubscription = await UserSubscriptionModel.findOne({
+          userId: req.user._id,
+          status: 'active'
+        }).lean();
+
+        if (activeSubscription) {
+          const now = new Date();
+          const endDate = new Date(activeSubscription.endDate);
+          const timeLeft = endDate.getTime() - now.getTime();
+
+          subscriptionInfo = {
+            hasActiveSubscription: true,
+            planId: activeSubscription.planId,
+            endDate: activeSubscription.endDate,
+            timeLeft: Math.max(0, Math.floor(timeLeft / (1000 * 60 * 60 * 24))),
+            isExpired: timeLeft <= 0
+          };
+        } else {
+          // 已登录但没有活跃订阅
+          subscriptionInfo = {
+            hasActiveSubscription: false
+          };
+        }
+      } catch (subscriptionError) {
+        console.error('获取订阅信息失败:', subscriptionError);
+        subscriptionInfo = {
+          hasActiveSubscription: false
+        };
+      }
+    } else {
+      // 未登录用户（访客模式）
+      subscriptionInfo = {
+        hasActiveSubscription: false,
+        guestMode: true
+      };
+    }
+
+    res.json({
+      ...stats,
+      currentBalance: balance,
+      balanceHistory: balanceHistory,
+      subscription: subscriptionInfo
+    });
+  } catch (error) {
+    res.status(500).json({ error: '获取统计数据失败' });
+  }
+});
+
+app.get('/api/recent-trades', async (_req, res) => {
+  try {
+    const trades = await statisticsService.getRecentTrades(20);
+    res.json(trades);
+  } catch (error) {
+    res.status(500).json({ error: '获取交易记录失败' });
+  }
+});
+
+// 获取所有交易用于日历统计
+app.get('/api/all-trades', async (_req, res) => {
+  try {
+    const trades = await TradeModel.find({}).sort({ timestamp: 1 }).lean();
+    res.json(trades);
+  } catch (error) {
+    res.status(500).json({ error: '获取交易记录失败' });
+  }
+});
+
+// 临时清空数据接口（用于重置）
+// 认证和订阅相关导入
+import { authenticateToken } from '../middleware/auth';
+import { checkSubscriptionStatus } from '../middleware/subscriptionGuard';
+
+// 应用订阅状态检查中间件到所有API路由
+app.use(checkSubscriptionStatus);
+
+app.post('/api/reset-data', authenticateToken, async (req: AuthRequest, res) => {
+  try {
+    // 只允许认证用户执行数据重置（不限制订阅状态）
+    if (!req.user) {
+      res.status(401).json({ error: '未授权操作' });
+      return;
+    }
+
+    // 清空交易记录
+    const tradesResult = await TradeModel.deleteMany({});
+    // 清空价格数据
+    const priceResult = await PriceDataModel.deleteMany({});
+
+    // 重置当前资金为初始值
+    currentBalance = 100;
+
+    console.log(`用户 ${req.user.username} 已清空数据: ${tradesResult.deletedCount} 条交易, ${priceResult.deletedCount} 条价格数据`);
+
+    res.json({
+      success: true,
+      message: '数据已清空，已重新开始',
+      deletedTrades: tradesResult.deletedCount,
+      deletedPrices: priceResult.deletedCount,
+      currentBalance: currentBalance
+    });
+  } catch (error) {
+    console.error('清空数据失败:', error);
+    res.status(500).json({ error: '清空数据失败' });
+  }
+});
+
+app.get('/api/current-price', async (_req, res) => {
+  try {
+    const latestPrice = await PriceDataModel
+      .findOne()
+      .sort({ timestamp: -1 })
+      .lean();
+
+    res.json({ price: latestPrice?.price || 65000 });
+  } catch (error) {
+    res.status(500).json({ error: '获取当前价格失败' });
+  }
+});
+
+// Socket.io连接
+io.on('connection', (socket: any) => {
+  console.log('客户端已连接:', socket.id);
+
+  socket.on('disconnect', () => {
+    console.log('客户端已断开:', socket.id);
+  });
+});
+
+// 实时价格更新
+let currentPrice = 65000;
+const updatePrice = async () => {
+  try {
+    const ticker = await binanceService.getCurrentPrice();
+    const priceData = binanceService.convertToPriceData(ticker);
+
+    currentPrice = priceData.price || currentPrice;
+
+    io.emit('priceUpdate', {
+      price: currentPrice,
+      timestamp: new Date().toISOString()
+    });
+
+    // 保存到数据库
+    await PriceDataModel.create(priceData);
+  } catch (error) {
+    console.error('获取价格失败:', error);
+  }
+};
+
+// 启动价格更新定时器
+setInterval(updatePrice, 5000); // 每5秒更新一次真实价格
+
+// 交易信号生成和更新
+const generateTradingSignal = async () => {
+  try {
+    // 获取5mK线数据
+    const fiveMinuteKlines = await binanceService.getKlines('5m', 160);
+    const signal = await tradingSignalService.generateSignal('BTCUSDT', fiveMinuteKlines);
+
+    if (signal) {
+      io.emit('tradingSignal', signal);
+      console.log(`生成交易信号: ${signal.signal} - 置信度: ${signal.confidence}%`);
+    }
+  } catch (error) {
+    console.error('生成交易信号失败:', error);
+  }
+};
+
+// 定期更新统计数据
+const updateStatistics = async () => {
+  try {
+    const [stats, trades, balance] = await Promise.all([
+      statisticsService.calculateWinRate(),
+      statisticsService.getRecentTrades(20),
+      calculateCurrentBalance()
+    ]);
+
+    io.emit('statsUpdate', stats);
+    io.emit('tradesUpdate', trades);
+
+    // 也通过statsUpdate发送当前资金，便于客户端显示
+    io.emit('balanceUpdate', {
+      balance: balance,
+      timestamp: new Date().toISOString()
+    });
+  } catch (error) {
+    console.error('更新统计数据失败:', error);
+  }
+};
+
+// 定期任务
+setInterval(generateTradingSignal, 60000); // 每分钟生成一次信号
+setInterval(updateStatistics, 10000); // 每10秒更新一次统计
+
+// 处理交易结果更新（10分钟后）
+const updateTradeResults = async () => {
+  try {
+    const tenMinutesAgo = new Date(Date.now() - 10 * 60 * 1000);
+    const pendingTrades = await TradeModel.find({
+      timestamp: { $lte: tenMinutesAgo },
+      isCorrect: { $exists: false }
+    });
+
+    console.log(`检查平仓: 找到${pendingTrades.length}笔待平仓交易`);
+
+    for (const trade of pendingTrades) {
+      console.log(`处理交易 ${trade._id}: 开仓时间 ${trade.timestamp}, 当前价格 ${currentPrice}`);
+      await tradingSignalService.updateTradeResult(trade._id, currentPrice);
+    }
+
+    // 更新统计和资金
+    await Promise.all([
+      updateStatistics(),
+      calculateCurrentBalance().then(balance => {
+        io.emit('balanceUpdate', {
+          balance: balance,
+          timestamp: new Date().toISOString()
+        });
+      })
+    ]);
+  } catch (error) {
+    console.error('更新交易结果失败:', error);
+  }
+};
+
+setInterval(updateTradeResults, 60000); // 每分钟检查一次
+
+// 定期更新并广播资金状态
+setInterval(async () => {
+  try {
+    const balance = await calculateCurrentBalance();
+    io.emit('balanceUpdate', {
+      balance: balance,
+      timestamp: new Date().toISOString()
+    });
+  } catch (error) {
+    console.error('更新资金状态失败:', error);
+  }
+}, 5000); // 每5秒更新一次资金状态
+
+// 前端路由 - 按优先级排序
+app.get('/login', (_req, res) => {
+  res.sendFile(path.join(__dirname, 'public/login.html'));
+});
+
+app.get('/subscription', (_req, res) => {
+  res.sendFile(path.join(__dirname, 'public/subscription.html'));
+});
+
+app.get('/management', (_req, res) => {
+  res.sendFile(path.join(__dirname, 'public/subscription-management.html'));
+});
+
+app.get('/dashboard', (_req, res) => {
+  res.sendFile(path.join(__dirname, 'public/dashboard.html'));
+});
+
+app.get('/', (_req, res) => {
+  res.sendFile(path.join(__dirname, 'public/dashboard.html'));
+});
+
+// 所有其他路由重定向到仪表板
+app.get('*', (_req, res) => {
+  res.sendFile(path.join(__dirname, 'public/dashboard.html'));
+});
+
+const PORT = process.env.PORT || 3001;
+
+server.listen(PORT, () => {
+  console.log(`服务器运行在端口 ${PORT}`);
+  console.log(`访问 http://localhost:${PORT} 查看监控面板`);
+});
+
+// 优雅关闭
+process.on('SIGTERM', () => {
+  console.log('收到SIGTERM信号，正在关闭服务器...');
+  server.close(() => {
+    console.log('服务器已关闭');
+    mongoose.disconnect();
+  });
+});
+
+process.on('SIGINT', () => {
+  console.log('收到SIGINT信号，正在关闭服务器...');
+  server.close(() => {
+    console.log('服务器已关闭');
+    mongoose.disconnect();
+  });
+});

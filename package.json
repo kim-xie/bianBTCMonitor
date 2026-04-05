@@ -1,0 +1,37 @@
+{
+  "name": "btc-trading-system",
+  "version": "1.0.0",
+  "description": "BTC日内交易预测系统",
+  "main": "dist/index.js",
+  "scripts": {
+    "dev": "ts-node-dev src/index.ts",
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "dashboard": "ts-node-dev src/dashboard/server.ts",
+    "reset-data": "ts-node scripts/reset-data.ts"
+  },
+  "dependencies": {
+    "axios": "^1.5.0",
+    "bcryptjs": "^2.4.3",
+    "cors": "^2.8.5",
+    "dotenv": "^16.3.1",
+    "express": "^4.18.2",
+    "https-proxy-agent": "^5.0.1",
+    "jsonwebtoken": "^9.0.2",
+    "mongoose": "^7.5.0",
+    "socket.io": "^4.7.2",
+    "socket.io-client": "^4.7.2",
+    "technicalindicators": "^3.1.0",
+    "ts-node": "^10.9.1",
+    "ts-node-dev": "^2.0.0",
+    "typescript": "^5.1.6",
+    "ws": "^8.13.0"
+  },
+  "devDependencies": {
+    "@types/bcryptjs": "^2.4.6",
+    "@types/cors": "^2.8.13",
+    "@types/express": "^4.17.17",
+    "@types/jsonwebtoken": "^9.0.10",
+    "@types/node": "^20.5.0"
+  }
+}

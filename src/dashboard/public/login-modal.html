@@ -1,0 +1,151 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>登录弹窗 - BTC交易监控</title>
+    <style>
+        .modal-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0, 0, 0, 0.5);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 1000;
+        }
+
+        .modal-content {
+            background: white;
+            border-radius: 15px;
+            padding: 2rem;
+            width: 90%;
+            max-width: 400px;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
+        }
+
+        .modal-header {
+            text-align: center;
+            margin-bottom: 1.5rem;
+        }
+
+        .modal-header h2 {
+            color: #333;
+            margin-bottom: 0.5rem;
+        }
+
+        .form-group {
+            margin-bottom: 1rem;
+        }
+
+        .form-group label {
+            display: block;
+            margin-bottom: 0.5rem;
+            color: #333;
+            font-weight: bold;
+        }
+
+        .form-group input {
+            width: 100%;
+            padding: 0.8rem;
+            border: 1px solid #ddd;
+            border-radius: 8px;
+            font-size: 1rem;
+        }
+
+        .btn {
+            width: 100%;
+            padding: 0.8rem;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            font-weight: bold;
+            transition: all 0.3s ease;
+        }
+
+        .btn-primary {
+            background: linear-gradient(135deg, #4CAF50 0%, #45a049 100%);
+            color: white;
+        }
+
+        .btn-secondary {
+            background: #f5f5f5;
+            color: #333;
+            margin-top: 0.5rem;
+        }
+    </style>
+</head>
+<body>
+    <div class="modal-overlay" id="loginModal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2><i class="fas fa-sign-in-alt"></i> 登录账户</h2>
+                <p>登录后可购买订阅套餐</p>
+            </div>
+
+            <form onsubmit="handleLoginSubmit(event)">
+                <div class="form-group">
+                    <label for="modal-username"><i class="fas fa-user"></i> 用户名</label>
+                    <input type="text" id="modal-username" placeholder="请输入用户名" required>
+                </div>
+
+                <div class="form-group">
+                    <label for="modal-password"><i class="fas fa-lock"></i> 密码</label>
+                    <input type="password" id="modal-password" placeholder="请输入密码" required>
+                </div>
+
+                <button type="submit" class="btn btn-primary">
+                    <i class="fas fa-sign-in-alt"></i> 登录
+                </button>
+
+                <button type="button" onclick="closeLoginModal()" class="btn btn-secondary">
+                    <i class="fas fa-times"></i> 取消
+                </button>
+            </form>
+        </div>
+    </div>
+
+    <script>
+        function openLoginModal() {
+            document.getElementById('loginModal').style.display = 'flex';
+        }
+
+        function closeLoginModal() {
+            document.getElementById('loginModal').style.display = 'none';
+        }
+
+        async function handleLoginSubmit(event) {
+            event.preventDefault();
+
+            const username = document.getElementById('modal-username').value;
+            const password = document.getElementById('modal-password').value;
+
+            try {
+                const response = await fetch('/api/auth/login', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ username, password })
+                });
+
+                if (response.ok) {
+                    const data = await response.json();
+                    localStorage.setItem('authToken', data.token);
+                    alert('登录成功！');
+                    closeLoginModal();
+                    location.reload(); // 刷新页面更新状态
+                } else {
+                    alert('登录失败: ' + (await response.json()).error);
+                }
+            } catch (error) {
+                console.error('登录错误:', error);
+                alert('网络错误，请重试');
+            }
+        }
+    </script>
+</body>
+</html>

@@ -1,0 +1,260 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>烟花演示 - BTC交易监控</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        body {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: white;
+            font-family: 'Arial', sans-serif;
+        }
+
+        .demo-container {
+            text-align: center;
+            padding: 2rem;
+        }
+
+        h1 {
+            font-size: 2.5rem;
+            margin-bottom: 1rem;
+            text-shadow: 2px 2px 10px rgba(0,0,0,0.5);
+        }
+
+        .firework-button {
+            background: linear-gradient(135deg, #ff6b6b, #ee5a24);
+            border: none;
+            border-radius: 50px;
+            padding: 1.5rem 3rem;
+            color: white;
+            font-size: 1.2rem;
+            font-weight: bold;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.3);
+        }
+
+        .firework-button:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 15px 40px rgba(0,0,0,0.4);
+        }
+
+        .firework-button:active {
+            transform: translateY(-2px);
+        }
+
+        .instructions {
+            margin-top: 2rem;
+            opacity: 0.8;
+            max-width: 600px;
+            line-height: 1.6;
+        }
+    </style>
+</head>
+<body>
+    <div class="demo-container">
+        <h1><i class="fas fa-fire"></i> 烟花庆祝效果</h1>
+        <p style="font-size: 1.2rem; margin-bottom: 2rem;">点击按钮体验预测成功时的烟花效果</p>
+
+        <button class="firework-button" onclick="triggerFireworksDemo()">
+            <i class="fas fa-rocket"></i> 发射烟花！
+        </button>
+
+        <div class="instructions">
+            <h3>功能说明:</h3>
+            <ul style="text-align: left;">
+                <li><strong>彩色粒子爆炸效果</strong> - 多种颜色随机分布</li>
+                <li><strong>背景浮动装饰</strong> - 持续动画效果</li>
+                <li><strong>音频反馈</strong> - 成功音效提示</li>
+                <li><strong>统计展示</strong> - 盈利金额和成功率显示</li>
+                <li><strong>Polymarket风格</strong> - 类似市场claim的视觉效果</li>
+            </ul>
+
+            <p style="margin-top: 1rem;"><strong>技术特点:</strong></p>
+            <ul style="text-align: left;">
+                <li>纯CSS3动画，性能优秀</li>
+                <li>响应式设计，适配所有设备</li>
+                <li>Web Audio API音效支持</li>
+                <li>WebSocket实时更新</li>
+                <li>自动错误处理和降级方案</li>
+            </ul>
+        </div>
+    </div>
+
+    <script>
+        function triggerFireworksDemo() {
+            // 创建烟花容器
+            const container = document.createElement('div');
+            container.style.cssText = `
+                position: fixed;
+                top: 0;
+                left: 0;
+                width: 100%;
+                height: 100%;
+                pointer-events: none;
+                z-index: 9999;
+                background: radial-gradient(circle at center, rgba(255,215,0,0.3) 0%, transparent 70%);
+            `;
+
+            // 添加多个烟花效果
+            for (let i = 0; i < 8; i++) {
+                setTimeout(() => {
+                    createFirework(container, i);
+                }, i * 150);
+            }
+
+            document.body.appendChild(container);
+
+            // 播放成功音效
+            playSuccessSound();
+
+            // 显示成功消息
+            showSuccessMessage();
+
+            // 3秒后清理
+            setTimeout(() => {
+                if (container.parentNode) {
+                    container.parentNode.removeChild(container);
+                }
+            }, 3000);
+        }
+
+        function createFirework(container, index) {
+            const colors = ['#FFD700', '#FF6B6B', '#4ECDC4', '#45B7D1', '#96CEB4', '#FECA57', '#FF9FF3'];
+            const color = colors[index % colors.length];
+
+            // 随机位置
+            const x = Math.random() * 80 + 10; // 10% - 90%
+            const y = Math.random() * 80 + 10; // 10% - 90%
+
+            // 主烟花点
+            const mainFirework = document.createElement('div');
+            mainFirework.style.cssText = `
+                position: absolute;
+                left: ${x}%;
+                top: ${y}%;
+                width: 8px;
+                height: 8px;
+                background-color: ${color};
+                border-radius: 50%;
+                transform: translate(-50%, -50%) scale(0);
+                animation: fireworkMain 1s ease-out forwards;
+            `;
+            container.appendChild(mainFirework);
+
+            // 粒子效果
+            const particleCount = 12;
+            for (let j = 0; j < particleCount; j++) {
+                const angle = (j / particleCount) * 2 * Math.PI;
+                const distance = 60 + Math.random() * 40;
+                const tx = Math.cos(angle) * distance;
+                const ty = Math.sin(angle) * distance;
+
+                const particle = document.createElement('div');
+                particle.style.cssText = `
+                    position: absolute;
+                    left: ${x}%;
+                    top: ${y}%;
+                    width: 4px;
+                    height: 4px;
+                    background-color: ${color};
+                    border-radius: 50%;
+                    transform: translate(-50%, -50%);
+                    animation: fireworkParticle 1.5s ease-out forwards;
+                    animation-delay: ${0.2 + j * 0.05}s;
+                `;
+                particle.style.setProperty('--tx', tx + 'px');
+                particle.style.setProperty('--ty', ty + 'px');
+                container.appendChild(particle);
+            }
+        }
+
+        function playSuccessSound() {
+            try {
+                const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+                const oscillator = audioContext.createOscillator();
+                const gainNode = audioContext.createGain();
+
+                oscillator.connect(gainNode);
+                gainNode.connect(audioContext.destination);
+
+                // 成功音调序列
+                const frequencies = [523.25, 659.25, 783.99, 1046.5]; // C5, E5, G5, C6
+                let time = audioContext.currentTime;
+
+                frequencies.forEach((freq, index) => {
+                    oscillator.frequency.setValueAtTime(freq, time);
+                    gainNode.gain.setValueAtTime(0.3, time);
+                    gainNode.gain.exponentialRampToValueAtTime(0.01, time + 0.3);
+                    time += 0.2;
+                });
+
+                oscillator.start(time);
+                oscillator.stop(time + 1.5);
+            } catch (error) {
+                console.log('音频不可用:', error);
+            }
+        }
+
+        function showSuccessMessage() {
+            const message = document.createElement('div');
+            message.style.cssText = `
+                position: fixed;
+                top: 50%;
+                left: 50%;
+                transform: translate(-50%, -50%);
+                background: linear-gradient(135deg, #4CAF50, #45a049);
+                color: white;
+                padding: 2rem;
+                border-radius: 15px;
+                text-align: center;
+                z-index: 10000;
+                box-shadow: 0 10px 30px rgba(0,0,0,0.3);
+                animation: slideUp 0.5s ease-out;
+            `;
+            message.innerHTML = `
+                <div style="font-size: 3rem; margin-bottom: 1rem;">🎉</div>
+                <h2>预测成功！</h2>
+                <p>烟花效果已触发</p>
+            `;
+            document.body.appendChild(message);
+
+            setTimeout(() => {
+                if (message.parentNode) {
+                    message.parentNode.removeChild(message);
+                }
+            }, 2000);
+        }
+
+        // 添加CSS动画
+        const style = document.createElement('style');
+        style.textContent = `
+            @keyframes fireworkMain {
+                0% { transform: translate(-50%, -50%) scale(0); opacity: 1; }
+                50% { transform: translate(-50%, -50%) scale(1.5); opacity: 1; }
+                100% { transform: translate(-50%, -50%) scale(2); opacity: 0; }
+            }
+
+            @keyframes fireworkParticle {
+                0% { transform: translate(-50%, -50%) scale(1); opacity: 1; }
+                100% {
+                    transform: translate(calc(-50% + var(--tx)), calc(-50% + var(--ty))) scale(0);
+                    opacity: 0;
+                }
+            }
+
+            @keyframes slideUp {
+                from { transform: translate(-50%, -50%) translateY(50px); opacity: 0; }
+                to { transform: translate(-50%, -50%) translateY(0); opacity: 1; }
+            }
+        `;
+        document.head.appendChild(style);
+    </script>
+</body>
+</html>

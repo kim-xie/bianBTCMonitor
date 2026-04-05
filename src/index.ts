@@ -1,0 +1,233 @@
+import 'dotenv/config'; // 加载.env文件配置
+import mongoose from 'mongoose';
+import { TradingSignalService } from './services/TradingSignal';
+import { StatisticsService } from './services/StatisticsService';
+import { BinanceService } from './services/BinanceService';
+import PriceDataModel from './models/PriceData';
+import TradeModel from './models/Trade';
+
+const MONGODB_URI = process.env.MONGODB_URI || 'mongodb://localhost:27017/btc-trading';
+
+// 数据库连接
+mongoose.connect(MONGODB_URI, {
+  serverSelectionTimeoutMS: 30000, // 增加服务器选择超时
+  socketTimeoutMS: 45000, // 增加 socket 超时
+  connectTimeoutMS: 30000, // 增加连接超时
+  retryWrites: true,
+  retryReads: true,
+  maxPoolSize: 10 // 增加连接池大小
+})
+  .then(() => console.log('MongoDB连接成功'))
+  .catch(err => console.error('MongoDB连接失败:', err));
+
+// 服务实例
+const tradingSignalService = new TradingSignalService();
+const statisticsService = new StatisticsService();
+
+// 代理配置（可选）
+const proxyConfig = process.env.PROXY_HOST ? {
+  host: process.env.PROXY_HOST,
+  port: parseInt(process.env.PROXY_PORT || '8080'),
+  auth: process.env.PROXY_USER ? {
+    username: process.env.PROXY_USER,
+    password: process.env.PROXY_PASS || ''
+  } : undefined
+} : undefined;
+
+console.log('环境变量加载状态:');
+console.log('- PROXY_HOST:', process.env.PROXY_HOST || '未设置');
+console.log('- PROXY_PORT:', process.env.PROXY_PORT || '未设置');
+console.log('- PROXY_USER:', process.env.PROXY_USER ? '已设置' : '未设置');
+console.log('- 代理配置:', proxyConfig ? '已启用' : '未启用');
+
+const binanceService = new BinanceService(proxyConfig);
+
+// 获取真实BTC价格数据
+const fetchBinancePriceData = async () => {
+  try {
+    // 首先尝试使用REST API
+    const ticker = await binanceService.getCurrentPrice();
+    const priceData = binanceService.convertToPriceData(ticker);
+
+    await PriceDataModel.create(priceData);
+    console.log(`已记录价格: $${priceData.price?.toFixed(2)} (24h涨跌: ${ticker.priceChangePercent}%)`);
+
+    return priceData.price || 0;
+  } catch (error: any) {
+    console.error('REST API获取失败，尝试WebSocket:', error?.message || '未知错误');
+
+    try {
+      // 如果REST API失败，尝试WebSocket
+      const wsPrice = await binanceService.getCurrentPriceWebSocket();
+      console.log(`使用WebSocket获取价格: $${wsPrice.toFixed(2)}`);
+
+      // 创建简化的价格数据
+      const priceData = {
+        symbol: 'BTCUSDT',
+        timestamp: new Date(),
+        price: wsPrice,
+        volume: 0, // WebSocket不提供成交量
+        high: wsPrice,
+        low: wsPrice,
+        open: wsPrice,
+        close: wsPrice
+      };
+
+      await PriceDataModel.create(priceData);
+      return wsPrice;
+    } catch (wsError) {
+      console.error('WebSocket获取也失败:', wsError);
+      return currentPrice; // 返回上次的价格
+    }
+  }
+};
+
+// 初始化历史数据
+const initializeHistoricalData = async () => {
+  try {
+    console.log('正在获取历史数据...');
+    const historicalData = await binanceService.getHistoricalData(800);
+
+    // 检查数据库中是否已有足够的数据
+    const existingCount = await PriceDataModel.countDocuments();
+    if (existingCount < 800) {
+      // 清空旧数据并插入新数据
+      await PriceDataModel.deleteMany({});
+      await PriceDataModel.insertMany(historicalData);
+      console.log(`已初始化${historicalData.length}条历史数据`);
+    } else {
+      console.log('数据库已有足够的历史数据');
+    }
+  } catch (error) {
+    console.error('初始化历史数据失败:', error);
+  }
+};
+
+// 获取当前价格
+let currentPrice = 65000;
+
+// 生成交易信号
+const generateTradingSignal = async () => {
+  try {
+    // 获取5mK线数据
+    const fiveMinuteKlines = await binanceService.getKlines('5m', 160);
+
+    const signal = await tradingSignalService.generateSignal('BTCUSDT', fiveMinuteKlines);
+
+    if (signal) {
+      console.log(`\n=== 交易信号生成 ===`);
+      console.log(`信号: ${signal.signal}`);
+      console.log(`预测: ${signal.prediction}`);
+      console.log(`价格: $${signal.currentPrice.toFixed(2)}`);
+      console.log(`置信度: ${signal.confidence}%`);
+      console.log(`推荐操作: ${signal.recommendedAction}`);
+      console.log(`分析依据: ${signal.reasoning.join(', ')}`);
+      console.log(`===================\n`);
+    }
+  } catch (error) {
+    console.error('生成交易信号失败:', error);
+  }
+};
+
+// 更新交易结果
+const updateTradeResults = async () => {
+  try {
+    const tenMinutesAgo = new Date(Date.now() - 10 * 60 * 1000);
+    const pendingTrades = await TradeModel.find({
+      timestamp: { $lte: tenMinutesAgo },
+      isCorrect: { $exists: false }
+    });
+
+    for (const trade of pendingTrades) {
+      await tradingSignalService.updateTradeResult(trade._id, currentPrice);
+    }
+  } catch (error) {
+    console.error('更新交易结果失败:', error);
+  }
+};
+
+// 显示统计信息
+const showStatistics = async () => {
+  try {
+    const stats = await statisticsService.calculateWinRate();
+
+    console.log(`\n=== 交易统计 ===`);
+    console.log(`总交易数: ${stats.totalTrades}`);
+    console.log(`盈利交易: ${stats.winningTrades}`);
+    console.log(`亏损交易: ${stats.losingTrades}`);
+    console.log(`胜率: ${stats.winRate.toFixed(1)}%`);
+    console.log(`总盈亏: $${stats.totalProfitLoss.toFixed(2)}`);
+    console.log(`盈亏比: ${stats.profitFactor.toFixed(2)}`);
+    console.log(`平均置信度: ${stats.averageConfidence.toFixed(1)}%`);
+    console.log(`===============\n`);
+  } catch (error) {
+    console.error('获取统计信息失败:', error);
+  }
+};
+
+// 清理旧数据
+const cleanupOldData = async () => {
+  try {
+    const oneDayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
+
+    await PriceDataModel.deleteMany({ timestamp: { $lt: oneDayAgo } });
+    console.log('已清理24小时前的价格数据');
+  } catch (error) {
+    console.error('清理数据失败:', error);
+  }
+};
+
+// 主循环
+const main = async () => {
+  console.log('BTC交易系统启动...');
+
+  // 检查币安API连接
+  const isConnected = await binanceService.checkConnection();
+  if (!isConnected) {
+    console.error('无法连接到币安API，请检查网络连接');
+    return;
+  }
+  console.log('已成功连接到币安API');
+
+  // 初始化历史数据
+  await initializeHistoricalData();
+
+  console.log('系统初始化完成，开始实时监控...');
+
+  // 首次获取价格
+  currentPrice = await fetchBinancePriceData();
+
+  // 设置WebSocket实时价格监听
+  binanceService.addPriceListener((price: number) => {
+    currentPrice = price;
+    console.log(`WebSocket实时价格更新: $${price.toFixed(2)}`);
+  });
+
+  // 定期任务 - 使用REST API作为备份
+  setInterval(async () => {
+    if (!binanceService.isWebSocketConnected()) {
+      currentPrice = await fetchBinancePriceData();
+    }
+  }, 5000); // 每5秒获取价格数据（当WebSocket断开时）
+
+  setInterval(generateTradingSignal, 60000); // 每分钟生成交易信号
+  setInterval(updateTradeResults, 30000); // 每30秒更新交易结果
+  setInterval(showStatistics, 300000); // 每5分钟显示统计
+  setInterval(cleanupOldData, 3600000); // 每小时清理数据
+};
+
+// 启动系统
+main().catch(console.error);
+
+// 优雅关闭
+process.on('SIGTERM', () => {
+  console.log('收到SIGTERM信号，正在关闭...');
+  mongoose.disconnect();
+  process.exit(0);
+});
+
+process.on('SIGINT', () => {
+  console.log('收到SIGINT信号，正在关闭...');
+  mongoose.disconnect();
+  process.exit(0);
+});

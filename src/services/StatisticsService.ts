@@ -162,6 +162,80 @@ export class StatisticsService {
   }
 
   /**
+   * 根据条件搜索交易记录，支持按入场原因模糊查询
+   */
+  async searchTrades(filters?: {
+    reasoningKeyword?: string;     // 入场原因关键词（模糊匹配）
+    signal?: 'BUY' | 'SELL';       // 交易信号
+    tradeType?: 'LONG' | 'SHORT';   // 交易类型
+    confidenceMin?: number;        // 最小置信度
+    confidenceMax?: number;        // 最大置信度
+    startDate?: Date;              // 开始日期
+    endDate?: Date;                // 结束日期
+    limit?: number;                // 结果数量限制
+    sortBy?: 'timestamp' | 'confidence' | 'profitLoss';
+    sortOrder?: 'asc' | 'desc';
+  }): Promise<ITrade[]> {
+    let query: any = {};
+
+    // 按入场原因模糊查询
+    if (filters?.reasoningKeyword) {
+      query.$or = [
+        { 'reasoning': { $elemMatch: { $regex: filters.reasoningKeyword, $options: 'i' } } },
+        { 'reasoning': { $regex: filters.reasoningKeyword, $options: 'i' } }
+      ];
+    }
+
+    // 按交易信号筛选
+    if (filters?.signal) {
+      query.signal = filters.signal;
+    }
+
+    // 按交易类型筛选
+    if (filters?.tradeType) {
+      query.tradeType = filters.tradeType;
+    }
+
+    // 按置信度范围筛选
+    if (filters?.confidenceMin !== undefined || filters?.confidenceMax !== undefined) {
+      query.confidence = {};
+      if (filters.confidenceMin !== undefined) {
+        query.confidence.$gte = filters.confidenceMin;
+      }
+      if (filters.confidenceMax !== undefined) {
+        query.confidence.$lte = filters.confidenceMax;
+      }
+    }
+
+    // 按时间范围筛选
+    if (filters?.startDate || filters?.endDate) {
+      query.timestamp = {};
+      if (filters.startDate) {
+        query.timestamp.$gte = filters.startDate;
+      }
+      if (filters.endDate) {
+        query.timestamp.$lte = filters.endDate;
+      }
+    }
+
+    // 构建排序选项
+    const sortOptions: any = {};
+    if (filters?.sortBy) {
+      sortOptions[filters.sortBy] = filters.sortOrder === 'desc' ? -1 : 1;
+    } else {
+      sortOptions.timestamp = -1; // 默认按时间降序排列
+    }
+
+    const limit = filters?.limit || 50;
+
+    return await TradeModel
+      .find(query)
+      .sort(sortOptions)
+      .limit(limit)
+      .lean();
+  }
+
+  /**
    * 按置信度分组计算胜率
    */
   private calculateWinRateByConfidence(trades: ITrade[]): { high: number; medium: number; low: number } {

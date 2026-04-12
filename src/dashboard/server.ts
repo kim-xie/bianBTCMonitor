@@ -63,8 +63,14 @@ mongoose.connect(MONGODB_URI)
 const tradingSignalService = new TradingSignalService();
 const statisticsService = new StatisticsService();
 
+// 定期清理过期的K线使用记录（每小时一次）
+setInterval(() => {
+  tradingSignalService.cleanupExpiredKlines();
+  console.log('已清理过期的K线使用记录');
+}, 60 * 60 * 1000); // 每小时清理一次
+
 // 添加资金跟踪
-let currentBalance = 100; // 初始资金100U
+let currentBalance = 1000; // 初始资金1000U
 
 // 计算当前资金基于所有已完成交易
 const calculateCurrentBalance = async () => {
@@ -74,7 +80,7 @@ const calculateCurrentBalance = async () => {
       profitLoss: { $exists: true }
     }).lean();
 
-    let balance = 100; // 初始资金
+    let balance = 1000; // 初始资金
     completedTrades.forEach(trade => {
       balance += (trade.profitLoss || 0);
     });
@@ -96,12 +102,12 @@ const calculateBalanceHistory = async () => {
     }).sort({ closeTime: 1 }).lean(); // 按平仓时间排序
 
     const history = [];
-    let balance = 100; // 初始资金
+    let balance = 1000; // 初始资金
 
     // 添加初始资金点（固定起点）
     history.push({
       time: new Date(Date.now() - completedTrades.length * 60000).toISOString(), // 估算的起始时间
-      balance: 100 // 初始资金固定为100
+      balance: 1000 // 初始资金固定为1000
     });
 
     // 按时间顺序重建资金变化历史
@@ -208,6 +214,78 @@ app.get('/api/recent-trades', async (_req, res) => {
   }
 });
 
+/**
+ * 搜索交易记录接口
+ */
+app.get('/api/trades/search', async (req, res) => {
+  try {
+    // 解析查询参数
+    const {
+      reasoningKeyword,
+      signal,
+      tradeType,
+      confidenceMin,
+      confidenceMax,
+      startDate,
+      endDate,
+      limit = 50,
+      sortBy = 'timestamp',
+      sortOrder = 'desc'
+    } = req.query;
+
+    // 构建过滤器对象
+    const filters: any = {};
+
+    if (reasoningKeyword) {
+      filters.reasoningKeyword = reasoningKeyword as string;
+    }
+
+    if (signal && ['BUY', 'SELL'].includes(signal as string)) {
+      filters.signal = signal as 'BUY' | 'SELL';
+    }
+
+    if (tradeType && ['LONG', 'SHORT'].includes(tradeType as string)) {
+      filters.tradeType = tradeType as 'LONG' | 'SHORT';
+    }
+
+    if (confidenceMin !== undefined) {
+      filters.confidenceMin = parseFloat(confidenceMin as string);
+    }
+
+    if (confidenceMax !== undefined) {
+      filters.confidenceMax = parseFloat(confidenceMax as string);
+    }
+
+    if (startDate) {
+      filters.startDate = new Date(startDate as string);
+    }
+
+    if (endDate) {
+      filters.endDate = new Date(endDate as string);
+    }
+
+    filters.limit = parseInt(limit as string);
+    filters.sortBy = sortBy as 'timestamp' | 'confidence' | 'profitLoss';
+    filters.sortOrder = sortOrder as 'asc' | 'desc';
+
+    // 执行搜索
+    const trades = await statisticsService.searchTrades(filters);
+
+    res.json({
+      success: true,
+      count: trades.length,
+      data: trades
+    });
+
+  } catch (error) {
+    console.error('搜索交易记录失败:', error);
+    res.status(500).json({
+      success: false,
+      error: '搜索交易记录失败'
+    });
+  }
+});
+
 // 获取所有交易用于日历统计
 app.get('/api/all-trades', async (_req, res) => {
   try {
@@ -240,7 +318,7 @@ app.post('/api/reset-data', authenticateToken, async (req: AuthRequest, res) => 
     const priceResult = await PriceDataModel.deleteMany({});
 
     // 重置当前资金为初始值
-    currentBalance = 100;
+    currentBalance = 1000;
 
     console.log(`用户 ${req.user.username} 已清空数据: ${tradesResult.deletedCount} 条交易, ${priceResult.deletedCount} 条价格数据`);
 
@@ -303,11 +381,68 @@ const updatePrice = async () => {
 // 启动价格更新定时器
 setInterval(updatePrice, 5000); // 每5秒更新一次真实价格
 
+/**
+ * 确保获取的是已收盘的5分钟K线
+ */
+async function getClosedFiveMinuteKlines() {
+  // 获取K线数据（多获取一些以确保有已收盘的）
+  const klines = await binanceService.getKlines('5m', 160);
+
+  console.log(`📊 获取到${klines.length}根5分钟K线`);
+
+  // 当前UTC时间
+  const now = new Date().getTime();
+  console.log(`🕐 当前时间: ${new Date(now).toLocaleString()}`);
+
+  // 筛选已收盘的K线 - 使用closeTime字段确保准确性
+  const closedKlines = klines.filter(kline => {
+    // 使用K线的实际结束时间（closeTime）而不是计算值
+    const endTime = kline.closeTime;
+    // 结束时间小于当前时间，说明已收盘
+    return endTime < now;
+  });
+
+  if (closedKlines.length === 0) {
+    console.log('⚠️  没有找到已收盘的5分钟K线，尝试放宽条件...');
+
+    // 显示最后几根K线的状态用于调试
+    console.log('🔍 最后3根K线的状态:');
+    for (let i = Math.max(0, klines.length - 3); i < klines.length; i++) {
+      const kline = klines[i];
+      const endTime = kline.closeTime;
+      const isClosed = endTime < now;
+      const status = isClosed ? '✅ 已收盘' : '⏳ 进行中';
+      const timeDiff = isClosed ? '' : ` (${Math.floor((now - endTime) / 1000)}秒前结束)`;
+      console.log(`   K线${i + 1}: ${status}, closeTime: ${new Date(endTime).toLocaleString()}${timeDiff}`);
+    }
+
+    // 如果没有找到完全已收盘的K线，找那些即将结束的K线（允许最多1分钟未完成）
+    const almostClosedKlines = klines.filter(kline => {
+      const endTime = kline.closeTime;
+      const timeDiff = now - endTime;
+      return timeDiff <= 60 * 1000 && timeDiff > 0; // 1分钟内结束的K线
+    });
+
+    if (almostClosedKlines.length > 0) {
+      console.log(`✅ 找到${almostClosedKlines.length}根即将结束的K线，使用它们`);
+      return almostClosedKlines.slice(-1); // 返回最新的那根
+    }
+
+    // 如果还是没有，返回最新的K线（即使还在进行中）
+    console.log('❌ 无法找到合适的K线，返回最新的K线（可能正在进行中）');
+    return [klines[klines.length - 1]];
+  }
+
+  // 返回最近的已收盘K线
+  return closedKlines.slice(-1); // 只返回最新的已收盘K线
+}
+
 // 交易信号生成和更新
 const generateTradingSignal = async () => {
   try {
     // 获取5mK线数据
-    const fiveMinuteKlines = await binanceService.getKlines('5m', 160);
+    const fiveMinuteKlines = await getClosedFiveMinuteKlines();
+
     const signal = await tradingSignalService.generateSignal('BTCUSDT', fiveMinuteKlines);
 
     if (signal) {

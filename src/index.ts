@@ -5,8 +5,10 @@ import { StatisticsService } from './services/StatisticsService';
 import { BinanceService } from './services/BinanceService';
 import PriceDataModel from './models/PriceData';
 import TradeModel from './models/Trade';
+import { axiosInstance } from './utils/axiosInstance';
 
 const MONGODB_URI = process.env.MONGODB_URI || 'mongodb://localhost:27017/btc-trading';
+const FEISHU_WEBHOOK_URL = process.env.FEISHU_WEBHOOK_URL || ''; // 替换为实际的飞书机器人webhook地址
 
 // 数据库连接
 mongoose.connect(MONGODB_URI, {
@@ -106,13 +108,44 @@ const initializeHistoricalData = async () => {
 // 获取当前价格
 let currentPrice = 65000;
 
+/**
+ * 确保获取的是已收盘的5分钟K线
+ */
+async function getClosedFiveMinuteKlines() {
+  // 获取K线数据（多获取一些以确保有已收盘的）
+  const klines = await binanceService.getKlines('5m', 160);
+
+  // 当前UTC时间
+  const now = new Date().getTime();
+
+  // 筛选已收盘的K线
+  const closedKlines = klines.filter(kline => {
+    // K线开始时间（毫秒）
+    const startTime = kline.openTime;
+    // 5分钟K线的结束时间（开始时间 + 5分钟）
+    const endTime = startTime + 5 * 60 * 1000;
+    // 结束时间小于当前时间，说明已收盘
+    return endTime < now;
+  });
+
+  if (closedKlines.length === 0) {
+    throw new Error('没有找到已收盘的5分钟K线');
+  }
+
+  // 返回最近的已收盘K线
+  return closedKlines;
+}
+
 // 生成交易信号
 const generateTradingSignal = async () => {
   try {
     // 获取5mK线数据
-    const fiveMinuteKlines = await binanceService.getKlines('5m', 160);
+    const fiveMinuteKlines = await getClosedFiveMinuteKlines();
 
-    const signal = await tradingSignalService.generateSignal('BTCUSDT', fiveMinuteKlines);
+    // 获取10分钟K线数据（从Binance API或其他数据源）
+    // const tenMinuteKlines = await binanceService.getKlines('10m', 20);
+
+    const signal = await tradingSignalService.generateSignal('BTCUSDT', fiveMinuteKlines, []);
 
     if (signal) {
       console.log(`\n=== 交易信号生成 ===`);
@@ -160,6 +193,7 @@ const showStatistics = async () => {
     console.log(`盈亏比: ${stats.profitFactor.toFixed(2)}`);
     console.log(`平均置信度: ${stats.averageConfidence.toFixed(1)}%`);
     console.log(`===============\n`);
+    await sendFeishuStatsNotification(stats);
   } catch (error) {
     console.error('获取统计信息失败:', error);
   }
@@ -174,6 +208,31 @@ const cleanupOldData = async () => {
     console.log('已清理24小时前的价格数据');
   } catch (error) {
     console.error('清理数据失败:', error);
+  }
+};
+
+// 发送飞书统计通知
+const sendFeishuStatsNotification = async (stats: any) => {
+  try {
+    const message = {
+      msg_type: 'text',
+      content: {
+        text: `📊 交易统计\n\n` +
+          `总交易数: ${stats.totalTrades}\n` +
+          `盈利交易: ${stats.winningTrades}\n` +
+          `亏损交易: ${stats.losingTrades}\n` +
+          `胜率: ${stats.winRate.toFixed(1)}%\n` +
+          `总盈亏: ${stats.totalProfitLoss.toFixed(2)}\n` +
+          `盈亏比: ${stats.profitFactor.toFixed(2)}\n` +
+          `平均置信度: ${stats.averageConfidence.toFixed(1)}%\n\n` +
+          `发送时间: ${new Date().toLocaleString()}`
+      }
+    };
+    console.log('飞书消息内容:', JSON.stringify(message, null, 2));
+    await axiosInstance.post(FEISHU_WEBHOOK_URL, message);
+    console.log('✅ 飞书统计通知发送成功');
+  } catch (error) {
+    console.error('发送飞书统计通知时出错:', error);
   }
 };
 
@@ -212,7 +271,7 @@ const main = async () => {
 
   setInterval(generateTradingSignal, 60000); // 每分钟生成交易信号
   setInterval(updateTradeResults, 30000); // 每30秒更新交易结果
-  setInterval(showStatistics, 300000); // 每5分钟显示统计
+  setInterval(showStatistics, 300000 * 2); // 每10分钟显示统计
   setInterval(cleanupOldData, 3600000); // 每小时清理数据
 };
 

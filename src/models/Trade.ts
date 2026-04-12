@@ -8,17 +8,7 @@ export interface ITrade extends Document {
   confidence: number;
   tradeType: 'LONG' | 'SHORT'; // 交易类型：做多或做空
   investmentAmount: number;  // 买入金额（固定本金）
-  indicators: {
-    rsi: number;
-    macd: number;
-    ema9: number;
-    ema21: number;
-    bollinger: {
-      upper: number;
-      middle: number;
-      lower: number;
-    };
-  };
+  indicators: any;
   reasoning?: string[];       // 入场原因
   prediction: 'UP' | 'DOWN';
 
@@ -43,15 +33,8 @@ const TradeSchema: Schema = new Schema({
   confidence: { type: Number, required: true, min: 0, max: 100 },
   investmentAmount: { type: Number, required: true, default: 5 }, // 默认买入金额5U
   indicators: {
-    rsi: { type: Number, required: true },
-    macd: { type: Number, required: true },
-    ema9: { type: Number, required: true },
-    ema21: { type: Number, required: true },
-    bollinger: {
-      upper: { type: Number, required: true },
-      middle: { type: Number, required: true },
-      lower: { type: Number, required: true }
-    }
+    ema50: { type: Number, required: true },
+    ema150: { type: Number, required: true },
   },
   reasoning: [{ type: String }], // 入场原因
   prediction: { type: String, required: true, enum: ['UP', 'DOWN'] },

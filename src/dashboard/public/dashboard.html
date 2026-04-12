@@ -151,6 +151,31 @@
             border-bottom: 1px solid rgba(255, 255, 255, 0.2);
         }
 
+        /* 搜索输入框样式 */
+        input[type="text"],
+        input[type="number"],
+        select {
+            transition: all 0.3s ease;
+        }
+
+        input[type="text"]:focus,
+        input[type="number"]:focus,
+        select:focus {
+            outline: none;
+            border-color: #4CAF50;
+            box-shadow: 0 0 10px rgba(76, 175, 80, 0.3);
+        }
+
+        .positive {
+            color: #4CAF50 !important;
+            font-weight: bold;
+        }
+
+        .negative {
+            color: #f44336 !important;
+            font-weight: bold;
+        }
+
         .trades-table th {
             background: rgba(255, 255, 255, 0.1);
         }
@@ -299,16 +324,59 @@
             </div>
         </div>
 
+        <!-- 搜索过滤器 -->
+        <div class="chart-container" style="margin-bottom: 1rem;">
+            <div class="chart-title">
+                <i class="fas fa-filter"></i> 交易记录搜索
+            </div>
+            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1rem; margin-bottom: 1rem;">
+                <input type="text" id="reasoningKeywordInput" placeholder="按入场原因模糊查询..."
+                       style="padding: 0.8rem; border-radius: 8px; border: 1px solid rgba(255,255,255,0.3); background: rgba(255,255,255,0.1); color: white; backdrop-filter: blur(10px);">
+
+                <select id="signalFilter" style="padding: 0.8rem; border-radius: 8px; border: 1px solid rgba(255,255,255,0.3); background: rgba(255,255,255,0.1); color: white; backdrop-filter: blur(10px);">
+                    <option value="">所有信号</option>
+                    <option value="BUY">买入信号</option>
+                    <option value="SELL">卖出信号</option>
+                </select>
+
+                <select id="tradeTypeFilter" style="padding: 0.8rem; border-radius: 8px; border: 1px solid rgba(255,255,255,0.3); background: rgba(255,255,255,0.1); color: white; backdrop-filter: blur(10px);">
+                    <option value="">所有类型</option>
+                    <option value="LONG">做多</option>
+                    <option value="SHORT">做空</option>
+                </select>
+
+                <div style="display: flex; align-items: center; gap: 0.5rem;">
+                    <label style="font-size: 0.9rem; opacity: 0.8;">置信度:</label>
+                    <input type="number" id="confidenceMinInput" placeholder="最小"
+                           style="width: 60px; padding: 0.5rem; border-radius: 5px; border: 1px solid rgba(255,255,255,0.3); background: rgba(255,255,255,0.1); color: white;">
+                    <span>-</span>
+                    <input type="number" id="confidenceMaxInput" placeholder="最大"
+                           style="width: 60px; padding: 0.5rem; border-radius: 5px; border: 1px solid rgba(255,255,255,0.3); background: rgba(255,255,255,0.1); color: white;">
+                </div>
+
+                <button onclick="searchTrades()" class="btn btn-primary" style="align-self: end;">
+                    <i class="fas fa-search"></i> 搜索
+                </button>
+
+                <button onclick="clearFilters()" class="btn" style="align-self: end; background: rgba(255,255,255,0.2); color: white;">
+                    <i class="fas fa-times"></i> 清除
+                </button>
+            </div>
+        </div>
+
         <!-- 最近交易记录 -->
         <div class="chart-container">
             <div class="chart-title">
-                <i class="fas fa-history"></i> 最近交易记录
+                <i class="fas fa-history"></i> 交易记录结果
             </div>
+            <div id="searchResultsInfo" style="margin-bottom: 1rem; opacity: 0.8; font-size: 0.9rem;"></div>
             <table class="trades-table" id="tradesTable">
                 <thead>
                     <tr>
                         <th>时间</th>
                         <th>方向</th>
+                        <th>类型</th>
+                        <th>入场原因</th>
                         <th>开仓价</th>
                         <th>平仓价</th>
                         <th>盈亏</th>
@@ -319,6 +387,9 @@
                     <!-- 交易记录将在这里动态加载 -->
                 </tbody>
             </table>
+            <div id="noResultsMessage" style="text-align: center; padding: 2rem; opacity: 0.7; display: none;">
+                <i class="fas fa-info-circle"></i> 暂无符合条件的交易记录
+            </div>
         </div>
 
         <!-- 操作按钮 -->
@@ -582,28 +653,128 @@
 
                     const trades = await response.json();
 
-                    const tbody = document.getElementById('tradesBody');
-                    tbody.innerHTML = '';
-
-                    trades.slice(0, 10).forEach(trade => {
-                        const profitLoss = trade.profitLoss || 0;
-                        const resultClass = profitLoss > 0 ? 'positive' : profitLoss < 0 ? 'negative' : '';
-                        const resultText = profitLoss > 0 ? '盈利' : profitLoss < 0 ? '亏损' : '持平';
-
-                        tbody.innerHTML += `
-                            <tr>
-                                <td>${new Date(trade.timestamp).toLocaleString()}</td>
-                                <td>${trade.direction || '--'}</td>
-                                <td>$${trade.openPrice || '--'}</td>
-                                <td>$${trade.closePrice || '--'}</td>
-                                <td class="${resultClass}">${profitLoss > 0 ? '+' : ''}${profitLoss?.toFixed(2) || '--'} U</td>
-                                <td>${resultText}</td>
-                            </tr>
-                        `;
-                    });
+                    this.displayTrades(trades.slice(0, 10));
+                    this.updateSearchResultsInfo(trades.length, 'recent');
 
                 } catch (error) {
                     console.error('加载交易记录错误:', error);
+                    this.showError('无法加载交易记录');
+                }
+            }
+
+            async searchTrades() {
+                try {
+                    const reasoningKeyword = document.getElementById('reasoningKeywordInput').value.trim();
+                    const signal = document.getElementById('signalFilter').value;
+                    const tradeType = document.getElementById('tradeTypeFilter').value;
+                    const confidenceMin = document.getElementById('confidenceMinInput').value;
+                    const confidenceMax = document.getElementById('confidenceMaxInput').value;
+
+                    const params = new URLSearchParams();
+                    if (reasoningKeyword) params.append('reasoningKeyword', reasoningKeyword);
+                    if (signal) params.append('signal', signal);
+                    if (tradeType) params.append('tradeType', tradeType);
+                    if (confidenceMin) params.append('confidenceMin', confidenceMin);
+                    if (confidenceMax) params.append('confidenceMax', confidenceMax);
+
+                    const response = await fetch(`/api/trades/search?${params.toString()}`, {
+                        headers: {
+                            ...(this.token && { 'Authorization': `Bearer ${this.token}` }),
+                            'Content-Type': 'application/json'
+                        }
+                    });
+
+                    if (!response.ok) {
+                        throw new Error('搜索交易记录失败');
+                    }
+
+                    const result = await response.json();
+
+                    if (result.success) {
+                        this.displayTrades(result.data);
+                        this.updateSearchResultsInfo(result.count, 'search', reasoningKeyword || '条件筛选');
+                    } else {
+                        throw new Error(result.error || '搜索失败');
+                    }
+
+                } catch (error) {
+                    console.error('搜索交易记录错误:', error);
+                    this.showError('搜索交易记录失败');
+                }
+            }
+
+            clearFilters() {
+                document.getElementById('reasoningKeywordInput').value = '';
+                document.getElementById('signalFilter').value = '';
+                document.getElementById('tradeTypeFilter').value = '';
+                document.getElementById('confidenceMinInput').value = '';
+                document.getElementById('confidenceMaxInput').value = '';
+
+                // 重新加载最近交易
+                this.loadRecentTrades();
+            }
+
+            displayTrades(trades) {
+                const tbody = document.getElementById('tradesBody');
+                const noResultsMessage = document.getElementById('noResultsMessage');
+
+                if (trades.length === 0) {
+                    tbody.innerHTML = '';
+                    noResultsMessage.style.display = 'block';
+                    return;
+                }
+
+                noResultsMessage.style.display = 'none';
+
+                tbody.innerHTML = '';
+
+                trades.forEach(trade => {
+                    const profitLoss = trade.profitLoss || 0;
+                    const resultClass = profitLoss > 0 ? 'positive' : profitLoss < 0 ? 'negative' : '';
+                    const resultText = profitLoss > 0 ? '盈利' : profitLoss < 0 ? '亏损' : '持平';
+
+                    // 格式化入场原因，如果存在的话
+                    let reasoningHtml = '';
+                    if (trade.reasoning && trade.reasoning.length > 0) {
+                        reasoningHtml = trade.reasoning.map(r =>
+                            `<div style="font-size: 0.85rem; opacity: 0.9; margin-bottom: 0.2rem;">• ${r}</div>`
+                        ).join('');
+                    } else {
+                        reasoningHtml = '<span style="opacity: 0.6;">--</span>';
+                    }
+
+                    tbody.innerHTML += `
+                        <tr>
+                            <td>${new Date(trade.timestamp).toLocaleString()}</td>
+                            <td>${this.formatSignal(trade.signal)}</td>
+                            <td>${trade.tradeType || '--'}</td>
+                            <td><div style="max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${reasoningHtml}</div></td>
+                            <td>$${trade.price?.toFixed(2) || '--'}</td>
+                            <td>$${trade.closePrice?.toFixed(2) || '--'}</td>
+                            <td class="${resultClass}">${profitLoss > 0 ? '+' : ''}${profitLoss?.toFixed(2) || '--'} U</td>
+                            <td>${resultText}</td>
+                        </tr>
+                    `;
+                });
+            }
+
+            formatSignal(signal) {
+                return signal === 'BUY' ? '买入' : signal === 'SELL' ? '卖出' : signal;
+            }
+
+            updateSearchResultsInfo(count, type, keyword = '') {
+                const infoDiv = document.getElementById('searchResultsInfo');
+                if (!infoDiv) return;
+
+                if (type === 'search') {
+                    const message = `找到 ${count} 条交易记录`;
+                    if (keyword) {
+                        infoDiv.innerHTML = `<i class="fas fa-search"></i> ${message} - 关键词: "${keyword}"`;
+                    } else {
+                        infoDiv.innerHTML = `<i class="fas fa-filter"></i> ${message}`;
+                    }
+                } else {
+                    infoDiv.innerHTML = `<i class="fas fa-history"></i> 显示最新的 ${count} 条交易记录`;
                 }
             }
 
@@ -650,6 +821,23 @@
         // 页面加载完成后加载交易记录
         document.addEventListener('DOMContentLoaded', () => {
             dashboardService.loadRecentTrades();
+        });
+
+        // 为搜索按钮添加事件监听器
+        document.addEventListener('DOMContentLoaded', () => {
+            const searchButton = document.querySelector('button[onclick="searchTrades()"]');
+            if (searchButton) {
+                searchButton.addEventListener('click', function() {
+                    dashboardService.searchTrades();
+                });
+            }
+
+            const clearButton = document.querySelector('button[onclick="clearFilters()"]');
+            if (clearButton) {
+                clearButton.addEventListener('click', function() {
+                    dashboardService.clearFilters();
+                });
+            }
         });
     </script>
 </body>

@@ -59,10 +59,12 @@
             stats[date].totalInvestment += trade.investmentAmount || 5;
             if (trade.isCorrect) {
               stats[date].winCount++;
-              stats[date].totalProfitLoss += 4;
             } else {
               stats[date].lossCount++;
-              stats[date].totalProfitLoss -= 5;
+            }
+            // 使用实际的盈利亏损值
+            if (trade.profitLoss !== undefined) {
+              stats[date].totalProfitLoss += trade.profitLoss;
             }
             stats[date].winRate = (stats[date].winCount / stats[date].tradeCount) * 100;
           }
@@ -344,7 +346,8 @@
       const [stats, setStats] = useState(null);
       const [recentTrades, setRecentTrades] = useState([]);
       const [allTrades, setAllTrades] = useState([]); // 所有交易数据，用于日历统计
-      const [currentBalance, setCurrentBalance] = useState(100); // 初始资金100U
+      const [currentBalance, setCurrentBalance] = useState(1000); // 初始资金1000U
+      const initialBalance = 1000; // 初始资金常量
       const [balanceHistory, setBalanceHistory] = useState([]);
       const [isConnected, setIsConnected] = useState(false);
       const [activeView, setActiveView] = useState('dashboard');
@@ -390,12 +393,12 @@
           setBalanceHistory(prev => {
             // 确保始终包含初始资金点
             let newHistory;
-            
+
             if (prev.length === 0) {
               // 如果历史为空，创建初始资金点
               newHistory = [{
                 time: new Date(Date.now() - 10 * 60 * 1000).toISOString(), // 10分钟前作为起点
-                balance: 100
+                balance: 1000
               }];
             } else {
               // 直接使用prev，保留所有历史数据
@@ -409,7 +412,7 @@
             });
 
             // 保留完整历史，但最多100个点以避免性能问题
-            // 确保初始资金点不被移除
+            // 确保始终保留初始资金点
             if (newHistory.length > 100) {
               // 保留第一个点（初始资金），然后取最近的99个点
               const firstPoint = newHistory[0];
@@ -504,11 +507,25 @@
               setCurrentBalance(statsData.currentBalance);
               // 使用服务端提供的完整资金历史
               if (statsData.balanceHistory && statsData.balanceHistory.length > 0) {
-                setBalanceHistory(statsData.balanceHistory);
-                console.log('加载资金历史:', statsData.balanceHistory.length, '个数据点');
+                // 确保资金历史包含初始资金点
+                let history = statsData.balanceHistory;
+                // 检查是否包含初始资金点
+                const hasInitialPoint = history.some(point => point.balance === 1000);
+                if (!hasInitialPoint) {
+                  // 添加初始资金点
+                  history = [{
+                    time: new Date(Date.now() - 10 * 60 * 1000).toISOString(), // 10分钟前作为起点
+                    balance: 1000
+                  }, ...history];
+                }
+                setBalanceHistory(history);
+                console.log('加载资金历史:', history.length, '个数据点');
               } else {
-                // 如果没有历史数据，至少显示当前点
+                // 如果没有历史数据，至少显示当前点和初始资金点
                 setBalanceHistory([{
+                  time: new Date(Date.now() - 10 * 60 * 1000).toISOString(), // 10分钟前作为起点
+                  balance: 1000
+                }, {
                   time: new Date().toISOString(),
                   balance: statsData.currentBalance
                 }]);
@@ -1323,7 +1340,7 @@
                       <div style={{ fontSize: '2em', fontWeight: 'bold', margin: '20px 0' }}>
                         {currentBalance.toFixed(2)}
                         <span style={{ fontSize: '0.5em', marginLeft: '10px', opacity: 0.8 }}>
-                          (初始: 100)
+                          (初始: {initialBalance.toFixed(2)})
                         </span>
                       </div>
 
@@ -1345,44 +1362,7 @@
                                   </linearGradient>
                                 </defs>
 
-                                {/* 背景光晕效果 */}
-                                <path
-                                  fill="none"
-                                  stroke="rgba(0, 212, 255, 0.3)"
-                                  strokeWidth="3"
-                                  vectorEffect="non-scaling-stroke"
-                                  strokeLinejoin="round"
-                                  strokeLinecap="round"
-                                  d={(() => {
-                                    const points = balanceHistory.map((point, index) => {
-                                      const x = balanceHistory.length === 1 ? 50 : (index / (balanceHistory.length - 1)) * 100;
-                                      let y;
-                                      if (balanceHistory.length === 1) {
-                                        y = 10;
-                                      } else {
-                                        const minBalance = Math.min(...balanceHistory.map(p => p.balance));
-                                        const maxBalance = Math.max(...balanceHistory.map(p => p.balance));
-                                        y = maxBalance > minBalance ?
-                                          20 - ((point.balance - minBalance) / (maxBalance - minBalance)) * 20 : 10;
-                                      }
-                                      return { x, y };
-                                    });
-                                    
-                                    if (points.length < 2) return `M ${points[0].x} ${points[0].y}`;
-                                    
-                                    let path = `M ${points[0].x} ${points[0].y}`;
-                                    for (let i = 1; i < points.length; i++) {
-                                      const prev = points[i - 1];
-                                      const curr = points[i];
-                                      const cpx = (prev.x + curr.x) / 2;
-                                      path += ` Q ${prev.x + (curr.x - prev.x) * 0.5} ${prev.y} ${cpx} ${(prev.y + curr.y) / 2}`;
-                                    }
-                                    path += ` L ${points[points.length - 1].x} ${points[points.length - 1].y}`;
-                                    return path;
-                                  })()}
-                                />
-
-                                {/* 主曲线 - 盈利段绿色，亏损段红色 */}
+                                {/* 主曲线 - 根据资金与初始资金的比较设置颜色 */}
                                 {(() => {
                                   const segments = [];
                                   let currentSegment = [];
@@ -1392,12 +1372,12 @@
                                     const x = balanceHistory.length === 1 ? 50 : (index / (balanceHistory.length - 1)) * 100;
                                     let y;
                                     if (balanceHistory.length === 1) {
-                                      y = 10; // 适应新的viewBox范围
+                                      y = 10;
                                     } else {
                                       const minBalance = Math.min(...balanceHistory.map(p => p.balance));
                                       const maxBalance = Math.max(...balanceHistory.map(p => p.balance));
                                       y = maxBalance > minBalance ?
-                                        20 - ((point.balance - minBalance) / (maxBalance - minBalance)) * 20 : 10; // 适应新的viewBox范围
+                                        20 - ((point.balance - minBalance) / (maxBalance - minBalance)) * 20 : 10;
                                     }
 
                                     const pointData = { x, y, balance: point.balance };
@@ -1406,10 +1386,10 @@
                                       // 第一个点，开始新线段
                                       currentSegment.push(pointData);
                                       // 根据初始资金判断颜色
-                                      currentColor = point.balance >= 100 ? 'green' : 'red';
+                                      currentColor = point.balance >= 1000 ? 'green' : 'red';
                                     } else {
-                                      // 根据初始资金100判断颜色
-                                      const isProfit = point.balance >= 100;
+                                      // 根据初始资金判断颜色
+                                      const isProfit = point.balance >= 1000;
                                       const segmentColor = isProfit ? 'green' : 'red';
 
                                       if (segmentColor !== currentColor) {
@@ -1418,7 +1398,7 @@
                                           segments.push({ points: currentSegment, color: currentColor });
                                         }
                                         currentSegment = [
-                                          { ...balanceHistory[index - 1], x: ((index - 1) / (balanceHistory.length - 1)) * 100, y: currentSegment[currentSegment.length - 1].y },
+                                          { x: ((index - 1) / (balanceHistory.length - 1)) * 100, y: currentSegment[currentSegment.length - 1].y, balance: balanceHistory[index - 1].balance },
                                           pointData
                                         ];
                                         currentColor = segmentColor;
@@ -1437,21 +1417,16 @@
                                   // 渲染线段
                                   return segments.map((segment, segmentIndex) => {
                                     const color = segment.color === 'green' ? '#4CAF50' : '#f44336';
-                                    const shadowColor = segment.color === 'green' ? 'rgba(76, 175, 80, 0.6)' : 'rgba(244, 67, 54, 0.6)';
-                                    
-                                    // 生成平滑路径
+
+                                    // 生成路径
                                     const points = segment.points;
                                     if (points.length < 2) return null;
-                                    
+
                                     let path = `M ${points[0].x} ${points[0].y}`;
                                     for (let i = 1; i < points.length; i++) {
-                                      const prev = points[i - 1];
-                                      const curr = points[i];
-                                      const cpx = (prev.x + curr.x) / 2;
-                                      path += ` Q ${prev.x + (curr.x - prev.x) * 0.5} ${prev.y} ${cpx} ${(prev.y + curr.y) / 2}`;
+                                      path += ` L ${points[i].x} ${points[i].y}`;
                                     }
-                                    path += ` L ${points[points.length - 1].x} ${points[points.length - 1].y}`;
-                                    
+
                                     return (
                                       <path
                                         key={segmentIndex}
@@ -1461,54 +1436,47 @@
                                         vectorEffect="non-scaling-stroke"
                                         strokeLinejoin="round"
                                         strokeLinecap="round"
-                                        style={{ filter: `drop-shadow(0 0 3px ${shadowColor})` }}
                                         d={path}
                                       />
                                     );
                                   });
                                 })()}
 
-                                {/* 时间刻度线已移除 */}
-
-                                {/* 最新资金点 */}
+                                {/* 数据点 */}
+                                {/* 只显示最后的价格点，颜色跟随线段 */}
                                 {balanceHistory.length > 0 && (() => {
                                   const lastPoint = balanceHistory[balanceHistory.length - 1];
                                   const x = balanceHistory.length === 1 ? 50 : 100;
                                   let y;
                                   if (balanceHistory.length === 1) {
-                                    y = 10; // 适应新的viewBox范围
+                                    y = 10;
                                   } else {
                                     const minBalance = Math.min(...balanceHistory.map(p => p.balance));
                                     const maxBalance = Math.max(...balanceHistory.map(p => p.balance));
                                     y = maxBalance > minBalance ?
-                                      20 - ((lastPoint.balance - minBalance) / (maxBalance - minBalance)) * 20 : 10; // 适应新的viewBox范围
+                                      20 - ((lastPoint.balance - minBalance) / (maxBalance - minBalance)) * 20 : 10;
                                   }
 
-                                  // 确定点的颜色：根据与初始资金100的比较
-                                  let pointColor = '#00d4ff'; // 默认颜色
-                                  if (balanceHistory.length > 0) {
-                                    const isProfit = lastPoint.balance >= 100;
-                                    pointColor = isProfit ? '#4CAF50' : '#f44336';
-                                  }
+                                  // 根据最后一个点的资金与初始资金的比较设置颜色
+                                  const isProfit = lastPoint.balance >= 1000;
+                                  const pointColor = isProfit ? '#4CAF50' : '#f44336';
 
                                   return (
-                                    <>
-                                      <circle
-                                        cx={x}
-                                        cy={y}
-                                        r="0.52"
-                                        fill={pointColor}
-                                        stroke="#ffffff"
-                                        strokeWidth="0.1"
-                                      />
-                                    </>
+                                    <circle
+                                      cx={x}
+                                      cy={y}
+                                      r="0.32"
+                                      fill={pointColor}
+                                      stroke="#ffffff"
+                                      strokeWidth="0.1"
+                                    />
                                   );
                                 })()}
 
                                 {/* 网格线 */}
-                                <line x1="0" y1="25" x2="100" y2="25" stroke="rgba(255,255,255,0.1)" strokeWidth="0.2" />
-                                <line x1="0" y1="50" x2="100" y2="50" stroke="rgba(255,255,255,0.1)" strokeWidth="0.2" />
-                                <line x1="0" y1="75" x2="100" y2="75" stroke="rgba(255,255,255,0.1)" strokeWidth="0.2" />
+                                <line x1="0" y1="5" x2="100" y2="5" stroke="rgba(255,255,255,0.1)" strokeWidth="0.2" />
+                                <line x1="0" y1="10" x2="100" y2="10" stroke="rgba(255,255,255,0.1)" strokeWidth="0.2" />
+                                <line x1="0" y1="15" x2="100" y2="15" stroke="rgba(255,255,255,0.1)" strokeWidth="0.2" />
 
                                 {/* 时间刻度线已移除 */}
                               </>
@@ -1560,8 +1528,8 @@
                         />
                       </div>
                       <div style={{ marginTop: '10px', fontSize: '0.9em', opacity: 0.8 }}>
-                        资金变化: {currentBalance >= 100 ? '+' : ''}{(currentBalance - 100).toFixed(2)}
-                        ({currentBalance >= 100 ? '+' : ''}{((currentBalance - 100) / 100 * 100).toFixed(1)}%)
+                        资金变化: {currentBalance >= 1000 ? '+' : ''}{(currentBalance - 1000).toFixed(2)}
+                        ({currentBalance >= 1000 ? '+' : ''}{((currentBalance - 1000) / 1000 * 100).toFixed(1)}%)
                       </div>
                     </div>
 
@@ -1669,7 +1637,7 @@
                               </span>
                             </td>
                             <td>
-                              <div style={{ fontSize: '0.9em', maxWidth: '300px' }}>
+                              <div style={{ fontSize: '0.9em' }}>
                                 {trade.reasoning ? trade.reasoning.slice(0, 2).map((reason, index) => (
                                   <div key={index}>• {reason}</div>
                                 )) : '-'}
@@ -1720,59 +1688,102 @@
 
     const TradesQuery = () => {
       const [trades, setTrades] = useState([]);
+      const [allTrades, setAllTrades] = useState([]); // 存储所有交易数据
       const [loading, setLoading] = useState(false);
       const [filters, setFilters] = useState({
+        reasoningKeyword: '',    // 新增：入场原因关键词
+        signal: '',             // 新增：交易信号
+        confidenceMin: '',      // 新增：最小置信度
+        confidenceMax: '',      // 原有：时间范围
         startDate: '',
         endDate: '',
         tradeType: '',
         result: ''
       });
 
-      const fetchTrades = async () => {
-        setLoading(true);
+      const fetchAllTrades = async () => {
         try {
           const response = await fetch('http://localhost:3001/api/all-trades');
           if (response.ok) {
-            const allTrades = await response.json();
-
-            // 应用筛选条件并按时间倒序排列（最近时间在前）
-            let filteredTrades = allTrades.filter(trade => {
-              // 时间范围筛选
-              if (filters.startDate) {
-                const tradeDate = new Date(trade.timestamp);
-                const startDate = new Date(filters.startDate);
-                if (tradeDate < startDate) return false;
-              }
-
-              if (filters.endDate) {
-                const tradeDate = new Date(trade.timestamp);
-                const endDate = new Date(filters.endDate);
-                endDate.setHours(23, 59, 59, 999);
-                if (tradeDate > endDate) return false;
-              }
-
-              // 交易方向筛选
-              if (filters.tradeType && trade.tradeType !== filters.tradeType) {
-                return false;
-              }
-
-              // 预测结果筛选
-              if (filters.result) {
-                if (filters.result === 'correct' && trade.isCorrect !== true) return false;
-                if (filters.result === 'incorrect' && trade.isCorrect !== false) return false;
-                if (filters.result === 'pending' && trade.isCorrect !== undefined) return false;
-              }
-
-              return true;
-            });
-
-            // 按时间倒序排列，最近的时间在最前面
-            filteredTrades.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
-
-            setTrades(filteredTrades);
+            const tradesData = await response.json();
+            setAllTrades(tradesData);
           }
         } catch (error) {
           console.error('获取交易记录失败:', error);
+        }
+      };
+
+      const fetchTrades = async () => {
+        setLoading(true);
+        try {
+          // 如果还没有加载全部数据，先获取
+          if (allTrades.length === 0) {
+            await fetchAllTrades();
+          }
+
+          // 应用筛选条件并按时间倒序排列（最近时间在前）
+          let filteredTrades = allTrades.filter(trade => {
+            // 入场原因关键词模糊查询
+            if (filters.reasoningKeyword) {
+              const keyword = filters.reasoningKeyword.toLowerCase();
+              const hasMatchingReasoning = trade.reasoning && trade.reasoning.some(reason =>
+                reason.toLowerCase().includes(keyword)
+              );
+              if (!hasMatchingReasoning) return false;
+            }
+
+            // 交易信号筛选
+            if (filters.signal) {
+              if (filters.signal === 'BUY' && trade.signal !== 'BUY') return false;
+              if (filters.signal === 'SELL' && trade.signal !== 'SELL') return false;
+            }
+
+            // 置信度范围筛选
+            if (filters.confidenceMin) {
+              const minConfidence = parseFloat(filters.confidenceMin);
+              if (trade.confidence < minConfidence) return false;
+            }
+
+            if (filters.confidenceMax) {
+              const maxConfidence = parseFloat(filters.confidenceMax);
+              if (trade.confidence > maxConfidence) return false;
+            }
+
+            // 时间范围筛选
+            if (filters.startDate) {
+              const tradeDate = new Date(trade.timestamp);
+              const startDate = new Date(filters.startDate);
+              if (tradeDate < startDate) return false;
+            }
+
+            if (filters.endDate) {
+              const tradeDate = new Date(trade.timestamp);
+              const endDate = new Date(filters.endDate);
+              endDate.setHours(23, 59, 59, 999);
+              if (tradeDate > endDate) return false;
+            }
+
+            // 交易方向筛选
+            if (filters.tradeType && trade.tradeType !== filters.tradeType) {
+              return false;
+            }
+
+            // 预测结果筛选
+            if (filters.result) {
+              if (filters.result === 'correct' && trade.isCorrect !== true) return false;
+              if (filters.result === 'incorrect' && trade.isCorrect !== false) return false;
+              if (filters.result === 'pending' && trade.isCorrect !== undefined) return false;
+            }
+
+            return true;
+          });
+
+          // 按时间倒序排列，最近的时间在最前面
+          filteredTrades.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+
+          setTrades(filteredTrades);
+        } catch (error) {
+          console.error('筛选交易记录失败:', error);
         } finally {
           setLoading(false);
         }
@@ -1784,6 +1795,10 @@
 
       const resetFilters = () => {
         setFilters({
+          reasoningKeyword: '',    // 重置入场原因关键词
+          signal: '',             // 重置交易信号
+          confidenceMin: '',      // 重置置信度范围
+          confidenceMax: '',
           startDate: '',
           endDate: '',
           tradeType: '',
@@ -1806,7 +1821,19 @@
           <div className="bg-white/5 backdrop-blur-sm rounded-xl p-4 mb-6 border border-white/10">
             <h4 className="text-cyan-300 text-sm font-medium mb-4 tracking-wide">筛选条件</h4>
 
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-4">
+              {/* 入场原因关键词 - 核心功能 */}
+              <div>
+                <label className="block text-xs text-gray-400 mb-2">入场原因关键词</label>
+                <input
+                  type="text"
+                  value={filters.reasoningKeyword}
+                  onChange={(e) => handleFilterChange('reasoningKeyword', e.target.value)}
+                  placeholder="输入关键词进行模糊搜索..."
+                  className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-gray-200 text-sm focus:border-cyan-400/50 focus:bg-white/10 transition-all duration-200 outline-none"
+                />
+              </div>
+
               {/* 时间范围 */}
               <div className="md:col-span-1">
                 <label className="block text-xs text-gray-400 mb-2">时间范围</label>
@@ -1889,7 +1916,11 @@
 
           {/* 统计信息 */}
           <div style={{ marginBottom: '20px', fontSize: '14px', color: '#ccc' }}>
-            共找到 {trades.length} 条交易记录
+            {filters.reasoningKeyword ? (
+              `共找到 ${trades.length} 条交易记录 - 关键词: "${filters.reasoningKeyword}"${filters.signal ? ` | 信号: ${filters.signal === 'BUY' ? '买入' : '卖出'}` : ''}${filters.confidenceMin ? ` | 置信度≥${filters.confidenceMin}%` : ''}`
+            ) : (
+              `共找到 ${trades.length} 条交易记录`
+            )}
           </div>
 
           {/* 交易记录表格 */}
@@ -1928,7 +1959,7 @@
                       </span>
                     </td>
                     <td>
-                      <div style={{ fontSize: '0.9em', maxWidth: '300px' }}>
+                      <div style={{ fontSize: '0.9em' }}>
                         {trade.reasoning ? trade.reasoning.slice(0, 2).map((reason, index) => (
                           <div key={index}>• {reason}</div>
                         )) : '-'}

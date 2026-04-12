@@ -1,7 +1,11 @@
 {
   "permissions": {
     "allow": [
-      "Bash(dir /w)"
+      "Bash(dir /w)",
+      "Bash(node -c src\\\\dashboard\\\\server.ts)",
+      "Bash(npm test:*)",
+      "Bash(node -e \"console.log\\('Testing JavaScript syntax'\\);\")",
+      "Bash(python cleanup_unused_files.py)"
     ]
   }
 }

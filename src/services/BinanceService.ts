@@ -1,7 +1,8 @@
-import axios, { AxiosInstance } from 'axios';
+import { AxiosInstance } from 'axios';
 import { IPriceData } from '../models/PriceData';
 import WebSocket, { ClientOptions } from 'ws';
 import { HttpsProxyAgent } from 'https-proxy-agent';
+import { createAxiosInstance } from '../utils/axiosInstance';
 
 export interface BinanceTicker {
   symbol: string;
@@ -72,45 +73,8 @@ export class BinanceService {
   private readonly MAX_RECONNECT_ATTEMPTS = 5;
 
   constructor(proxyConfig?: ProxyConfig) {
-    // 检查是否有代理配置
-    const proxyUrl = proxyConfig ? `http://${proxyConfig.host}:${proxyConfig.port}` : undefined;
-    const agent = proxyUrl ? new HttpsProxyAgent(proxyUrl) : undefined;
-
-    // 创建axios实例并配置代理
-    const axiosConfig: any = {
-      baseURL: this.BASE_URL,
-      timeout: 30000, // 增加超时时间
-      httpsAgent: agent,
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-      },
-    };
-
-    this.axiosInstance = axios.create(axiosConfig);
-
-    // 添加请求拦截器用于调试
-    this.axiosInstance.interceptors.request.use(
-      (config) => {
-        console.log(`发起请求: ${config.method?.toUpperCase()} ${config.url}`);
-        return config;
-      },
-      (error) => {
-        console.error('请求配置错误:', error);
-        return Promise.reject(error);
-      }
-    );
-
-    // 添加响应拦截器用于调试
-    this.axiosInstance.interceptors.response.use(
-      (response) => {
-        console.log(`响应成功: ${response.status}`);
-        return response;
-      },
-      (error) => {
-        console.error('响应错误:', error.response?.status, error.message);
-        return Promise.reject(error);
-      }
-    );
+    // 使用封装的axios实例创建函数
+    this.axiosInstance = createAxiosInstance(this.BASE_URL, proxyConfig);
 
     // 初始化WebSocket连接
     this.initWebSocket(proxyConfig);

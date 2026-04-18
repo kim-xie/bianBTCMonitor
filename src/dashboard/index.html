@@ -4,7 +4,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>BTC 交易监控系统</title>
+  <title>BTC十分钟预测系统</title>
   <script src="/socket.io/socket.io.js"></script>
   <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
   <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
@@ -154,10 +154,10 @@
                     <div className="day-stats">
                       <div className="trade-count">{dayStat.tradeCount}笔</div>
                       <div className={`win-rate ${dayStat.winRate >= 50 ? 'profit' : 'loss'}`}>
-                        {dayStat.winRate.toFixed(0)}%
+                        {dayStat.winRate.toFixed(1)}%
                       </div>
                       <div className={`profit-loss ${dayStat.totalProfitLoss >= 0 ? 'positive' : 'negative'}`}>
-                        {dayStat.totalProfitLoss >= 0 ? '+' : ''}{dayStat.totalProfitLoss}U
+                        {dayStat.totalProfitLoss >= 0 ? '+' : ''}{dayStat.totalProfitLoss}
                       </div>
                     </div>
                   )}
@@ -194,13 +194,13 @@
                   </div>
                   <div className="summary-item">
                     <div className={`summary-value ${totalProfitLoss >= 0 ? 'profit' : 'loss'}`}>
-                      {totalProfitLoss >= 0 ? '+' : ''}{totalProfitLoss}U
+                      {totalProfitLoss >= 0 ? '+' : ''}{totalProfitLoss}
                     </div>
                     <div className="summary-label">月盈亏</div>
                   </div>
                   <div className="summary-item">
-                    <div className="summary-value">{totalInvestment}U</div>
-                    <div className="summary-label">总投资额</div>
+                    <div className="summary-value">{totalInvestment}</div>
+                    <div className="summary-label">总预测金额</div>
                   </div>
                 </>
               );
@@ -411,14 +411,6 @@
               balance: data.balance
             });
 
-            // 保留完整历史，但最多100个点以避免性能问题
-            // 确保始终保留初始资金点
-            if (newHistory.length > 100) {
-              // 保留第一个点（初始资金），然后取最近的99个点
-              const firstPoint = newHistory[0];
-              const recentPoints = newHistory.slice(-99);
-              return [firstPoint, ...recentPoints];
-            }
             return newHistory;
           });
         });
@@ -448,10 +440,16 @@
         // 初始数据加载
         fetchInitialData();
         fetchAllTrades(); // 获取所有交易用于日历统计
-        fetchAllTrades(); // 获取所有交易用于日历统计
+
+        // 定时更新日历统计数据（每分钟更新一次）
+        const calendarUpdateInterval = setInterval(() => {
+          fetchAllTrades(); // 获取所有交易用于日历统计
+          console.log('日历统计数据已更新');
+        }, 60000); // 每分钟更新一次
 
         return () => {
           socket.disconnect();
+          clearInterval(calendarUpdateInterval); // 清理定时器
         };
       }, []); // 空依赖数组，只执行一次
 
@@ -1173,7 +1171,7 @@
               `}</style>
 
           <div className="header">
-            <h1>BTC 交易监控系统</h1>
+            <h1>BTC十分钟预测系统</h1>
             <div style={{ display: 'flex', gap: '15px', alignItems: 'center' }}>
               {user && (
                 <div style={{
@@ -1488,17 +1486,17 @@
                           <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '8px', padding: '0 2px' }}>
                             {balanceHistory[0] && (
                               <div style={{ fontSize: '12px', color: 'rgba(255,255,255,0.6)' }}>
-                                {new Date(balanceHistory[0].time).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })}
+                                {new Date(balanceHistory[0].time).toLocaleDateString('zh-CN', { month: 'short', day: 'numeric' })}
                               </div>
                             )}
                             {balanceHistory.length > 2 && (
                               <div style={{ fontSize: '12px', color: 'rgba(255,255,255,0.4)' }}>
-                                {new Date(balanceHistory[Math.floor(balanceHistory.length / 2)].time).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })}
+                                {new Date(balanceHistory[Math.floor(balanceHistory.length / 2)].time).toLocaleDateString('zh-CN', { month: 'short', day: 'numeric' })}
                               </div>
                             )}
                             {balanceHistory[balanceHistory.length - 1] && (
                               <div style={{ fontSize: '12px', color: 'rgba(255,255,255,0.6)' }}>
-                                现在
+                                {new Date(balanceHistory[balanceHistory.length - 1].time).toLocaleDateString('zh-CN', { month: 'short', day: 'numeric' })}
                               </div>
                             )}
                           </div>
@@ -1536,40 +1534,47 @@
                     <div className="panel">
                       <h3>统计概览</h3>
                       {stats ? (
-                        <div className="stats-grid">
-                          <div className="stat-card">
-                            <div className="stat-value">{stats.totalTrades}</div>
-                            <div className="stat-label">总交易数</div>
+                        <>
+                          <div style={{ fontSize: '13px', fontWeight: 'bold', color: '#fff', marginBottom: '12px', padding: '10px 12px', backgroundColor: 'rgba(0,212,255,0.15)', borderRadius: '8px', border: '1px solid rgba(0,212,255,0.3)', display: 'flex', justifyContent: 'space-around', textAlign: 'center' }}>
+                            <div><span style={{ color: 'rgba(255,255,255,0.6)' }}>今日交易</span><br /><span style={{ color: '#00d4ff', fontSize: '16px' }}>{stats.todayStats?.totalTrades || 0}</span>笔</div>
+                            <div style={{ borderLeft: '1px solid rgba(255,255,255,0.2)' }} /><div><span style={{ color: 'rgba(255,255,255,0.6)' }}>胜率</span><br /><span style={{ color: stats.todayStats?.winRate >= 50 ? '#4CAF50' : '#f44336', fontSize: '16px' }}>{formatPercentage(stats.todayStats?.winRate || 0)}</span></div>
+                            <div style={{ borderLeft: '1px solid rgba(255,255,255,0.2)' }} /><div><span style={{ color: 'rgba(255,255,255,0.6)' }}>今日盈亏</span><br /><span style={{ color: stats.todayStats?.totalProfitLoss >= 0 ? '#4CAF50' : '#f44336', fontSize: '16px' }}>{stats.todayStats?.totalProfitLoss >= 0 ? '+' : ''}{stats.todayStats?.totalProfitLoss?.toFixed(2) || '0.00'}</span></div>
                           </div>
-                          <div className="stat-card">
-                            <div className={`stat-value ${stats.winRate >= 80 ? 'profit' : 'loss'}`}>
-                              {formatPercentage(stats.winRate)}
+                          <div className="stats-grid">
+                            <div className="stat-card">
+                              <div className="stat-value">{stats.totalTrades}</div>
+                              <div className="stat-label">总交易数</div>
                             </div>
-                            <div className="stat-label">胜率</div>
-                          </div>
-                          <div className="stat-card">
-                            <div className="stat-value">{stats.winningTrades}</div>
-                            <div className="stat-label">盈利交易</div>
-                          </div>
-                          <div className="stat-card">
-                            <div className="stat-value">{stats.losingTrades}</div>
-                            <div className="stat-label">亏损交易</div>
-                          </div>
-                          <div className="stat-card">
-                            <div className="stat-value">{stats.openTrades || 0}</div>
-                            <div className="stat-label">持仓交易</div>
-                          </div>
-                          <div className="stat-card">
-                            <div className={`stat-value ${stats.totalProfitLoss >= 0 ? 'profit' : 'loss'}`}>
-                              {stats.totalProfitLoss >= 0 ? formatCurrency(Math.abs(stats.totalProfitLoss)) : '-' + formatCurrency(Math.abs(stats.totalProfitLoss))}
+                            <div className="stat-card">
+                              <div className={`stat-value ${stats.winRate >= 60 ? 'profit' : 'loss'}`}>
+                                {formatPercentage(stats.winRate)}
+                              </div>
+                              <div className="stat-label">胜率</div>
                             </div>
-                            <div className="stat-label">总盈亏</div>
+                            <div className="stat-card">
+                              <div className="stat-value">{stats.winningTrades}</div>
+                              <div className="stat-label">盈利交易</div>
+                            </div>
+                            <div className="stat-card">
+                              <div className="stat-value">{stats.losingTrades}</div>
+                              <div className="stat-label">亏损交易</div>
+                            </div>
+                            <div className="stat-card">
+                              <div className="stat-value">{stats.openTrades || 0}</div>
+                              <div className="stat-label">持仓交易</div>
+                            </div>
+                            <div className="stat-card">
+                              <div className={`stat-value ${stats.totalProfitLoss >= 0 ? 'profit' : 'loss'}`}>
+                                {stats.totalProfitLoss >= 0 ? formatCurrency(Math.abs(stats.totalProfitLoss)) : '-' + formatCurrency(Math.abs(stats.totalProfitLoss))}
+                              </div>
+                              <div className="stat-label">总盈亏</div>
+                            </div>
+                            <div className="stat-card">
+                              <div className="stat-value">{stats.totalInvestment || 0}</div>
+                              <div className="stat-label">总预测金额</div>
+                            </div>
                           </div>
-                          <div className="stat-card">
-                            <div className="stat-value">{stats.totalInvestment || 0}</div>
-                            <div className="stat-label">总交易额</div>
-                          </div>
-                        </div>
+                        </>
                       ) : (
                         <div>加载中...</div>
                       )}
@@ -1620,49 +1625,56 @@
                         </tr>
                       </thead>
                       <tbody>
-                        {recentTrades.map((trade) => (
-                          <tr key={trade._id}>
-                            <td>{new Date(trade.timestamp).toLocaleString('zh-CN')}</td>
-                            <td>{formatCurrency(trade.price)}</td>
-                            <td>{trade.investmentAmount}</td>
-                            <td>
-                              <span style={{
-                                padding: '4px 8px',
-                                borderRadius: '12px',
-                                fontSize: '12px',
-                                backgroundColor: trade.tradeType === 'LONG' ? 'rgba(76, 175, 80, 0.2)' : 'rgba(244, 67, 54, 0.2)',
-                                color: trade.tradeType === 'LONG' ? '#4CAF50' : '#f44336'
-                              }}>
-                                {trade.tradeType === 'LONG' ? '做多' : '做空'}
-                              </span>
-                            </td>
-                            <td>
-                              <div style={{ fontSize: '0.9em' }}>
-                                {trade.reasoning ? trade.reasoning.slice(0, 2).map((reason, index) => (
-                                  <div key={index}>• {reason}</div>
-                                )) : '-'}
-                              </div>
-                            </td>
-                            <td>{trade.confidence}%</td>
-                            <td>{trade.closePrice ? formatCurrency(trade.closePrice) : '-'}</td>
-                            <td>
-                              {trade.closePrice ?
-                                `${trade.closePrice > trade.price ? '+' : ''}${formatCurrency(trade.closePrice - trade.price)}`
-                                : '-'}
-                            </td>
-                            <td>{trade.closeTime ? new Date(trade.closeTime).toLocaleTimeString() : '-'}</td>
-                            <td>
-                              {trade.isCorrect !== undefined ? (
-                                <span style={{ color: trade.isCorrect ? '#4CAF50' : '#f44336' }}>
-                                  {trade.isCorrect ? '正确' : '错误'}
+                        {recentTrades.map((trade) => {
+                          const isToday = trade.closeTime ?
+                            new Date(trade.closeTime).toDateString() === new Date().toDateString() :
+                            new Date(trade.timestamp).toDateString() === new Date().toDateString();
+                          return (
+                            <tr key={trade._id} style={isToday ? { backgroundColor: 'rgba(0,212,255,0.1)', borderLeft: '3px solid #00d4ff' } : {}}
+                              onMouseEnter={(e) => { if (!isToday) e.currentTarget.style.backgroundColor = 'rgba(255,255,255,0.1)'; }}
+                              onMouseLeave={(e) => { if (!isToday) e.currentTarget.style.backgroundColor = ''; }}>
+                              <td>{new Date(trade.timestamp).toLocaleString('zh-CN')}</td>
+                              <td>{formatCurrency(trade.price)}</td>
+                              <td>{trade.investmentAmount}</td>
+                              <td>
+                                <span style={{
+                                  padding: '4px 8px',
+                                  borderRadius: '12px',
+                                  fontSize: '12px',
+                                  backgroundColor: trade.tradeType === 'LONG' ? 'rgba(76, 175, 80, 0.2)' : 'rgba(244, 67, 54, 0.2)',
+                                  color: trade.tradeType === 'LONG' ? '#4CAF50' : '#f44336'
+                                }}>
+                                  {trade.tradeType === 'LONG' ? '做多' : '做空'}
                                 </span>
-                              ) : '持仓中'}
-                            </td>
-                            <td className={trade.profitLoss && trade.profitLoss >= 0 ? 'profit' : 'loss'}>
-                              {trade.profitLoss !== undefined ? `${trade.profitLoss > 0 ? '+' : ''}${trade.profitLoss.toFixed(2)}` : '-'}
-                            </td>
-                          </tr>
-                        ))}
+                              </td>
+                              <td>
+                                <div style={{ fontSize: '0.9em' }}>
+                                  {trade.reasoning ? trade.reasoning.slice(0, 2).map((reason, index) => (
+                                    <div key={index}>• {reason}</div>
+                                  )) : '-'}
+                                </div>
+                              </td>
+                              <td>{trade.confidence}%</td>
+                              <td>{trade.closePrice ? formatCurrency(trade.closePrice) : '-'}</td>
+                              <td>
+                                {trade.closePrice ?
+                                  `${trade.closePrice > trade.price ? '+' : ''}${formatCurrency(trade.closePrice - trade.price)}`
+                                  : '-'}
+                              </td>
+                              <td>{trade.closeTime ? new Date(trade.closeTime).toLocaleTimeString() : '-'}</td>
+                              <td>
+                                {trade.isCorrect !== undefined ? (
+                                  <span style={{ color: trade.isCorrect ? '#4CAF50' : '#f44336' }}>
+                                    {trade.isCorrect ? '正确' : '错误'}
+                                  </span>
+                                ) : '持仓中'}
+                              </td>
+                              <td className={trade.profitLoss && trade.profitLoss >= 0 ? 'profit' : 'loss'}>
+                                {trade.profitLoss !== undefined ? `${trade.profitLoss > 0 ? '+' : ''}${trade.profitLoss.toFixed(2)}` : '-'}
+                              </td>
+                            </tr>
+                          );
+                        })}
                       </tbody>
                     </table>
                   </div>

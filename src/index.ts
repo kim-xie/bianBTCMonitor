@@ -188,12 +188,14 @@ const showStatistics = async () => {
     console.log(`总交易数: ${stats.totalTrades}`);
     console.log(`盈利交易: ${stats.winningTrades}`);
     console.log(`亏损交易: ${stats.losingTrades}`);
+    console.log(`持仓中: ${stats.openTrades}`);
     console.log(`胜率: ${stats.winRate.toFixed(1)}%`);
     console.log(`总盈亏: $${stats.totalProfitLoss.toFixed(2)}`);
-    console.log(`盈亏比: ${stats.profitFactor.toFixed(2)}`);
     console.log(`平均置信度: ${stats.averageConfidence.toFixed(1)}%`);
     console.log(`===============\n`);
-    await sendFeishuStatsNotification(stats);
+
+
+    // await sendFeishuStatsNotification(stats);
   } catch (error) {
     console.error('获取统计信息失败:', error);
   }
@@ -212,19 +214,41 @@ const cleanupOldData = async () => {
 };
 
 // 发送飞书统计通知
-const sendFeishuStatsNotification = async (stats: any) => {
+const sendFeishuStatsNotification = async () => {
   try {
+    // 获取历史统计（所有时间）
+    const historicalStats = await statisticsService.calculateWinRate();
+
+    // 获取今日统计
+    const today = new Date();
+    today.setHours(0, 0, 0, 0); // 设置为今天0点
+    const todayStats = await statisticsService.calculateWinRate({ start: today, end: new Date() });
+
+    const formatProfitLoss = (value: number) => {
+      const prefix = value >= 0 ? '+' : '';
+      return `${prefix}${value.toFixed(2)}`;
+    };
+
     const message = {
       msg_type: 'text',
       content: {
-        text: `📊 交易统计\n\n` +
-          `总交易数: ${stats.totalTrades}\n` +
-          `盈利交易: ${stats.winningTrades}\n` +
-          `亏损交易: ${stats.losingTrades}\n` +
-          `胜率: ${stats.winRate.toFixed(1)}%\n` +
-          `总盈亏: ${stats.totalProfitLoss.toFixed(2)}\n` +
-          `盈亏比: ${stats.profitFactor.toFixed(2)}\n` +
-          `平均置信度: ${stats.averageConfidence.toFixed(1)}%\n\n` +
+        text: `📊 交易统计报告\n\n` +
+          `━━━━━━ 今日战绩 ━━━━━━\n` +
+          `总交易数: ${todayStats.totalTrades}\n` +
+          `盈利交易: ${todayStats.winningTrades}\n` +
+          `亏损交易: ${todayStats.losingTrades}\n` +
+          `持仓中: ${todayStats.openTrades}\n` +
+          `胜率: ${todayStats.winRate.toFixed(1)}%\n` +
+          `总盈亏: ${formatProfitLoss(todayStats.totalProfitLoss)}\n` +
+          `平均置信度: ${todayStats.averageConfidence.toFixed(1)}%\n\n` +
+          `━━━━━━ 历史战绩 ━━━━━━\n` +
+          `总交易数: ${historicalStats.totalTrades}\n` +
+          `盈利交易: ${historicalStats.winningTrades}\n` +
+          `亏损交易: ${historicalStats.losingTrades}\n` +
+          `持仓中: ${historicalStats.openTrades}\n` +
+          `胜率: ${historicalStats.winRate.toFixed(1)}%\n` +
+          `总盈亏: ${formatProfitLoss(historicalStats.totalProfitLoss)}\n` +
+          `平均置信度: ${historicalStats.averageConfidence.toFixed(1)}%\n\n` +
           `发送时间: ${new Date().toLocaleString()}`
       }
     };
@@ -235,6 +259,44 @@ const sendFeishuStatsNotification = async (stats: any) => {
     console.error('发送飞书统计通知时出错:', error);
   }
 };
+
+// 每天定时发送飞书统计通知（8:30、12:00、18:00）
+const scheduledTimes = [
+  { hour: 8, minute: 30, key: '8:30' },
+  { hour: 12, minute: 0, key: '12:00' },
+  { hour: 18, minute: 0, key: '18:00' }
+];
+const lastSentTimes = new Set<string>(); // 记录已发送的时间点（格式：日期-时间key）
+
+const sendScheduledNotification = () => {
+  const now = new Date();
+  const currentHour = now.getHours();
+  const currentMinute = now.getMinutes();
+  const currentDate = `${now.getFullYear()}-${now.getMonth() + 1}-${now.getDate()}`;
+
+  // 清理超过1天的记录
+  const oneDayAgo = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+  const oneDayAgoKey = `${oneDayAgo.getFullYear()}-${oneDayAgo.getMonth() + 1}-${oneDayAgo.getDate()}`;
+  for (const key of lastSentTimes) {
+    if (key.startsWith(oneDayAgoKey)) {
+      lastSentTimes.delete(key);
+    }
+  }
+
+  // 检查每个时间点
+  for (const time of scheduledTimes) {
+    if (currentHour === time.hour && currentMinute === time.minute) {
+      const timeKey = `${currentDate}-${time.key}`;
+      if (!lastSentTimes.has(timeKey)) {
+        lastSentTimes.add(timeKey);
+        sendFeishuStatsNotification();
+        console.log(`✅ 定时飞书统计通知已发送（${time.key}）`);
+      }
+    }
+  }
+};
+
+setInterval(sendScheduledNotification, 60000); // 每分钟检查是否需要发送
 
 // 主循环
 const main = async () => {

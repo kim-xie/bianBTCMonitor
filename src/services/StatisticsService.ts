@@ -33,16 +33,7 @@ export class StatisticsService {
    * 计算胜率统计
    */
   async calculateWinRate(timeRange?: { start: Date; end: Date }): Promise<WinRateStats> {
-    let query: any = {}; // 包含所有交易，包括持仓中的
-
-    if (timeRange) {
-      query.timestamp = {
-        $gte: timeRange.start,
-        $lte: timeRange.end
-      };
-    }
-
-    const trades = await TradeModel.find(query).lean();
+    const trades = await TradeModel.find({}).lean();
 
     if (trades.length === 0) {
       return this.getDefaultStats();
@@ -52,13 +43,32 @@ export class StatisticsService {
     const closedTrades = trades.filter(t => t.isCorrect !== undefined);
     const openTrades = trades.filter(t => t.isCorrect === undefined);
 
-    const winningTrades = closedTrades.filter(t => t.isCorrect);
-    const losingTrades = closedTrades.filter(t => !t.isCorrect);
+    // 如果有时间范围，过滤出在时间范围内平仓的交易
+    let filteredClosedTrades = closedTrades;
+    if (timeRange) {
+      filteredClosedTrades = closedTrades.filter(t => {
+        if (!t.closeTime) return false;
+        const closeTime = new Date(t.closeTime);
+        return closeTime >= timeRange.start && closeTime <= timeRange.end;
+      });
+    }
 
-    // 总交易数包括所有开仓的交易
-    const totalTrades = trades.length;
+    // 如果有时间范围，过滤出在时间范围内开仓的交易作为总交易数
+    let filteredOpenTrades = openTrades;
+    let totalTrades = trades.length;
+    if (timeRange) {
+      filteredOpenTrades = openTrades.filter(t => {
+        const openTime = new Date(t.timestamp);
+        return openTime >= timeRange.start && openTime <= timeRange.end;
+      });
+      totalTrades = filteredClosedTrades.length + filteredOpenTrades.length;
+    }
+
+    const winningTrades = filteredClosedTrades.filter(t => t.isCorrect);
+    const losingTrades = filteredClosedTrades.filter(t => !t.isCorrect);
+
     // 胜率只基于已平仓的交易计算
-    const winRate = closedTrades.length > 0 ? (winningTrades.length / closedTrades.length) * 100 : 0;
+    const winRate = filteredClosedTrades.length > 0 ? (winningTrades.length / filteredClosedTrades.length) * 100 : 0;
 
     const winningProfits = winningTrades.map(t => t.profitLoss || 0);
     const losingLosses = losingTrades.map(t => Math.abs(t.profitLoss || 0));
@@ -74,21 +84,21 @@ export class StatisticsService {
 
     const profitFactor = totalLoss > 0 ? totalProfit / totalLoss : totalProfit > 0 ? Infinity : 0;
 
-    const allProfits = closedTrades.map(t => t.profitLoss || 0);
+    const allProfits = filteredClosedTrades.map(t => t.profitLoss || 0);
     const bestTrade = allProfits.length > 0 ? Math.max(...allProfits) : 0;
     const worstTrade = allProfits.length > 0 ? Math.min(...allProfits) : 0;
 
-    const averageConfidence = closedTrades.length > 0 ?
-      closedTrades.reduce((sum, t) => sum + t.confidence, 0) / closedTrades.length : 0;
+    const averageConfidence = filteredClosedTrades.length > 0 ?
+      filteredClosedTrades.reduce((sum, t) => sum + t.confidence, 0) / filteredClosedTrades.length : 0;
 
-    const winRateByConfidence = this.calculateWinRateByConfidence(closedTrades);
+    const winRateByConfidence = this.calculateWinRateByConfidence(filteredClosedTrades);
 
     return {
-      totalTrades: totalTrades,        // 总交易数（包括持仓中）
+      totalTrades: totalTrades,
       winningTrades: winningTrades.length,
       losingTrades: losingTrades.length,
-      openTrades: openTrades.length,   // 持仓中的交易数
-      totalInvestment: trades.reduce((sum, trade) => sum + (trade.investmentAmount || 0), 0), // 总交易额
+      openTrades: filteredOpenTrades.length,
+      totalInvestment: trades.reduce((sum, trade) => sum + (trade.investmentAmount || 0), 0),
       winRate,
       averageWin,
       averageLoss,

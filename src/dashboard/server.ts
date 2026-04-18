@@ -104,18 +104,30 @@ const calculateBalanceHistory = async () => {
     const history = [];
     let balance = 1000; // 初始资金
 
-    // 添加初始资金点（固定起点）
-    history.push({
-      time: new Date(Date.now() - completedTrades.length * 60000).toISOString(), // 估算的起始时间
-      balance: 1000 // 初始资金固定为1000
-    });
-
-    // 按时间顺序重建资金变化历史
-    for (const trade of completedTrades) {
-      balance += (trade.profitLoss || 0);
+    if (completedTrades.length > 0) {
+      // 有交易记录的情况
+      // 添加初始资金点（使用第一笔交易时间前10分钟作为起点）
+      const firstTradeTime = new Date(completedTrades[0].closeTime || completedTrades[0].timestamp);
+      const startTime = new Date(firstTradeTime.getTime() - 10 * 60 * 1000); // 第一笔交易前10分钟
+      
       history.push({
-        time: trade.closeTime || new Date().toISOString(),
-        balance: balance
+        time: startTime.toISOString(),
+        balance: 1000 // 初始资金固定为1000
+      });
+
+      // 按时间顺序重建资金变化历史
+      for (const trade of completedTrades) {
+        balance += (trade.profitLoss || 0);
+        history.push({
+          time: trade.closeTime || new Date().toISOString(),
+          balance: balance
+        });
+      }
+    } else {
+      // 没有交易记录的情况，只显示初始资金点
+      history.push({
+        time: new Date().toISOString(),
+        balance: 1000
       });
     }
 
@@ -145,8 +157,13 @@ import UserSubscriptionModel from '../models/UserSubscription';
 
 app.get('/api/stats', async (req: AuthRequest, res) => {
   try {
-    const [stats, balance, balanceHistory] = await Promise.all([
+    // 计算今日的开始时间
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    const [stats, todayStats, balance, balanceHistory] = await Promise.all([
       statisticsService.calculateWinRate(),
+      statisticsService.calculateWinRate({ start: today, end: new Date() }),
       calculateCurrentBalance(),
       calculateBalanceHistory()
     ]);
@@ -198,7 +215,15 @@ app.get('/api/stats', async (req: AuthRequest, res) => {
       ...stats,
       currentBalance: balance,
       balanceHistory: balanceHistory,
-      subscription: subscriptionInfo
+      subscription: subscriptionInfo,
+      todayStats: {
+        totalTrades: todayStats.totalTrades,
+        winningTrades: todayStats.winningTrades,
+        losingTrades: todayStats.losingTrades,
+        winRate: todayStats.winRate,
+        totalProfitLoss: todayStats.totalProfitLoss,
+        averageConfidence: todayStats.averageConfidence
+      }
     });
   } catch (error) {
     res.status(500).json({ error: '获取统计数据失败' });
@@ -437,13 +462,71 @@ async function getClosedFiveMinuteKlines() {
   return closedKlines.slice(-1); // 只返回最新的已收盘K线
 }
 
+/**
+ * 确保获取的是已收盘的10分钟K线
+ */
+async function getClosedTenMinuteKlines() {
+  // 获取K线数据（多获取一些以确保有已收盘的）
+  const klines = await binanceService.getKlines('15m', 80);
+
+  console.log(`📊 获取到${klines.length}根10分钟K线`);
+
+  // 当前UTC时间
+  const now = new Date().getTime();
+  console.log(`🕐 当前时间: ${new Date(now).toLocaleString()}`);
+
+  // 筛选已收盘的K线 - 使用closeTime字段确保准确性
+  const closedKlines = klines.filter(kline => {
+    // 使用K线的实际结束时间（closeTime）而不是计算值
+    const endTime = kline.closeTime;
+    // 结束时间小于当前时间，说明已收盘
+    return endTime < now;
+  });
+
+  if (closedKlines.length === 0) {
+    console.log('⚠️  没有找到已收盘的10分钟K线，尝试放宽条件...');
+
+    // 显示最后几根K线的状态用于调试
+    console.log('🔍 最后3根K线的状态:');
+    for (let i = Math.max(0, klines.length - 3); i < klines.length; i++) {
+      const kline = klines[i];
+      const endTime = kline.closeTime;
+      const isClosed = endTime < now;
+      const status = isClosed ? '✅ 已收盘' : '⏳ 进行中';
+      const timeDiff = isClosed ? '' : ` (${Math.floor((now - endTime) / 1000)}秒前结束)`;
+      console.log(`   K线${i + 1}: ${status}, closeTime: ${new Date(endTime).toLocaleString()}${timeDiff}`);
+    }
+
+    // 如果没有找到完全已收盘的K线，找那些即将结束的K线（允许最多1分钟未完成）
+    const almostClosedKlines = klines.filter(kline => {
+      const endTime = kline.closeTime;
+      const timeDiff = now - endTime;
+      return timeDiff <= 60 * 1000 && timeDiff > 0; // 1分钟内结束的K线
+    });
+
+    if (almostClosedKlines.length > 0) {
+      console.log(`✅ 找到${almostClosedKlines.length}根即将结束的K线，使用它们`);
+      return almostClosedKlines.slice(-1); // 返回最新的那根
+    }
+
+    // 如果还是没有，返回最新的K线（即使还在进行中）
+    console.log('❌ 无法找到合适的K线，返回最新的K线（可能正在进行中）');
+    return [klines[klines.length - 1]];
+  }
+
+  // 返回最近的已收盘K线
+  return closedKlines.slice(-1); // 只返回最新的已收盘K线
+}
+
 // 交易信号生成和更新
 const generateTradingSignal = async () => {
   try {
     // 获取5mK线数据
     const fiveMinuteKlines = await getClosedFiveMinuteKlines();
+    // 获取10mK线数据
+    // const tenMinuteKlines = await getClosedTenMinuteKlines();
 
-    const signal = await tradingSignalService.generateSignal('BTCUSDT', fiveMinuteKlines);
+    const signal = await tradingSignalService.generateSignal('BTCUSDT', fiveMinuteKlines, []);
 
     if (signal) {
       io.emit('tradingSignal', signal);
@@ -457,16 +540,34 @@ const generateTradingSignal = async () => {
 // 定期更新统计数据
 const updateStatistics = async () => {
   try {
-    const [stats, trades, balance] = await Promise.all([
+    // 计算今日的开始时间
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    const [stats, todayStats, trades, balance] = await Promise.all([
       statisticsService.calculateWinRate(),
+      statisticsService.calculateWinRate({ start: today, end: new Date() }),
       statisticsService.getRecentTrades(20),
       calculateCurrentBalance()
     ]);
 
-    io.emit('statsUpdate', stats);
+    // 将今日统计添加到stats中一起发送
+    const statsWithToday = {
+      ...stats,
+      todayStats: {
+        totalTrades: todayStats.totalTrades,
+        winningTrades: todayStats.winningTrades,
+        losingTrades: todayStats.losingTrades,
+        winRate: todayStats.winRate,
+        totalProfitLoss: todayStats.totalProfitLoss,
+        averageConfidence: todayStats.averageConfidence
+      }
+    };
+
+    io.emit('statsUpdate', statsWithToday);
     io.emit('tradesUpdate', trades);
 
-    // 也通过statsUpdate发送当前资金，便于客户端显示
+    // 也通过balanceUpdate发送当前资金，便于客户端显示
     io.emit('balanceUpdate', {
       balance: balance,
       timestamp: new Date().toISOString()

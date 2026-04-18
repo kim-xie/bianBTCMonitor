@@ -122,6 +122,8 @@ export class TechnicalAnalysisService {
     const ema50Range = 18; // EMA50上下20个点的范围
 
     console.log('isBullishTrend:', isBullishTrend);
+    console.log('ema50:', indicators.ema50);
+    console.log('ema150:', indicators.ema150);
 
     /**
      * 1、趋势策略：
@@ -202,6 +204,63 @@ export class TechnicalAnalysisService {
         reasoning.push(`反转策略: 5分钟K线5连跌，价差${priceRange.toFixed(2)}，进场做多`);
       }
     }
+
+    // 长下影阳线吞没前一根阴线
+    if (!this.isFiveMinuteUsed && fiveMinuteKlines.length >= 2) {
+      const currentKline = fiveMinuteKlines[fiveMinuteKlines.length - 1];
+      const previousKline = fiveMinuteKlines[fiveMinuteKlines.length - 2];
+
+      // 判断当前K线是否为阳线
+      const isCurrentBullish = currentKline.close > currentKline.open;
+      // 判断前一根K线是否为阴线
+      const isPreviousBearish = previousKline.close < previousKline.open;
+
+      // 计算当前K线的下影线长度
+      const currentLowerShadow = currentKline.open - currentKline.low;
+
+      // 计算当前K线的实体长度
+      const currentBodyLength = Math.abs(currentKline.close - currentKline.open);
+
+      // 判断是否为长下影线（下影线长度大于实体长度）
+      const isLongLowerShadow = currentLowerShadow > currentBodyLength;
+
+      // 前一根必须是阴线，且当前K线的收盘价高于前一根阴线的最高价，开盘价低于前一根阴线的收盘价
+      const isEngulfing = isPreviousBearish && currentKline.close >= previousKline.high;
+
+      if (isCurrentBullish && isPreviousBearish && isLongLowerShadow && isEngulfing) {
+        score += 80;
+        reasoning.push(`反转策略: 长下影阳线吞没前一根阴线，进场做多`);
+      }
+    }
+
+    // 长上影阴线吞没前一根阳线
+    if (!this.isFiveMinuteUsed && fiveMinuteKlines.length >= 2) {
+      const currentKline = fiveMinuteKlines[fiveMinuteKlines.length - 1];
+      const previousKline = fiveMinuteKlines[fiveMinuteKlines.length - 2];
+
+      // 判断当前K线是否为阴线
+      const isCurrentBearish = currentKline.close < currentKline.open;
+      // 判断前一根K线是否为阳线
+      const isPreviousBullish = previousKline.close > previousKline.open;
+
+      // 计算当前K线的上影线长度
+      const currentUpperShadow = currentKline.high - currentKline.open;
+
+      // 计算当前K线的实体长度
+      const currentBodyLength = Math.abs(currentKline.close - currentKline.open);
+
+      // 判断是否为长上影线（上影线长度大于实体长度的1倍）
+      const isLongUpperShadow = currentUpperShadow > currentBodyLength;
+
+      // 前一根必须是阳线，且当前K线的收盘价低于前一根K线的开盘价，开盘价高于前一根K线的收盘价
+      const isEngulfing = isPreviousBullish && currentKline.close <= previousKline.low;
+
+      if (isCurrentBearish && isPreviousBullish && isLongUpperShadow && isEngulfing) {
+        score -= 80;
+        reasoning.push(`反转策略: 长上影阴线吞没前一根阳线，进场做空`);
+      }
+    }
+
 
     // 偏离均线策略
     if (!this.isFiveMinuteUsed) {

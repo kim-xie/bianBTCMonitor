@@ -13,6 +13,7 @@ export interface TradingSignal {
   reasoning: string[];
   indicators: any;
   recommendedAction: string;
+  investmentAmount?: number; // 买入金额
 }
 
 export class TradingSignalService {
@@ -150,6 +151,8 @@ export class TradingSignalService {
     const signal = prediction.direction === 'UP' ? 'BUY' : 'SELL';
     const recommendedAction = this.generateRecommendedAction(prediction, currentPrice);
 
+    const investmentAmount = 10; // 固定买入金额10U
+
     return {
       timestamp: new Date(),
       symbol: 'BTCUSDT',
@@ -159,7 +162,8 @@ export class TradingSignalService {
       confidence: prediction.confidence,
       reasoning: prediction.reasoning,
       indicators: prediction.indicators,
-      recommendedAction
+      recommendedAction,
+      investmentAmount
     };
   }
 
@@ -274,9 +278,9 @@ export class TradingSignalService {
         msg_type: 'text',
         content: {
           text: `📈 交易信号\n\n` +
-            `信号类型: ${signal.signal === 'BUY' ? '买入' : '卖出'}\n` +
-            `当前价格: ${currentPrice.toFixed(2)} USDT\n` +
             `预测方向: ${signal.prediction === 'UP' ? '上涨' : '下跌'}\n` +
+            `买入金额: ${signal.investmentAmount}\n` +
+            `当前价格: ${currentPrice.toFixed(2)} USDT\n` +
             `置信度: ${signal.confidence}%\n` +
             `K线时间: ${new Date(klineCloseTime).toLocaleString()}\n` +
             `推荐操作: ${signal.recommendedAction}\n\n` +
@@ -298,12 +302,12 @@ export class TradingSignalService {
         msg_type: 'text',
         content: {
           text: `📊 交易平仓\n\n` +
-            `交易类型: ${trade.tradeType === 'LONG' ? '做多' : '做空'}\n` +
+            `预测结果: ${isCorrect ? '正确' : '错误'}\n` +
+            `交易类型: ${trade.tradeType === 'LONG' ? '买涨' : '买跌'}\n` +
             `开仓价格: ${trade.price.toFixed(2)} USDT\n` +
             `平仓价格: ${currentPrice.toFixed(2)} USDT\n` +
             `投资金额: ${trade.investmentAmount}\n` +
             `盈亏: ${profitLoss.toFixed(2)} (${profitLossPercent.toFixed(2)}%)\n` +
-            `预测结果: ${isCorrect ? '正确' : '错误'}\n` +
             `开仓时间: ${new Date(trade.timestamp).toLocaleString()}\n` +
             `平仓时间: ${closeTime.toLocaleString()}\n` +
             `持仓时间: ${holdDuration.toFixed(1)}分钟\n\n` +

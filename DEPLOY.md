@@ -79,3 +79,8 @@ npm start
 
 ### 5. 前端同源请求
 前端代码已从硬编码 `http://localhost:3001` 改为相对路径 `/api/...`，`socket.io` 也改为同源连接。因此生产环境无需再修改前端地址。
+
+### 6. 不要设置 NODE_ENV=production（重要）
+TypeScript 编译需要 `@types/*` 类型包，这些包在 `devDependencies` 中。npm 在 `NODE_ENV=production` 时会跳过 `devDependencies`，导致 `tsc` 报大量 `Cannot find module / Cannot find name 'console'/'process'` 错误。
+
+因此在 Render 环境变量中**不要设置 `NODE_ENV=production`**（本仓库的 `render.yaml` 已去掉该配置）。

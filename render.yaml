@@ -10,13 +10,13 @@ services:
     runtime: node
     region: singapore            # 币安 API 对新加坡节点友好，避免美国节点被限制
     plan: starter                # 免费计划会休眠，交易系统建议使用 starter 及以上
-    buildCommand: npm install --include=dev && npm run build
+    buildCommand: npm run build  # Render 会自动执行 npm install（包含 devDependencies）
     startCommand: npm start
     healthCheckPath: /           # 访问根路径返回 index.html 即视为健康
     autoDeploy: true
     envVars:
-      - key: NODE_ENV
-        value: production
+      # 注意：不要设置 NODE_ENV=production，否则 npm install 会跳过 devDependencies（@types/*），
+      # 导致 tsc 找不到类型定义而构建失败
       # MongoDB Atlas 连接串（等价于 tradeZella 使用的 Neon 托管数据库）
       # 在 Render 控制台手动填入，不要提交到代码仓库
       - key: MONGODB_URI

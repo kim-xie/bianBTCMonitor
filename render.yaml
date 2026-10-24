@@ -10,7 +10,9 @@ services:
     runtime: node
     region: singapore            # 币安 API 对新加坡节点友好，避免美国节点被限制
     plan: starter                # 免费计划会休眠，交易系统建议使用 starter 及以上
-    buildCommand: npm run build  # Render 会自动执行 npm install（包含 devDependencies）
+    # 关键：显式安装 devDependencies（@types/* 在 devDependencies 中，tsc 编译必需）
+    # 即使 NODE_ENV=production 被 Render 默认设置，--include=dev 也会强制安装 devDependencies
+    buildCommand: npm install --include=dev && npm run build
     startCommand: npm start
     healthCheckPath: /           # 访问根路径返回 index.html 即视为健康
     autoDeploy: true

@@ -474,7 +474,7 @@ async function getClosedFiveMinuteKlines() {
   }
 
   // 返回最近的已收盘K线
-  return closedKlines.slice(-1); // 只返回最新的已收盘K线
+  return closedKlines;
 }
 
 /**
@@ -539,9 +539,15 @@ const generateTradingSignal = async () => {
     // 获取5mK线数据
     const fiveMinuteKlines = await getClosedFiveMinuteKlines();
     // 获取10mK线数据
-    // const tenMinuteKlines = await getClosedTenMinuteKlines();
+    let tenMinuteKlines: any[] = [];
+    try {
+      const now = Date.now();
+      tenMinuteKlines = (await binanceService.getKlines('10m', 100)).filter(kline => kline.closeTime < now);
+    } catch (error) {
+      console.error('获取10分钟K线失败，本轮跳过10分钟分析:', error);
+    }
 
-    const signal = await tradingSignalService.generateSignal('BTCUSDT', fiveMinuteKlines, []);
+    const signal = await tradingSignalService.generateSignal('BTCUSDT', fiveMinuteKlines, tenMinuteKlines);
 
     if (signal) {
       io.emit('tradingSignal', signal);

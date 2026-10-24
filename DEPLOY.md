@@ -83,4 +83,4 @@ npm start
 ### 6. 不要设置 NODE_ENV=production（重要）
 TypeScript 编译需要 `@types/*` 类型包，这些包在 `devDependencies` 中。npm 在 `NODE_ENV=production` 时会跳过 `devDependencies`，导致 `tsc` 报大量 `Cannot find module / Cannot find name 'console'/'process'` 错误。
 
-因此在 Render 环境变量中**不要设置 `NODE_ENV=production`**（本仓库的 `render.yaml` 已去掉该配置）。
+因此安全修复：删除文档末尾误粘贴的疑似数据库密码字符串（单行精确匹配，避免行尾符差异）

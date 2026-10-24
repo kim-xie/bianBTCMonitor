@@ -98,7 +98,7 @@ export class TradingSignalService {
       const prediction = await this.technicalAnalysis.predictDirection(sortedHistory, fiveMinuteKlines);
 
       // 生成10分钟交易信号
-      const tenMinuteSignal = await this.technicalAnalysis.generate10MinuteSignal(sortedHistory, fiveMinuteKlines);
+      const tenMinuteSignal = await this.technicalAnalysis.generate10MinuteSignal(sortedHistory, tenMinuteKlines);
 
       if (tenMinuteSignal) {
         console.log('10分钟信号:', tenMinuteSignal);

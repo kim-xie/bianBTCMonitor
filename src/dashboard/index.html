@@ -4,7 +4,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>BTC十分钟预测系统</title>
+  <title>BTC Radar</title>
   <script src="/socket.io/socket.io.js"></script>
   <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
   <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
@@ -261,7 +261,7 @@
                 {mode === 'login' ? '登录账户' : '创建账户'}
               </h2>
               <p className="text-gray-400 text-sm mt-2">
-                {mode === 'login' ? '欢迎回到BTC交易监控系统' : '开始您的智能交易之旅'}
+                {mode === 'login' ? '欢迎回到 BTC Radar' : '开始您的智能交易之旅'}
               </p>
             </div>
 
@@ -585,21 +585,17 @@
 
 
       const handleChartMouseMove = (e) => {
-        if (!balanceHistory || balanceHistory.length === 0) {
-          console.log('No balance history data');
-          return;
-        }
+        if (!balanceHistory || balanceHistory.length === 0) return;
 
-        const rect = e.currentTarget.getBoundingClientRect();
+        const containerRect = e.currentTarget.getBoundingClientRect();
+        const svg = e.currentTarget.querySelector('svg');
+        if (!svg) return;
+        const rect = svg.getBoundingClientRect();
         const tooltip = document.getElementById('balance-tooltip');
-        if (!tooltip) {
-          console.log('Tooltip element not found');
-          return;
-        }
+        if (!tooltip) return;
 
-        console.log('Mouse move on chart, balanceHistory length:', balanceHistory.length);
-        console.log('Mouse position:', e.clientX, e.clientY);
-        console.log('Chart rect:', rect);
+        const mouseX = e.clientX - rect.left;
+        const mouseY = e.clientY - rect.top;
 
         // 查找最近的数据点
         let closestPoint = null;
@@ -624,11 +620,9 @@
 
           // 计算鼠标到该点的距离
           const distance = Math.sqrt(
-            Math.pow(e.clientX - rect.left - pointX, 2) +
-            Math.pow(e.clientY - rect.top - pointY, 2)
+            Math.pow(mouseX - pointX, 2) +
+            Math.pow(mouseY - pointY, 2)
           );
-
-          console.log(`Data point ${index}: distance=${distance.toFixed(2)}, pointX=${pointX.toFixed(2)}, pointY=${pointY.toFixed(2)}`);
 
           if (distance < minDistance && distance < 50) { // 增加检测范围到50px
             minDistance = distance;
@@ -637,25 +631,29 @@
         });
 
         if (closestPoint) {
-          console.log('Found closest point:', closestPoint, 'distance:', minDistance.toFixed(2));
           tooltip.style.display = 'block';
 
-          // 显示在鼠标右上角
-          const tooltipWidth = 140; // 预估的提示框宽度
-          let left = e.clientX + 8; // 右侧偏移
-          let top = e.clientY - 30; // 上方偏移，显示在右上角
+          const mx = e.clientX - containerRect.left;
+          const my = e.clientY - containerRect.top;
+          const tooltipWidth = tooltip.offsetWidth || 150;
+          const tooltipHeight = tooltip.offsetHeight || 56;
+          let left = mx + 12;
+          let top = my - tooltipHeight - 8;
 
-          // 只有当右侧空间不足时才显示在左侧
-          if (left + tooltipWidth > window.innerWidth - 20) {
-            left = e.clientX - tooltipWidth - 8;
+          if (left + tooltipWidth > containerRect.width - 4) {
+            left = mx - tooltipWidth - 12;
+          }
+          if (left < 4) {
+            left = 4;
           }
 
-          // 如果顶部超出，稍微向下调整
-          if (top < 10) {
-            top = e.clientY + 8;
+          if (top < 4) {
+            top = my + 12;
+          }
+          if (top + tooltipHeight > containerRect.height) {
+            top = containerRect.height - tooltipHeight - 4;
           }
 
-          console.log('Tooltip position:', left, top);
           tooltip.style.left = left + 'px';
           tooltip.style.top = top + 'px';
           const timeStr = new Date(closestPoint.time).toLocaleTimeString('zh-CN', {
@@ -667,13 +665,11 @@
             <div style="font-size: 14px; font-weight: bold; color: #00d4ff;">资金: ${closestPoint.balance.toFixed(2)}U</div>
           `;
         } else {
-          console.log('No closest point found within range');
           tooltip.style.display = 'none';
         }
       };
 
       const handleChartMouseLeave = () => {
-        console.log('Mouse left chart');
         const tooltip = document.getElementById('balance-tooltip');
         if (tooltip) tooltip.style.display = 'none';
       };
@@ -1172,7 +1168,7 @@
               `}</style>
 
           <div className="header">
-            <h1>BTC十分钟预测系统</h1>
+            <h1>BTC Radar</h1>
             <div style={{ display: 'flex', gap: '15px', alignItems: 'center' }}>
               {user && (
                 <div style={{
@@ -1291,7 +1287,7 @@
           {!user ? (
             <div className="flex items-center justify-center min-h-[60vh]">
               <div className="text-center">
-                <div className="text-cyan-300 text-2xl mb-4">请先登录以访问交易监控系统</div>
+                <div className="text-cyan-300 text-2xl mb-4">请先登录以访问 BTC Radar</div>
                 <button
                   onClick={() => setShowAuthModal(true)}
                   className="px-6 py-3 bg-gradient-to-r from-cyan-500 to-blue-500 rounded-lg text-white font-medium hover:shadow-lg hover:shadow-cyan-500/25 transition-all duration-200"
@@ -1507,7 +1503,7 @@
                         <div
                           id="balance-tooltip"
                           style={{
-                            position: 'fixed',
+                            position: 'absolute',
                             display: 'none',
                             backgroundColor: 'rgba(10, 10, 26, 0.95)',
                             border: '1px solid rgba(0, 212, 255, 0.3)',
@@ -1516,8 +1512,7 @@
                             fontSize: '12px',
                             color: '#fff',
                             pointerEvents: 'none',
-                            zIndex: 9999, // 提高z-index确保显示在最上层
-                            boxShadow: '0 2px 8px rgba(0, 212, 255, 0.2)', // 添加阴影增加可见性
+                            zIndex: 9999,
                             backdropFilter: 'blur(10px)',
                             boxShadow: '0 2px 8px rgba(0, 0, 0, 0.3)',
                             fontFamily: 'Arial, sans-serif',

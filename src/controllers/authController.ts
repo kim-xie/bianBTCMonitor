@@ -103,7 +103,11 @@ export const register = async (req: Request, res: Response): Promise<void> => {
     });
   } catch (error) {
     console.error('注册错误:', error);
-    res.status(500).json({ error: '服务器内部错误' });
+    // 临时把具体错误返回给前端，便于排查部署问题（排查完可去掉 detail）
+    res.status(500).json({
+      error: '服务器内部错误',
+      detail: error instanceof Error ? error.message : String(error)
+    });
   }
 };
 

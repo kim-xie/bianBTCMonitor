@@ -1553,25 +1553,21 @@
                             </div>
                             <div className="stat-card">
                               <div className="stat-value">{stats.winningTrades}</div>
-                              <div className="stat-label">盈利交易</div>
+                              <div className="stat-label">盈利次数</div>
                             </div>
                             <div className="stat-card">
                               <div className="stat-value">{stats.losingTrades}</div>
-                              <div className="stat-label">亏损交易</div>
+                              <div className="stat-label">亏损次数</div>
                             </div>
                             <div className="stat-card">
                               <div className="stat-value">{stats.openTrades || 0}</div>
-                              <div className="stat-label">持仓交易</div>
+                              <div className="stat-label">持仓中</div>
                             </div>
                             <div className="stat-card">
                               <div className={`stat-value ${stats.totalProfitLoss >= 0 ? 'profit' : 'loss'}`}>
                                 {stats.totalProfitLoss >= 0 ? formatCurrency(Math.abs(stats.totalProfitLoss)) : '-' + formatCurrency(Math.abs(stats.totalProfitLoss))}
                               </div>
                               <div className="stat-label">总盈亏</div>
-                            </div>
-                            <div className="stat-card">
-                              <div className="stat-value">{stats.totalInvestment || 0}</div>
-                              <div className="stat-label">总预测金额</div>
                             </div>
                           </div>
                         </>
@@ -1616,11 +1612,9 @@
                           <th>开仓金额</th>
                           <th>交易方向</th>
                           <th>入场原因</th>
-                          <th>置信度</th>
                           <th>平仓价</th>
-                          <th>价格变化</th>
+                          <th>价差</th>
                           <th>平仓时间</th>
-                          <th>结果</th>
                           <th>盈亏</th>
                         </tr>
                       </thead>
@@ -1654,7 +1648,6 @@
                                   )) : '-'}
                                 </div>
                               </td>
-                              <td>{trade.confidence}%</td>
                               <td>{trade.closePrice ? formatCurrency(trade.closePrice) : '-'}</td>
                               <td>
                                 {trade.closePrice ?
@@ -1662,13 +1655,6 @@
                                   : '-'}
                               </td>
                               <td>{trade.closeTime ? new Date(trade.closeTime).toLocaleTimeString() : '-'}</td>
-                              <td>
-                                {trade.isCorrect !== undefined ? (
-                                  <span style={{ color: trade.isCorrect ? '#4CAF50' : '#f44336' }}>
-                                    {trade.isCorrect ? '正确' : '错误'}
-                                  </span>
-                                ) : '持仓中'}
-                              </td>
                               <td className={trade.profitLoss && trade.profitLoss >= 0 ? 'profit' : 'loss'}>
                                 {trade.profitLoss !== undefined ? `${trade.profitLoss > 0 ? '+' : ''}${trade.profitLoss.toFixed(2)}` : '-'}
                               </td>
@@ -1981,11 +1967,9 @@
                   <th>开仓金额</th>
                   <th>交易方向</th>
                   <th>入场原因</th>
-                  <th>置信度</th>
                   <th>平仓价</th>
-                  <th>价格变化</th>
+                  <th>价差</th>
                   <th>平仓时间</th>
-                  <th>结果</th>
                   <th>盈亏</th>
                 </tr>
               </thead>
@@ -2013,7 +1997,6 @@
                         )) : '-'}
                       </div>
                     </td>
-                    <td>{trade.confidence}%</td>
                     <td>{trade.closePrice ? formatCurrency(trade.closePrice) : '-'}</td>
                     <td>
                       {trade.closePrice ?
@@ -2021,13 +2004,6 @@
                         : '-'}
                     </td>
                     <td>{trade.closeTime ? new Date(trade.closeTime).toLocaleTimeString() : '-'}</td>
-                    <td>
-                      {trade.isCorrect !== undefined ? (
-                        <span style={{ color: trade.isCorrect ? '#4CAF50' : '#f44336' }}>
-                          {trade.isCorrect ? '正确' : '错误'}
-                        </span>
-                      ) : '持仓中'}
-                    </td>
                     <td className={trade.profitLoss && trade.profitLoss >= 0 ? 'profit' : 'loss'}>
                       {trade.profitLoss !== undefined ? `${trade.profitLoss > 0 ? '+' : ''}${trade.profitLoss.toFixed(2)}` : '-'}
                     </td>

@@ -112,8 +112,8 @@ let currentPrice = 65000;
  * 确保获取的是已收盘的5分钟K线
  */
 async function getClosedFiveMinuteKlines() {
-  // 获取K线数据（多获取一些以确保有已收盘的）
-  const klines = await binanceService.getKlines('5m', 160);
+  // 获取K线数据（多获取一些以确保有已收盘的，EMA200需要至少200根）
+  const klines = await binanceService.getKlines('5m', 400);
 
   // 当前UTC时间
   const now = new Date().getTime();

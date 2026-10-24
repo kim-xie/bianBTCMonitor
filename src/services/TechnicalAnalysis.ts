@@ -4,6 +4,7 @@ import { IPriceData } from '../models/PriceData';
 export interface IndicatorResult {
   ema50: number;
   ema150: number;
+  ema200: number;
   trend: 'BULLISH' | 'BEARISH' | 'NEUTRAL';
   volatility: number;
 }
@@ -27,6 +28,7 @@ interface Kline {
 export class TechnicalAnalysisService {
   private readonly EMA50_PERIOD = 50;
   private readonly EMA150_PERIOD = 150;
+  private readonly EMA200_PERIOD = 200;
 
   /**
    * 计算技术指标
@@ -45,9 +47,11 @@ export class TechnicalAnalysisService {
     // 计算EMA50和EMA150
     const ema50Values = ti.ema({ values: fiveMinutePrices, period: this.EMA50_PERIOD });
     const ema150Values = ti.ema({ values: fiveMinutePrices, period: this.EMA150_PERIOD });
+    const ema200Values = ti.ema({ values: fiveMinutePrices, period: this.EMA200_PERIOD });
 
     const ema50 = +(ema50Values[ema50Values.length - 1] || fiveMinutePrices[fiveMinutePrices.length - 1]);
     const ema150 = +(ema150Values[ema150Values.length - 1] || fiveMinutePrices[fiveMinutePrices.length - 1]);
+    const ema200 = +(ema200Values[ema200Values.length - 1] || fiveMinutePrices[fiveMinutePrices.length - 1]);
 
     // 判断趋势
     const trend = this.determineTrend(ema50, ema150);
@@ -58,6 +62,7 @@ export class TechnicalAnalysisService {
     return {
       ema50,
       ema150,
+      ema200,
       trend,
       volatility
     };
@@ -175,6 +180,19 @@ export class TechnicalAnalysisService {
           score -= 80;
           reasoning.push(`趋势策略: 下跌趋势，收盘价(${this.lastFiveMinuteClosePrice.toFixed(2)})在EMA150(${indicators.ema150.toFixed(2)})下18个点范围内，无长下影线，进场做空`);
         }
+      }
+    }
+
+    // 趋势策略：EMA50/EMA200平行趋势 + 回踩均线关键K线
+    if (!this.isFiveMinuteUsed) {
+      const emaTrendStrategy = this.detectEma200TrendPullbackStrategy(fiveMinuteKlines);
+      if (emaTrendStrategy) {
+        if (emaTrendStrategy.direction === 'UP') {
+          score += 80;
+        } else {
+          score -= 80;
+        }
+        reasoning.push(emaTrendStrategy.reasoning);
       }
     }
 
@@ -381,6 +399,132 @@ export class TechnicalAnalysisService {
 
     // 检查两个条件：下影线大过实体 或者 下影线大于上影线
     return lowerShadow > bodySize || lowerShadow > upperShadow;
+  }
+
+  /**
+   * 计算EMA序列
+   */
+  private calculateEma(prices: number[], period: number): number[] {
+    return ti.ema({ values: prices, period }).map(v => +v);
+  }
+
+  /**
+   * 判断EMA50与EMA200是否处于平行趋势
+   * 上升趋势：ema50 > ema200，且两条均线都向上、走势平行（间距稳定）
+   * 下降趋势：ema50 < ema200，且两条均线都向下、走势平行（间距稳定）
+   */
+  private isParallelEmaTrend(ema50Values: number[], ema200Values: number[], direction: 'UP' | 'DOWN'): boolean {
+    const lookback = Math.min(20, ema200Values.length - 1);
+    if (lookback < 5) return false;
+
+    const ema50Recent = ema50Values.slice(-(lookback + 1));
+    const ema200Recent = ema200Values.slice(-(lookback + 1));
+
+    // 趋势方向确认：近端相对于远端
+    if (direction === 'UP') {
+      // 两条均线都需上行
+      if (ema50Recent[ema50Recent.length - 1] <= ema50Recent[0]) return false;
+      if (ema200Recent[ema200Recent.length - 1] <= ema200Recent[0]) return false;
+    } else {
+      // 两条均线都需下行
+      if (ema50Recent[ema50Recent.length - 1] >= ema50Recent[0]) return false;
+      if (ema200Recent[ema200Recent.length - 1] >= ema200Recent[0]) return false;
+    }
+
+    // 走势平行：EMA50与EMA200的间距保持稳定
+    const spreads = ema50Recent.map((v, i) => Math.abs(v - ema200Recent[i]));
+    const avgSpread = spreads.reduce((a, b) => a + b, 0) / spreads.length;
+    if (avgSpread <= 0) return false;
+
+    // 间距波动不超过均值的20%
+    return spreads.every(spread => Math.abs(spread - avgSpread) / avgSpread <= 0.2);
+  }
+
+  /**
+   * 判断K线是否上穿均线：当前收盘站上均线，且开盘在均线下方或前一根收盘在均线下方
+   */
+  private crossesAboveMa(current: any, previous: any, ma: number): boolean {
+    const curOpen = +current.open;
+    const curClose = +current.close;
+    const prevClose = +previous.close;
+    return curClose > ma && (curOpen <= ma || prevClose <= ma);
+  }
+
+  /**
+   * 判断K线是否下穿均线：当前收盘跌破均线，且开盘在均线上方或前一根收盘在均线上方
+   */
+  private crossesBelowMa(current: any, previous: any, ma: number): boolean {
+    const curOpen = +current.open;
+    const curClose = +current.close;
+    const prevClose = +previous.close;
+    return curClose < ma && (curOpen >= ma || prevClose >= ma);
+  }
+
+  /**
+   * 趋势策略：EMA50/EMA200平行趋势中，回踩均线后出现关键K线
+   * 上升趋势：回踩EMA50或EMA200后，阳线上穿均线且反包前一根阴线（或实体大于前一根阴线实体的1/2），收线后进场做多
+   * 下降趋势：反弹EMA50或EMA200后，阴线下穿均线且反包前一根阳线（或实体大于前一根阳线实体的1/2），收线后进场做空
+   */
+  private detectEma200TrendPullbackStrategy(fiveMinuteKlines: any[]): { direction: 'UP' | 'DOWN'; reasoning: string } | null {
+    if (!fiveMinuteKlines || fiveMinuteKlines.length < 3) return null;
+
+    const prices = fiveMinuteKlines.map(k => +k.close);
+    const ema50Values = this.calculateEma(prices, this.EMA50_PERIOD);
+    const ema200Values = this.calculateEma(prices, this.EMA200_PERIOD);
+
+    if (ema200Values.length < 10) {
+      console.log('趋势策略: EMA200数据不足，跳过');
+      return null;
+    }
+
+    const ema50 = ema50Values[ema50Values.length - 1];
+    const ema200 = ema200Values[ema200Values.length - 1];
+
+    const current = fiveMinuteKlines[fiveMinuteKlines.length - 1];
+    const previous = fiveMinuteKlines[fiveMinuteKlines.length - 2];
+
+    const curOpen = +current.open;
+    const curClose = +current.close;
+    const curBody = Math.abs(curClose - curOpen);
+    const prevOpen = +previous.open;
+    const prevClose = +previous.close;
+    const prevBody = Math.abs(prevClose - prevOpen);
+
+    // 上升趋势：ema50 > ema200 且走势平行
+    if (ema50 > ema200 && this.isParallelEmaTrend(ema50Values, ema200Values, 'UP')) {
+      const isPrevBearish = prevClose < prevOpen; // 前一根阴线
+      const isCurBullish = curClose > curOpen;    // 当前阳线
+      const crossedAbove = this.crossesAboveMa(current, previous, ema50) || this.crossesAboveMa(current, previous, ema200);
+      const engulfsPrev = curClose >= prevOpen;    // 反包前一根阴线
+      const bodyGreaterThanHalf = curBody > prevBody * 0.5; // 实体大于前一根阴线实体的1/2
+
+      if (isPrevBearish && isCurBullish && crossedAbove && (engulfsPrev || bodyGreaterThanHalf)) {
+        const crossedMa = this.crossesAboveMa(current, previous, ema50) ? 'EMA50' : 'EMA200';
+        return {
+          direction: 'UP',
+          reasoning: `趋势策略: EMA50/EMA200平行上升趋势，回踩${crossedMa}后关键阳线上穿均线${engulfsPrev ? '并反包前一根阴线' : '且实体大于前一根阴线实体的1/2'}，收线后进场做多`
+        };
+      }
+    }
+
+    // 下降趋势：ema50 < ema200 且走势平行
+    if (ema50 < ema200 && this.isParallelEmaTrend(ema50Values, ema200Values, 'DOWN')) {
+      const isPrevBullish = prevClose > prevOpen; // 前一根阳线
+      const isCurBearish = curClose < curOpen;    // 当前阴线
+      const crossedBelow = this.crossesBelowMa(current, previous, ema50) || this.crossesBelowMa(current, previous, ema200);
+      const engulfsPrev = curClose <= prevOpen;    // 反包前一根阳线
+      const bodyGreaterThanHalf = curBody > prevBody * 0.5; // 实体大于前一根阳线实体的1/2
+
+      if (isPrevBullish && isCurBearish && crossedBelow && (engulfsPrev || bodyGreaterThanHalf)) {
+        const crossedMa = this.crossesBelowMa(current, previous, ema50) ? 'EMA50' : 'EMA200';
+        return {
+          direction: 'DOWN',
+          reasoning: `趋势策略: EMA50/EMA200平行下降趋势，反弹${crossedMa}后关键阴线下穿均线${engulfsPrev ? '并反包前一根阳线' : '且实体大于前一根阳线实体的1/2'}，收线后进场做空`
+        };
+      }
+    }
+
+    return null;
   }
 
   /**

@@ -2,11 +2,15 @@
   "name": "btc-trading-system",
   "version": "1.0.0",
   "description": "BTC日内交易预测系统",
-  "main": "dist/index.js",
+  "main": "dist/dashboard/server.js",
+  "engines": {
+    "node": ">=18"
+  },
   "scripts": {
     "dev": "ts-node-dev src/index.ts",
-    "build": "tsc",
-    "start": "node dist/index.js",
+    "build": "tsc && node scripts/copy-assets.js",
+    "start": "node dist/dashboard/server.js",
+    "start:core": "node dist/index.js",
     "dashboard": "ts-node-dev src/dashboard/server.ts",
     "reset-data": "ts-node scripts/reset-data.ts",
     "backtest": "ts-node src/scripts/backtest.ts"

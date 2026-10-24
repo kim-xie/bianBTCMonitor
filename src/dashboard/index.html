@@ -224,7 +224,7 @@
 
         try {
           const endpoint = mode === 'login' ? '/api/auth/login' : '/api/auth/register';
-          const response = await fetch(`http://localhost:3001${endpoint}`, {
+          const response = await fetch(endpoint, {
             method: 'POST',
             headers: {
               'Content-Type': 'application/json',
@@ -368,8 +368,8 @@
           return;
         }
 
-        // 连接WebSocket
-        const socket = io('http://localhost:3001', {
+        // 连接WebSocket（同源，生产环境自动使用当前域名）
+        const socket = io({
           auth: { token }
         });
 
@@ -487,10 +487,10 @@
         try {
           const token = localStorage.getItem('token');
           const [statsRes, tradesRes] = await Promise.all([
-            fetch('http://localhost:3001/api/stats', {
+            fetch('/api/stats', {
               headers: { 'Authorization': `Bearer ${token}` }
             }),
-            fetch('http://localhost:3001/api/recent-trades', {
+            fetch('/api/recent-trades', {
               headers: { 'Authorization': `Bearer ${token}` }
             })
           ]);
@@ -559,7 +559,7 @@
       const fetchAllTrades = async () => {
         try {
           const token = localStorage.getItem('token');
-          const response = await fetch('http://localhost:3001/api/all-trades', {
+          const response = await fetch('/api/all-trades', {
             headers: { 'Authorization': `Bearer ${token}` }
           });
           if (response.ok) {
@@ -1705,6 +1705,7 @@
       const [filters, setFilters] = useState({
         reasoningKeyword: '',    // 新增：入场原因关键词
         signal: '',             // 新增：交易信号
+        strategy: '',           // 新增：策略筛选
         confidenceMin: '',      // 新增：最小置信度
         confidenceMax: '',      // 原有：时间范围
         startDate: '',
@@ -1715,26 +1716,30 @@
 
       const fetchAllTrades = async () => {
         try {
-          const response = await fetch('http://localhost:3001/api/all-trades');
+          const response = await fetch('/api/all-trades');
           if (response.ok) {
             const tradesData = await response.json();
             setAllTrades(tradesData);
+            return tradesData;
           }
         } catch (error) {
           console.error('获取交易记录失败:', error);
         }
+        return null;
       };
 
       const fetchTrades = async () => {
         setLoading(true);
         try {
           // 如果还没有加载全部数据，先获取
-          if (allTrades.length === 0) {
-            await fetchAllTrades();
+          let sourceTrades = allTrades;
+          if (sourceTrades.length === 0) {
+            const fetched = await fetchAllTrades();
+            if (fetched) sourceTrades = fetched;
           }
 
           // 应用筛选条件并按时间倒序排列（最近时间在前）
-          let filteredTrades = allTrades.filter(trade => {
+          let filteredTrades = sourceTrades.filter(trade => {
             // 入场原因关键词模糊查询
             if (filters.reasoningKeyword) {
               const keyword = filters.reasoningKeyword.toLowerCase();
@@ -1748,6 +1753,14 @@
             if (filters.signal) {
               if (filters.signal === 'BUY' && trade.signal !== 'BUY') return false;
               if (filters.signal === 'SELL' && trade.signal !== 'SELL') return false;
+            }
+
+            // 策略筛选（按入场原因前缀匹配策略类型）
+            if (filters.strategy) {
+              const hasStrategy = trade.reasoning && trade.reasoning.some(reason =>
+                reason.startsWith(filters.strategy)
+              );
+              if (!hasStrategy) return false;
             }
 
             // 置信度范围筛选
@@ -1809,6 +1822,7 @@
         setFilters({
           reasoningKeyword: '',    // 重置入场原因关键词
           signal: '',             // 重置交易信号
+          strategy: '',           // 重置策略筛选
           confidenceMin: '',      // 重置置信度范围
           confidenceMax: '',
           startDate: '',
@@ -1833,9 +1847,9 @@
           <div className="bg-white/5 backdrop-blur-sm rounded-xl p-4 mb-6 border border-white/10">
             <h4 className="text-cyan-300 text-sm font-medium mb-4 tracking-wide">筛选条件</h4>
 
-            <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-4">
+            <div className="grid grid-cols-1 md:grid-cols-12 gap-4 mb-4">
               {/* 入场原因关键词 - 核心功能 */}
-              <div>
+              <div className="md:col-span-3">
                 <label className="block text-xs text-gray-400 mb-2">入场原因关键词</label>
                 <input
                   type="text"
@@ -1846,8 +1860,22 @@
                 />
               </div>
 
+              {/* 策略 */}
+              <div className="md:col-span-2">
+                <label className="block text-xs text-gray-400 mb-2">策略</label>
+                <select
+                  value={filters.strategy}
+                  onChange={(e) => handleFilterChange('strategy', e.target.value)}
+                  className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-gray-200 text-sm focus:border-cyan-400/50 focus:bg-white/10 transition-all duration-200 outline-none cursor-pointer"
+                >
+                  <option value="" className="bg-gray-900 text-white">全部策略</option>
+                  <option value="趋势策略" className="bg-gray-900 text-cyan-400">趋势策略</option>
+                  <option value="反转策略" className="bg-gray-900 text-orange-400">反转策略</option>
+                </select>
+              </div>
+
               {/* 时间范围 */}
-              <div className="md:col-span-1">
+              <div className="md:col-span-3">
                 <label className="block text-xs text-gray-400 mb-2">时间范围</label>
                 <div className="flex items-center gap-2">
                   <input
@@ -1867,7 +1895,7 @@
               </div>
 
               {/* 交易方向 */}
-              <div>
+              <div className="md:col-span-2">
                 <label className="block text-xs text-gray-400 mb-2">交易方向</label>
                 <select
                   value={filters.tradeType}
@@ -1881,7 +1909,7 @@
               </div>
 
               {/* 预测结果 */}
-              <div>
+              <div className="md:col-span-2">
                 <label className="block text-xs text-gray-400 mb-2">预测结果</label>
                 <select
                   value={filters.result}
@@ -1928,11 +1956,19 @@
 
           {/* 统计信息 */}
           <div style={{ marginBottom: '20px', fontSize: '14px', color: '#ccc' }}>
-            {filters.reasoningKeyword ? (
-              `共找到 ${trades.length} 条交易记录 - 关键词: "${filters.reasoningKeyword}"${filters.signal ? ` | 信号: ${filters.signal === 'BUY' ? '买入' : '卖出'}` : ''}${filters.confidenceMin ? ` | 置信度≥${filters.confidenceMin}%` : ''}`
-            ) : (
-              `共找到 ${trades.length} 条交易记录`
-            )}
+            {(() => {
+              const activeFilters = [];
+              if (filters.reasoningKeyword) activeFilters.push(`关键词: "${filters.reasoningKeyword}"`);
+              if (filters.strategy) activeFilters.push(`策略: ${filters.strategy}`);
+              if (filters.signal) activeFilters.push(`信号: ${filters.signal === 'BUY' ? '买入' : '卖出'}`);
+              if (filters.confidenceMin) activeFilters.push(`置信度≥${filters.confidenceMin}%`);
+              if (filters.confidenceMax) activeFilters.push(`置信度≤${filters.confidenceMax}%`);
+              if (filters.startDate) activeFilters.push(`起始: ${filters.startDate}`);
+              if (filters.endDate) activeFilters.push(`截止: ${filters.endDate}`);
+              if (filters.tradeType) activeFilters.push(`方向: ${filters.tradeType === 'LONG' ? '做多' : '做空'}`);
+              if (filters.result) activeFilters.push(`结果: ${filters.result === 'correct' ? '正确' : filters.result === 'incorrect' ? '错误' : '持仓中'}`);
+              return `共找到 ${trades.length} 条交易记录${activeFilters.length ? ' | ' + activeFilters.join(' | ') : ''}`;
+            })()}
           </div>
 
           {/* 交易记录表格 */}

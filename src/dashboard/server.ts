@@ -538,16 +538,8 @@ const generateTradingSignal = async () => {
   try {
     // 获取5mK线数据
     const fiveMinuteKlines = await getClosedFiveMinuteKlines();
-    // 获取10mK线数据
-    let tenMinuteKlines: any[] = [];
-    try {
-      const now = Date.now();
-      tenMinuteKlines = (await binanceService.getKlines('10m', 100)).filter(kline => kline.closeTime < now);
-    } catch (error) {
-      console.error('获取10分钟K线失败，本轮跳过10分钟分析:', error);
-    }
-
-    const signal = await tradingSignalService.generateSignal('BTCUSDT', fiveMinuteKlines, tenMinuteKlines);
+    // 10分钟K线策略已下线
+    const signal = await tradingSignalService.generateSignal('BTCUSDT', fiveMinuteKlines, []);
 
     if (signal) {
       io.emit('tradingSignal', signal);

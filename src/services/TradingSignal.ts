@@ -97,16 +97,6 @@ export class TradingSignalService {
       // 进行技术分析和预测
       const prediction = await this.technicalAnalysis.predictDirection(sortedHistory, fiveMinuteKlines);
 
-      // 生成10分钟交易信号
-      const tenMinuteSignal = await this.technicalAnalysis.generate10MinuteSignal(sortedHistory, tenMinuteKlines);
-
-      if (tenMinuteSignal) {
-        console.log('10分钟信号:', tenMinuteSignal);
-        // 根据信号执行交易
-        // 发送飞书通知
-        await this.sendFeishuTenMinuteNotification(tenMinuteSignal, currentPrice, prediction, klineCloseTime);
-      }
-
       // 判断是否生成交易信号
       if (prediction.confidence < this.CONFIDENCE_THRESHOLD) {
         console.log(`置信度(${prediction.confidence}%)低于阈值(${this.CONFIDENCE_THRESHOLD}%)，不生成信号`);
@@ -319,39 +309,6 @@ export class TradingSignalService {
       console.log('✅ 飞书平仓通知发送成功');
     } catch (error) {
       console.error('发送飞书平仓通知时出错:', error);
-    }
-  }
-
-  private async sendFeishuTenMinuteNotification(signal: any, currentPrice: number, prediction: any, klineCloseTime: Date): Promise<void> {
-    if (!this.FEISHU_WEBHOOK_URL) {
-      console.log('飞书 webhook 地址未配置，跳过通知');
-      return;
-    }
-
-    try {
-      const message = {
-        msg_type: 'text',
-        content: {
-          text: `⏰ 10分钟交易信号\n\n` +
-            `信号类型: ${signal.signal === 'BUY' ? '买入' : '卖出'}\n` +
-            `当前价格: ${currentPrice.toFixed(2)} USDT\n` +
-            `预测方向: ${signal.prediction === 'UP' ? '上涨' : '下跌'}\n` +
-            `置信度: ${signal.confidence}%\n` +
-            `K线时间: ${new Date(klineCloseTime).toLocaleString()}\n` +
-            `推荐操作: ${signal.recommendedAction}\n\n` +
-            `分析依据:\n${signal.reasoning.map((reason: string) => `- ${reason}`).join('\n')}\n\n` +
-            `发送时间: ${new Date().toLocaleString()}`
-        }
-      };
-
-      console.log('发送10分钟信号飞书通知:', message);
-      await axiosInstance.post(this.FEISHU_WEBHOOK_URL, message);
-      console.log('✅ 10分钟信号飞书通知发送成功');
-    } catch (error: any) {
-      console.error('发送10分钟信号飞书通知时出错:', error.message);
-      if (error.response) {
-        console.error('响应错误:', error.response.status, error.response.data);
-      }
     }
   }
 }

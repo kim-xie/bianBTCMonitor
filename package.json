@@ -8,7 +8,7 @@
   },
   "scripts": {
     "dev": "ts-node-dev src/index.ts",
-    "build": "tsc && node scripts/copy-assets.js",
+    "build": "npm install --include=dev && tsc && node scripts/copy-assets.js",
     "start": "node dist/dashboard/server.js",
     "start:core": "node dist/index.js",
     "dashboard": "ts-node-dev src/dashboard/server.ts",

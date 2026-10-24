@@ -373,6 +373,21 @@ app.get('/api/current-price', async (_req, res) => {
   }
 });
 
+app.get('/api/klines', async (req, res) => {
+  try {
+    const interval = typeof req.query.interval === 'string' ? req.query.interval : '10m';
+    const limit = Math.min(parseInt(String(req.query.limit), 10) || 200, 500);
+    const start = parseInt(String(req.query.start), 10) || undefined;
+    const end = parseInt(String(req.query.end), 10) || undefined;
+    const klines = await binanceService.getKlines(interval, limit, start, end);
+    const trades = await TradeModel.find().sort({ timestamp: -1 }).limit(100).lean();
+    res.json({ klines, trades });
+  } catch (error) {
+    console.error('获取K线数据失败:', error);
+    res.status(500).json({ error: '获取K线数据失败' });
+  }
+});
+
 // Socket.io连接
 io.on('connection', (socket: any) => {
   console.log('客户端已连接:', socket.id);

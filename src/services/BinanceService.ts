@@ -170,7 +170,7 @@ export class BinanceService {
   /**
    * 获取K线数据
    */
-  async getKlines(interval: string = '1m', limit: number = 100): Promise<BinanceKline[]> {
+  async getKlines(interval: string = '1m', limit: number = 100, startTime?: number, endTime?: number): Promise<BinanceKline[]> {
     const maxRetries = 3;
     for (let i = 0; i < maxRetries; i++) {
       try {
@@ -178,7 +178,9 @@ export class BinanceService {
           params: {
             symbol: this.SYMBOL,
             interval,
-            limit
+            limit,
+            ...(startTime && { startTime }),
+            ...(endTime && { endTime })
           }
         });
 

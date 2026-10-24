@@ -4,12 +4,13 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>BTC Radar</title>
+  <title>BTC Oracle</title>
   <script src="/socket.io/socket.io.js"></script>
   <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
   <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
   <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
   <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://unpkg.com/lightweight-charts@4.2.0/dist/lightweight-charts.standalone.production.js"></script>
   <style>
     body {
       margin: 0;
@@ -261,7 +262,7 @@
                 {mode === 'login' ? '登录账户' : '创建账户'}
               </h2>
               <p className="text-gray-400 text-sm mt-2">
-                {mode === 'login' ? '欢迎回到 BTC Radar' : '开始您的智能交易之旅'}
+                {mode === 'login' ? '欢迎回到 BTC Oracle' : '开始您的智能交易之旅'}
               </p>
             </div>
 
@@ -351,6 +352,7 @@
       const [balanceHistory, setBalanceHistory] = useState([]);
       const [isConnected, setIsConnected] = useState(false);
       const [activeView, setActiveView] = useState('dashboard');
+      const [chartTrade, setChartTrade] = useState(null);
       const [user, setUser] = useState(null);
       const [subscription, setSubscription] = useState(null);
       const [showAuthModal, setShowAuthModal] = useState(false);
@@ -1168,7 +1170,7 @@
               `}</style>
 
           <div className="header">
-            <h1>BTC Radar</h1>
+            <h1>BTC Oracle</h1>
             <div style={{ display: 'flex', gap: '15px', alignItems: 'center' }}>
               {user && (
                 <div style={{
@@ -1287,7 +1289,7 @@
           {!user ? (
             <div className="flex items-center justify-center min-h-[60vh]">
               <div className="text-center">
-                <div className="text-cyan-300 text-2xl mb-4">请先登录以访问 BTC Radar</div>
+                <div className="text-cyan-300 text-2xl mb-4">请先登录以访问 BTC Oracle</div>
                 <button
                   onClick={() => setShowAuthModal(true)}
                   className="px-6 py-3 bg-gradient-to-r from-cyan-500 to-blue-500 rounded-lg text-white font-medium hover:shadow-lg hover:shadow-cyan-500/25 transition-all duration-200"
@@ -1612,6 +1614,7 @@
                           <th>价差</th>
                           <th>平仓时间</th>
                           <th>盈亏</th>
+                          <th>操作</th>
                         </tr>
                       </thead>
                       <tbody>
@@ -1654,6 +1657,9 @@
                               <td className={trade.profitLoss && trade.profitLoss >= 0 ? 'profit' : 'loss'}>
                                 {trade.profitLoss !== undefined ? `${trade.profitLoss > 0 ? '+' : ''}${trade.profitLoss.toFixed(2)}` : '-'}
                               </td>
+                              <td>
+                                <button onClick={() => setChartTrade(trade)} style={{ padding: '4px 10px', borderRadius: '6px', border: '1px solid rgba(0,212,255,0.4)', backgroundColor: 'rgba(0,212,255,0.08)', color: '#00d4ff', cursor: 'pointer', fontSize: '12px' }}>K线</button>
+                              </td>
                             </tr>
                           );
                         })}
@@ -1664,7 +1670,7 @@
               ) : activeView === 'calendar' ? (
                 <CalendarStats trades={allTrades} />
               ) : (
-                <TradesQuery trades={allTrades} />
+                <TradesQuery trades={allTrades} onChartView={setChartTrade} />
               )}
             </>
           )}
@@ -1676,11 +1682,202 @@
             mode={authMode}
             onModeToggle={() => setAuthMode(authMode === 'login' ? 'register' : 'login')}
           />
+          {chartTrade && (
+            <TradeChartModal trade={chartTrade} onClose={() => setChartTrade(null)} />
+          )}
         </div>
       );
     };
 
-    const TradesQuery = () => {
+    const TradeChartModal = ({ trade, onClose }) => {
+      const formatCurrency = (amount) => {
+        return new Intl.NumberFormat('zh-CN', {
+          style: 'decimal',
+          minimumFractionDigits: 2,
+          maximumFractionDigits: 2
+        }).format(amount);
+      };
+      const containerRef = React.useRef(null);
+      const [chartError, setChartError] = useState('');
+
+      useEffect(() => {
+        let chart = null;
+        let disposed = false;
+        const onResize = () => { if (chart && containerRef.current) chart.applyOptions({ width: containerRef.current.clientWidth }); };
+
+        const init = async () => {
+          try {
+            if (typeof LightweightCharts === 'undefined') { setChartError('图表库加载失败，请检查网络后刷新'); return; }
+            const entryMs = new Date(trade.timestamp).getTime();
+            const exitMs = trade.closeTime ? new Date(trade.closeTime).getTime() : entryMs + 600000;
+            const res = await fetch(`/api/klines?interval=5m&start=${entryMs - 220 * 300000}&end=${Math.min(exitMs + 7200000, Date.now() + 600000)}&limit=300`);
+            const data = await res.json();
+            if (disposed || !containerRef.current) return;
+            const candles = (data.klines || []).map(k => ({
+              time: Math.floor(k.openTime / 1000),
+              open: +k.open, high: +k.high, low: +k.low, close: +k.close
+            }));
+            if (!candles.length) { setChartError('暂无K线数据'); return; }
+            const ema = (period) => {
+              const closes = candles.map(c => c.close);
+              if (closes.length < period) return [];
+              const k = 2 / (period + 1);
+              let sum = 0;
+              for (let i = 0; i < period; i++) sum += closes[i];
+              let prev = sum / period;
+              const out = [{ time: candles[period - 1].time, value: prev }];
+              for (let i = period; i < closes.length; i++) {
+                prev = closes[i] * k + prev * (1 - k);
+                out.push({ time: candles[i].time, value: prev });
+              }
+              return out;
+            };
+            const ema50Data = ema(50);
+            const ema200Data = ema(200);
+            const entryTime = Math.floor(new Date(trade.timestamp).getTime() / 1000);
+            const exitTime = trade.closeTime ? Math.floor(new Date(trade.closeTime).getTime() / 1000) : null;
+            const findBar = (t) => {
+              const hit = candles.find(c => c.time <= t && t < c.time + 300);
+              return hit ? hit.time : null;
+            };
+            const entryBar = findBar(entryTime);
+            const exitBar = exitTime ? findBar(exitTime) : null;
+            const priceLines = [{
+              price: Number(trade.price),
+              color: trade.tradeType === 'LONG' ? '#26a69a' : '#ef5350',
+              lineWidth: 1,
+              lineStyle: LightweightCharts.LineStyle.Solid,
+              axisLabelVisible: true,
+              title: (trade.tradeType === 'LONG' ? '开多 ' : '开空 ') + Number(trade.price).toFixed(0)
+            }];
+            if (exitTime && trade.closePrice) {
+              priceLines.push({
+                price: Number(trade.closePrice),
+                color: (trade.profitLoss || 0) >= 0 ? '#26a69a' : '#ef5350',
+                lineWidth: 1,
+                lineStyle: LightweightCharts.LineStyle.Dashed,
+                axisLabelVisible: true,
+                title: '平 ' + Number(trade.closePrice).toFixed(0) + (trade.profitLoss != null ? ` ${trade.profitLoss >= 0 ? '+' : ''}${trade.profitLoss.toFixed(2)}U` : '')
+              });
+            }
+            chart = LightweightCharts.createChart(containerRef.current, {
+              width: containerRef.current.clientWidth,
+              height: 400,
+              layout: { background: { type: 'solid', color: 'transparent' }, textColor: '#d1d4dc' },
+              grid: { vertLines: { color: 'rgba(42,46,57,0.4)' }, horzLines: { color: 'rgba(42,46,57,0.4)' } },
+              localization: {
+                timeFormatter: (t) => {
+                  const d = new Date((t + 8 * 3600) * 1000);
+                  return d.toISOString().slice(5, 16).replace('T', ' ');
+                }
+              },
+              timeScale: {
+                timeVisible: true,
+                secondsVisible: false,
+                tickMarkFormatter: (t) => {
+                  const d = new Date((t + 8 * 3600) * 1000);
+                  const iso = d.toISOString();
+                  const hm = iso.slice(11, 16);
+                  return hm === '00:00' ? iso.slice(5, 10).replace('-', '/') : hm;
+                }
+              }
+            });
+            const series = chart.addCandlestickSeries({
+              upColor: '#26a69a', downColor: '#ef5350', borderVisible: false,
+              wickUpColor: '#26a69a', wickDownColor: '#ef5350',
+              priceLineVisible: false
+            });
+            series.setData(candles);
+            const ema50Series = chart.addLineSeries({ color: '#f0b90b', lineWidth: 1, priceLineVisible: false, lastValueVisible: false });
+            ema50Series.setData(ema50Data);
+            const ema200Series = chart.addLineSeries({ color: '#a855f7', lineWidth: 1, priceLineVisible: false, lastValueVisible: false });
+            ema200Series.setData(ema200Data);
+            priceLines.forEach(pl => series.createPriceLine(pl));
+            if (exitTime && trade.closePrice) {
+              const conn = chart.addLineSeries({
+                color: (trade.profitLoss || 0) >= 0 ? 'rgba(38,166,154,0.45)' : 'rgba(239,83,80,0.45)',
+                lineWidth: 1,
+                lineStyle: LightweightCharts.LineStyle.Dotted,
+                priceLineVisible: false,
+                lastValueVisible: false,
+                crosshairMarkerVisible: false
+              });
+              conn.setData([{ time: entryTime, value: Number(trade.price) }, { time: exitTime, value: Number(trade.closePrice) }]);
+            }
+            const barSec = 300;
+            const hasExit = !!(exitTime && trade.closePrice);
+            const t1 = entryBar != null ? entryBar : entryTime;
+            const t2 = hasExit ? (exitBar != null ? exitBar : exitTime) : null;
+            const mid = t2 != null ? (t1 + t2) / 2 : t1;
+            const half = t2 != null ? Math.max((t2 - t1) / 2, 8 * barSec) + 4 * barSec : 12 * barSec;
+            const viewFrom = Math.max(candles[0].time, Math.round(mid - half));
+            const viewTo = Math.min(candles[candles.length - 1].time + barSec - 1, Math.round(mid + half));
+            requestAnimationFrame(() => { if (!disposed && chart) chart.timeScale().setVisibleRange({ from: viewFrom, to: viewTo }); });
+            series.setMarkers([
+              {
+                time: entryBar != null ? entryBar : entryTime,
+                position: trade.tradeType === 'LONG' ? 'belowBar' : 'aboveBar',
+                color: trade.tradeType === 'LONG' ? '#26a69a' : '#ef5350',
+                shape: trade.tradeType === 'LONG' ? 'arrowUp' : 'arrowDown',
+                text: '开'
+              },
+              ...(hasExit ? [{
+                time: exitBar != null ? exitBar : exitTime,
+                position: trade.tradeType === 'LONG' ? 'aboveBar' : 'belowBar',
+                color: (trade.profitLoss || 0) >= 0 ? '#26a69a' : '#ef5350',
+                shape: 'circle',
+                text: '平'
+              }] : [])
+            ]);
+            window.addEventListener('resize', onResize);
+          } catch (err) {
+            if (!disposed) setChartError('K线数据加载失败: ' + (err.message || err));
+          }
+        };
+        init();
+        return () => {
+          disposed = true;
+          window.removeEventListener('resize', onResize);
+          if (chart) { chart.remove(); chart = null; }
+        };
+      }, [trade]);
+
+      const pnl = trade.profitLoss;
+      return (
+        <div onClick={onClose} style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.75)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '20px' }}>
+          <div onClick={(e) => e.stopPropagation()} className="panel" style={{ width: '100%', maxWidth: '760px', maxHeight: '90vh', overflowY: 'auto', position: 'relative' }}>
+            <button onClick={onClose} style={{ position: 'absolute', top: '10px', right: '14px', background: 'none', border: 'none', color: '#9aa4b2', fontSize: '22px', cursor: 'pointer' }}>×</button>
+            <h3 style={{ paddingRight: '36px', display: 'flex', alignItems: 'center', gap: '10px' }}>
+              <span>单笔交易复盘</span>
+              <span style={{ padding: '4px 14px', borderRadius: '16px', fontSize: '14px', fontWeight: 700, letterSpacing: '1px', color: '#fff', backgroundColor: trade.tradeType === 'LONG' ? '#26a69a' : '#ef5350', boxShadow: trade.tradeType === 'LONG' ? '0 0 12px rgba(38,166,154,0.55)' : '0 0 12px rgba(239,83,80,0.55)' }}>
+                {trade.tradeType === 'LONG' ? '做多 ▲' : '做空 ▼'}
+              </span>
+            </h3>
+            <div style={{ display: 'flex', gap: '18px', flexWrap: 'wrap', marginBottom: '10px', fontSize: '14px', justifyContent: 'flex-start', alignItems: 'center', textAlign: 'left' }}>
+              <span>开仓: <b>{formatCurrency(trade.price)}</b> <span style={{ color: '#9aa4b2', fontSize: '12px' }}>{new Date(trade.timestamp).toLocaleString('zh-CN')}</span></span>
+              <span>平仓: <b>{trade.closePrice ? formatCurrency(trade.closePrice) : '持仓中'}</b> <span style={{ color: '#9aa4b2', fontSize: '12px' }}>{trade.closeTime ? new Date(trade.closeTime).toLocaleString('zh-CN') : ''}</span></span>
+              <span>盈亏: <b style={{ color: pnl != null && pnl >= 0 ? '#26a69a' : '#ef5350' }}>{pnl != null ? `${pnl > 0 ? '+' : ''}${pnl.toFixed(2)}U` : '-'}</b></span>
+              <span>持仓: <b>{trade.holdDuration ? trade.holdDuration + ' 分钟' : '-'}</b></span>
+            </div>
+            {chartError ? (
+              <div style={{ color: '#ef5350', padding: '30px 0' }}>{chartError}</div>
+            ) : (
+                <div style={{ position: 'relative' }}>
+                  <div ref={containerRef} style={{ width: '100%', height: '400px' }}></div>
+                  <div style={{ position: 'absolute', top: '8px', left: '10px', zIndex: 10, pointerEvents: 'none', display: 'flex', gap: '14px', flexWrap: 'wrap', fontSize: '12px', color: '#9aa4b2', textShadow: '0 1px 2px rgba(0,0,0,0.8)' }}>
+                    <span>▲ 开仓（<span style={{ color: '#26a69a' }}>绿=多</span> / <span style={{ color: '#ef5350' }}>红=空</span>）</span>
+                    <span>● 平仓（<span style={{ color: '#26a69a' }}>绿=盈</span> / <span style={{ color: '#ef5350' }}>红=亏</span>）</span>
+                    <span style={{ color: '#f0b90b' }}>— EMA50</span>
+                    <span style={{ color: '#a855f7' }}>— EMA200</span>
+                  </div>
+                </div>
+            )}
+          </div>
+        </div>
+      );
+    };
+
+    const TradesQuery = ({ onChartView }) => {
       const [trades, setTrades] = useState([]);
       const [allTrades, setAllTrades] = useState([]); // 存储所有交易数据
       const [loading, setLoading] = useState(false);
@@ -1967,6 +2164,7 @@
                   <th>价差</th>
                   <th>平仓时间</th>
                   <th>盈亏</th>
+                  <th>操作</th>
                 </tr>
               </thead>
               <tbody>
@@ -2002,6 +2200,9 @@
                     <td>{trade.closeTime ? new Date(trade.closeTime).toLocaleTimeString() : '-'}</td>
                     <td className={trade.profitLoss && trade.profitLoss >= 0 ? 'profit' : 'loss'}>
                       {trade.profitLoss !== undefined ? `${trade.profitLoss > 0 ? '+' : ''}${trade.profitLoss.toFixed(2)}` : '-'}
+                    </td>
+                    <td>
+                      <button onClick={() => onChartView(trade)} style={{ padding: '4px 10px', borderRadius: '6px', border: '1px solid rgba(0,212,255,0.4)', backgroundColor: 'rgba(0,212,255,0.08)', color: '#00d4ff', cursor: 'pointer', fontSize: '12px' }}>K线</button>
                     </td>
                   </tr>
                 ))}

@@ -88,6 +88,21 @@ mongoose.connect(MONGODB_URI)
 
 // 服务实例
 const tradingSignalService = new TradingSignalService();
+
+// 已播报平仓结果的交易ID（内存去重，仅dashboard进程广播语音用）
+const announcedClosedTradeIds = new Set<string>();
+
+const emitTradeClosed = (trade: any) => {
+  const id = String(trade._id);
+  if (announcedClosedTradeIds.has(id)) return;
+  announcedClosedTradeIds.add(id);
+  io.emit('tradeClosed', {
+    profitLoss: trade.profitLoss,
+    isCorrect: trade.isCorrect,
+    tradeType: trade.tradeType,
+    signal: trade.signal
+  });
+};
 const statisticsService = new StatisticsService();
 
 // 定期清理过期的K线使用记录（每小时一次）
@@ -633,21 +648,28 @@ const updateTradeResults = async () => {
     for (const trade of pendingTrades) {
       console.log(`处理交易 ${trade._id}: 开仓时间 ${trade.timestamp}, 当前价格 ${currentPrice}`);
       const result = await tradingSignalService.updateTradeResult(trade._id, currentPrice);
-      // 广播平仓结果，供前端语音播报
       if (result) {
-        io.emit('tradeClosed', result);
+        emitTradeClosed({ ...result, _id: trade._id });
       }
     }
 
-    // 有交易被平仓时，检查是否还有未平仓持仓；仅当所有持仓都已平仓时才清除当前信号
-    if (pendingTrades.length > 0) {
-      const remainingOpen = await TradeModel.countDocuments({
-        symbol: 'BTCUSDT',
-        isCorrect: { $exists: false }
-      });
-      if (remainingOpen === 0) {
-        io.emit('signalClear');
-      }
+    // 广播最近3分钟内平仓但尚未播报过的交易（覆盖其它入口进程抢先平仓的情况）
+    const recentlyClosed = await TradeModel.find({
+      closeTime: { $gte: new Date(Date.now() - 3 * 60 * 1000) },
+      isCorrect: { $exists: true }
+    }).lean();
+    for (const closedTrade of recentlyClosed) {
+      emitTradeClosed(closedTrade);
+    }
+
+    // 检查是否还有未平仓持仓；仅当所有持仓都已平仓时才清除当前信号
+    // 不依赖本进程是否刚执行过平仓：平仓可能由其它入口进程完成，需按数据库状态判断
+    const remainingOpen = await TradeModel.countDocuments({
+      symbol: 'BTCUSDT',
+      isCorrect: { $exists: false }
+    });
+    if (remainingOpen === 0) {
+      io.emit('signalClear');
     }
 
     // 更新统计和资金

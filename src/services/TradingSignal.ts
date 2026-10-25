@@ -120,12 +120,15 @@ export class TradingSignalService {
       const signal = this.generateSignalFromPrediction(prediction, currentPrice);
 
       // 保存交易记录
-      await this.saveTrade(signal, currentPrice, prediction, klineCloseTime);
+      const saved = await this.saveTrade(signal, currentPrice, prediction, klineCloseTime);
 
-      console.log(`✅ 成功生成并保存${signal.signal}信号，K线时间: ${klineCloseTime}`);
-
-      // 发送飞书推送
-      await this.sendFeishuNotification(signal, currentPrice, klineCloseTime);
+      if (saved) {
+        console.log(`✅ 成功生成并保存${signal.signal}信号，K线时间: ${klineCloseTime}`);
+        // 发送飞书推送
+        await this.sendFeishuNotification(signal, currentPrice, klineCloseTime);
+      } else {
+        console.log(`⚠️ 该K线已被其它进程开仓，跳过飞书推送，仅同步信号到界面`);
+      }
 
       return signal;
     } catch (error) {
@@ -185,7 +188,7 @@ export class TradingSignalService {
   /**
    * 保存交易记录
    */
-  private async saveTrade(signal: TradingSignal, price: number, prediction: PredictionResult, klineCloseTime: number): Promise<void> {
+  private async saveTrade(signal: TradingSignal, price: number, prediction: PredictionResult, klineCloseTime: number): Promise<boolean> {
     // 根据信号确定交易类型：BUY信号对应做多(LONG)，SELL信号对应做空(SHORT)
     const tradeType = signal.signal === 'BUY' ? 'LONG' : 'SHORT';
     const investmentAmount = 10; // 固定买入金额10U
@@ -207,11 +210,12 @@ export class TradingSignalService {
     try {
       await TradeModel.create(tradeData);
       console.log(`已保存${signal.signal}交易信号，类型: ${tradeType}，价格: ${price}，投资金额: ${investmentAmount}，置信度: ${signal.confidence}%`);
+      return true;
     } catch (error: any) {
       // E11000: 唯一索引冲突，说明该根5分钟K线已被（本进程重启/其它进程）交易过
       if (error && error.code === 11000) {
         console.log(`⚠️  K线 ${new Date(klineCloseTime).toLocaleString()} 已存在交易记录（唯一索引拦截），跳过重复开仓`);
-        return;
+        return false;
       }
       throw error;
     }

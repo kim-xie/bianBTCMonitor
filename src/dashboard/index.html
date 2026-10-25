@@ -36,6 +36,14 @@
   <script type="text/babel">
     const { useState, useEffect } = React;
 
+    const formatAmountU = (amount) => {
+      const value = Number(amount) || 0;
+      if (Math.abs(value) >= 10000) {
+        return parseFloat((value / 1000).toFixed(2)) + 'KU';
+      }
+      return parseFloat(value.toFixed(2)) + 'U';
+    };
+
 
     const CalendarStats = ({ trades, onQueryRange }) => {
       const [currentMonth, setCurrentMonth] = useState(new Date());
@@ -206,7 +214,7 @@
                             {dayStat && (
                               <>
                                 <div className="text-base font-bold" style={{ color: dayStat.totalProfitLoss >= 0 ? '#4CAF50' : '#f44336' }}>
-                                  {dayStat.totalProfitLoss >= 0 ? '+' : ''}{dayStat.totalProfitLoss}U
+                                  {dayStat.totalProfitLoss >= 0 ? '+' : ''}{formatAmountU(dayStat.totalProfitLoss)}
                                 </div>
                                 <div className="text-xs text-gray-400">{dayStat.tradeCount}笔·盈{dayStat.winCount}·胜率{dayStat.winRate.toFixed(0)}%</div>
                               </>
@@ -222,7 +230,7 @@
                           <>
                             <div className="week-range">{weekStat.rangeLabel}</div>
                             <div className="text-base font-bold" style={{ color: weekStat.totalProfitLoss >= 0 ? '#4CAF50' : '#f44336' }}>
-                              {weekStat.totalProfitLoss >= 0 ? '+' : ''}{weekStat.totalProfitLoss}U
+                              {weekStat.totalProfitLoss >= 0 ? '+' : ''}{formatAmountU(weekStat.totalProfitLoss)}
                             </div>
                             <div className="text-xs text-gray-400">{weekStat.tradeCount}笔·盈{weekStat.winCount}·胜率{weekStat.winRate.toFixed(0)}%</div>
                           </>
@@ -284,7 +292,7 @@
                               {list.length > 0 && (
                                 <>
                                   <div className="text-base font-bold" style={{ color: positive ? '#4CAF50' : '#f44336' }}>
-                                    {positive ? '+' : ''}{agg.totalProfitLoss}U
+                                    {positive ? '+' : ''}{formatAmountU(agg.totalProfitLoss)}
                                   </div>
                                   <div className="text-xs text-gray-400">{agg.tradeCount}笔·盈{agg.winCount}·胜率{agg.winRate.toFixed(0)}%</div>
                                 </>
@@ -306,7 +314,7 @@
                                   {rowStats.length > 0 ? (
                                     <>
                                       <div className="text-base font-bold" style={{ color: rowPositive ? '#4CAF50' : '#f44336' }}>
-                                        {rowPositive ? '+' : ''}{rowAgg.totalProfitLoss}U
+                                        {rowPositive ? '+' : ''}{formatAmountU(rowAgg.totalProfitLoss)}
                                       </div>
                                       <div className="text-xs text-gray-400">{rowAgg.tradeCount}笔·盈{rowAgg.winCount}·胜率{rowAgg.winRate.toFixed(0)}%</div>
                                     </>
@@ -339,7 +347,7 @@
                             {yearStats.length > 0 && (
                               <>
                                 <div className="text-base font-bold" style={{ color: positive ? '#4CAF50' : '#f44336' }}>
-                                  {positive ? '+' : ''}{agg.totalProfitLoss}U
+                                  {positive ? '+' : ''}{formatAmountU(agg.totalProfitLoss)}
                                 </div>
                                 <div className="text-xs text-gray-400">{agg.tradeCount}笔·盈{agg.winCount}·胜率{agg.winRate.toFixed(0)}%</div>
                               </>
@@ -531,12 +539,26 @@
               const utter = new SpeechSynthesisUtterance(text);
               utter.lang = 'zh-CN';
               utter.rate = 1.1;
-              window.speechSynthesis.speak(utter);
+              // Chrome下cancel后立即speak可能被吞掉，延迟一拍确保播报生效
+              setTimeout(() => window.speechSynthesis.speak(utter), 60);
             }
           } catch (e) {
             console.warn('语音播报失败:', e);
           }
         };
+
+        // Chrome要求用户先与页面交互才允许语音合成，首次点击时播一条静音内容解锁
+        const primeSpeech = () => {
+          try {
+            if ('speechSynthesis' in window) {
+              const utter = new SpeechSynthesisUtterance(' ');
+              utter.volume = 0;
+              window.speechSynthesis.speak(utter);
+            }
+          } catch (e) { /* 忽略 */ }
+          document.removeEventListener('click', primeSpeech);
+        };
+        document.addEventListener('click', primeSpeech);
 
         socket.on('connect', () => {
           setIsConnected(true);
@@ -550,19 +572,8 @@
 
         socket.on('tradingSignal', (signal) => {
           setCurrentSignal(signal);
-          // 语音播报新信号
-          try {
-            if ('speechSynthesis' in window) {
-              window.speechSynthesis.cancel(); // 取消上一条未播完的
-              const text = signal.signal === 'BUY' ? '做多信号' : '做空信号' + '，价格' + signal.currentPrice.toFixed(0);
-              const utter = new SpeechSynthesisUtterance(text);
-              utter.lang = 'zh-CN';
-              utter.rate = 1.1;
-              window.speechSynthesis.speak(utter);
-            }
-          } catch (e) {
-            console.warn('语音播报失败:', e);
-          }
+          // 语音播报新信号（修复原三元优先级问题：BUY分支漏拼价格文案）
+          speak((signal.signal === 'BUY' ? '做多信号' : '做空信号') + '，价格' + signal.currentPrice.toFixed(0));
         });
 
         // 持仓结束（平仓）时清除当前信号
@@ -575,8 +586,8 @@
           const direction = result.tradeType === 'LONG' ? '做多' : '做空';
           const isProfit = result.profitLoss >= 0;
           const action = isProfit ? '到账' : '亏损';
-          const amount = parseFloat(Math.abs(result.profitLoss).toFixed(2));
-          speak(`您的${direction}订单${action} ${amount}U`);
+          const amount = formatAmountU(Math.abs(result.profitLoss));
+          speak(`您的${direction}订单${action} ${amount}`);
         });
 
         socket.on('balanceUpdate', (data) => {
@@ -859,7 +870,7 @@
           });
           tooltip.innerHTML = `
             <div style="font-size: 12px; margin-bottom: 4px;">时间: ${timeStr}</div>
-            <div style="font-size: 14px; font-weight: bold; color: #00d4ff;">资金: ${closestPoint.balance.toFixed(2)}U</div>
+            <div style="font-size: 14px; font-weight: bold; color: #00d4ff;">资金: ${formatAmountU(closestPoint.balance)}</div>
           `;
         } else {
           tooltip.style.display = 'none';
@@ -1580,9 +1591,9 @@
                     <div className="panel">
                       <h3>资金走势</h3>
                       <div style={{ fontSize: '2em', fontWeight: 'bold', margin: '20px 0' }}>
-                        {currentBalance.toFixed(2)}
+                        {formatAmountU(currentBalance)}
                         <span style={{ fontSize: '0.5em', marginLeft: '10px', opacity: 0.8 }}>
-                          (初始: {initialBalance.toFixed(2)})
+                          (初始: {formatAmountU(initialBalance)})
                         </span>
                       </div>
 
@@ -1769,7 +1780,7 @@
                         />
                       </div>
                       <div style={{ marginTop: '10px', fontSize: '0.9em', opacity: 0.8 }}>
-                        资金变化: {currentBalance >= 100 ? '+' : ''}{(currentBalance - 100).toFixed(2)}
+                        资金变化: {currentBalance >= 100 ? '+' : ''}{formatAmountU(currentBalance - 100)}
                         ({currentBalance >= 100 ? '+' : ''}{((currentBalance - 100) / 100 * 100).toFixed(1)}%)
                       </div>
                     </div>
@@ -1781,7 +1792,7 @@
                           <div style={{ fontSize: '13px', fontWeight: 'bold', color: '#fff', marginBottom: '12px', padding: '10px 12px', backgroundColor: 'rgba(0,212,255,0.15)', borderRadius: '8px', border: '1px solid rgba(0,212,255,0.3)', display: 'flex', justifyContent: 'space-around', textAlign: 'center' }}>
                             <div><span style={{ color: 'rgba(255,255,255,0.6)' }}>今日交易</span><br /><span style={{ color: '#00d4ff', fontSize: '16px' }}>{stats.todayStats?.totalTrades || 0}</span>笔</div>
                             <div style={{ borderLeft: '1px solid rgba(255,255,255,0.2)' }} /><div><span style={{ color: 'rgba(255,255,255,0.6)' }}>胜率</span><br /><span style={{ color: stats.todayStats?.winRate >= 50 ? '#4CAF50' : '#f44336', fontSize: '16px' }}>{formatPercentage(stats.todayStats?.winRate || 0)}</span></div>
-                            <div style={{ borderLeft: '1px solid rgba(255,255,255,0.2)' }} /><div><span style={{ color: 'rgba(255,255,255,0.6)' }}>今日盈亏</span><br /><span style={{ color: stats.todayStats?.totalProfitLoss >= 0 ? '#4CAF50' : '#f44336', fontSize: '16px' }}>{stats.todayStats?.totalProfitLoss >= 0 ? '+' : ''}{stats.todayStats?.totalProfitLoss?.toFixed(2) || '0.00'}</span></div>
+                            <div style={{ borderLeft: '1px solid rgba(255,255,255,0.2)' }} /><div><span style={{ color: 'rgba(255,255,255,0.6)' }}>今日盈亏</span><br /><span style={{ color: stats.todayStats?.totalProfitLoss >= 0 ? '#4CAF50' : '#f44336', fontSize: '16px' }}>{stats.todayStats?.totalProfitLoss >= 0 ? '+' : ''}{formatAmountU(stats.todayStats?.totalProfitLoss || 0)}</span></div>
                           </div>
                           <div className="stats-grid">
                             <div className="stat-card">
@@ -1808,7 +1819,7 @@
                             </div>
                             <div className="stat-card">
                               <div className={`stat-value ${stats.totalProfitLoss >= 0 ? 'profit' : 'loss'}`}>
-                                {stats.totalProfitLoss >= 0 ? formatCurrency(Math.abs(stats.totalProfitLoss)) : '-' + formatCurrency(Math.abs(stats.totalProfitLoss))}
+                                {formatAmountU(stats.totalProfitLoss)}
                               </div>
                               <div className="stat-label">总盈亏</div>
                             </div>
@@ -1867,13 +1878,14 @@
                           const isToday = trade.closeTime ?
                             new Date(trade.closeTime).toDateString() === new Date().toDateString() :
                             new Date(trade.timestamp).toDateString() === new Date().toDateString();
+                          const isLoss = trade.profitLoss != null && trade.profitLoss < 0;
                           return (
-                            <tr key={trade._id} style={isToday ? { backgroundColor: 'rgba(0,212,255,0.1)', borderLeft: '3px solid #00d4ff' } : {}}
-                              onMouseEnter={(e) => { if (!isToday) e.currentTarget.style.backgroundColor = 'rgba(255,255,255,0.1)'; }}
-                              onMouseLeave={(e) => { if (!isToday) e.currentTarget.style.backgroundColor = ''; }}>
+                            <tr key={trade._id} style={isToday ? { backgroundColor: isLoss ? 'rgba(244, 67, 54, 0.08)' : 'rgba(0,212,255,0.1)', borderLeft: '3px solid #00d4ff' } : isLoss ? { backgroundColor: 'rgba(244, 67, 54, 0.08)' } : {}}
+                              onMouseEnter={(e) => { if (!isToday && !isLoss) e.currentTarget.style.backgroundColor = 'rgba(255,255,255,0.1)'; }}
+                              onMouseLeave={(e) => { if (!isToday && !isLoss) e.currentTarget.style.backgroundColor = ''; }}>
                               <td>{new Date(trade.timestamp).toLocaleString('zh-CN')}</td>
                               <td>{formatCurrency(trade.price)}</td>
-                              <td>{trade.investmentAmount}</td>
+                              <td>{trade.investmentAmount != null ? formatAmountU(trade.investmentAmount) : '-'}</td>
                               <td>
                                 <span style={{
                                   padding: '4px 8px',
@@ -1900,7 +1912,7 @@
                               </td>
                               <td>{trade.closeTime ? new Date(trade.closeTime).toLocaleTimeString() : '-'}</td>
                               <td className={trade.profitLoss && trade.profitLoss >= 0 ? 'profit' : 'loss'}>
-                                {trade.profitLoss !== undefined ? `${trade.profitLoss > 0 ? '+' : ''}${trade.profitLoss.toFixed(2)}` : '-'}
+                                {trade.profitLoss !== undefined ? `${trade.profitLoss > 0 ? '+' : ''}${formatAmountU(trade.profitLoss)}` : '-'}
                               </td>
                               <td>
                                 <button onClick={() => setChartTrade(trade)} style={{ padding: '4px 10px', borderRadius: '6px', border: '1px solid rgba(0,212,255,0.4)', backgroundColor: 'rgba(0,212,255,0.08)', color: '#00d4ff', cursor: 'pointer', fontSize: '12px' }}>K线</button>
@@ -2008,7 +2020,7 @@
                 lineWidth: 2,
                 lineStyle: LightweightCharts.LineStyle.Dashed,
                 axisLabelVisible: true,
-                title: '平 ' + Number(trade.closePrice).toFixed(0) + (trade.profitLoss != null ? ` ${trade.profitLoss >= 0 ? '+' : ''}${trade.profitLoss.toFixed(2)}U` : '')
+                title: '平 ' + Number(trade.closePrice).toFixed(0) + (trade.profitLoss != null ? ` ${trade.profitLoss >= 0 ? '+' : ''}${formatAmountU(trade.profitLoss)}` : '')
               });
             }
             chart = LightweightCharts.createChart(containerRef.current, {
@@ -2107,7 +2119,7 @@
             <div style={{ display: 'flex', gap: '18px', flexWrap: 'wrap', marginBottom: '10px', fontSize: '14px', justifyContent: 'flex-start', alignItems: 'center', textAlign: 'left' }}>
               <span>开仓: <b>{formatCurrency(trade.price)}</b> <span style={{ color: '#9aa4b2', fontSize: '12px' }}>{new Date(trade.timestamp).toLocaleString('zh-CN')}</span></span>
               <span>平仓: <b>{trade.closePrice ? formatCurrency(trade.closePrice) : '持仓中'}</b> <span style={{ color: '#9aa4b2', fontSize: '12px' }}>{trade.closeTime ? new Date(trade.closeTime).toLocaleString('zh-CN') : ''}</span></span>
-              <span>盈亏: <b style={{ color: pnl != null && pnl >= 0 ? '#4CAF50' : '#f44336' }}>{pnl != null ? `${pnl > 0 ? '+' : ''}${pnl.toFixed(2)}U` : '-'}</b></span>
+              <span>盈亏: <b style={{ color: pnl != null && pnl >= 0 ? '#4CAF50' : '#f44336' }}>{pnl != null ? `${pnl > 0 ? '+' : ''}${formatAmountU(pnl)}` : '-'}</b></span>
               <span>持仓: <b>{trade.holdDuration ? trade.holdDuration + ' 分钟' : '-'}</b></span>
             </div>
             {chartError ? (
@@ -2455,10 +2467,10 @@
               </thead>
               <tbody>
                 {trades.map((trade) => (
-                  <tr key={trade._id}>
+                  <tr key={trade._id} style={trade.profitLoss != null && trade.profitLoss < 0 ? { backgroundColor: 'rgba(244, 67, 54, 0.08)' } : undefined}>
                     <td>{new Date(trade.timestamp).toLocaleString('zh-CN')}</td>
                     <td>{formatCurrency(trade.price)}</td>
-                    <td>{trade.investmentAmount}</td>
+                    <td>{trade.investmentAmount != null ? formatAmountU(trade.investmentAmount) : '-'}</td>
                     <td>
                       <span style={{
                         padding: '4px 8px',
@@ -2485,7 +2497,7 @@
                     </td>
                     <td>{trade.closeTime ? new Date(trade.closeTime).toLocaleTimeString() : '-'}</td>
                     <td className={trade.profitLoss && trade.profitLoss >= 0 ? 'profit' : 'loss'}>
-                      {trade.profitLoss !== undefined ? `${trade.profitLoss > 0 ? '+' : ''}${trade.profitLoss.toFixed(2)}` : '-'}
+                      {trade.profitLoss !== undefined ? `${trade.profitLoss > 0 ? '+' : ''}${formatAmountU(trade.profitLoss)}` : '-'}
                     </td>
                     <td>
                       <button onClick={() => onChartView(trade)} style={{ padding: '4px 10px', borderRadius: '6px', border: '1px solid rgba(0,212,255,0.4)', backgroundColor: 'rgba(0,212,255,0.08)', color: '#00d4ff', cursor: 'pointer', fontSize: '12px' }}>K线</button>

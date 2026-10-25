@@ -572,8 +572,8 @@
 
         socket.on('tradingSignal', (signal) => {
           setCurrentSignal(signal);
-          // 语音播报新信号（修复原三元优先级问题：BUY分支漏拼价格文案）
-          speak((signal.signal === 'BUY' ? '做多信号' : '做空信号') + '，价格' + signal.currentPrice.toFixed(0));
+          // 语音播报新信号
+          speak(signal.signal === 'BUY' ? '您有新的做多订单' : '您有新的做空订单');
         });
 
         // 持仓结束（平仓）时清除当前信号
@@ -1880,7 +1880,7 @@
                             new Date(trade.timestamp).toDateString() === new Date().toDateString();
                           const isLoss = trade.profitLoss != null && trade.profitLoss < 0;
                           return (
-                            <tr key={trade._id} style={isToday ? { backgroundColor: isLoss ? 'rgba(244, 67, 54, 0.08)' : 'rgba(0,212,255,0.1)', borderLeft: '3px solid #00d4ff' } : isLoss ? { backgroundColor: 'rgba(244, 67, 54, 0.08)' } : {}}
+                            <tr key={trade._id} style={isToday ? { backgroundColor: isLoss ? 'rgba(244, 67, 54, 0.02)' : 'rgba(0,212,255,0.1)', borderLeft: '3px solid #00d4ff' } : isLoss ? { backgroundColor: 'rgba(244, 67, 54, 0.02)' } : {}}
                               onMouseEnter={(e) => { if (!isToday && !isLoss) e.currentTarget.style.backgroundColor = 'rgba(255,255,255,0.1)'; }}
                               onMouseLeave={(e) => { if (!isToday && !isLoss) e.currentTarget.style.backgroundColor = ''; }}>
                               <td>{new Date(trade.timestamp).toLocaleString('zh-CN')}</td>
@@ -2467,7 +2467,7 @@
               </thead>
               <tbody>
                 {trades.map((trade) => (
-                  <tr key={trade._id} style={trade.profitLoss != null && trade.profitLoss < 0 ? { backgroundColor: 'rgba(244, 67, 54, 0.08)' } : undefined}>
+                  <tr key={trade._id} style={trade.profitLoss != null && trade.profitLoss < 0 ? { backgroundColor: 'rgba(244, 67, 54, 0.02)' } : undefined}>
                     <td>{new Date(trade.timestamp).toLocaleString('zh-CN')}</td>
                     <td>{formatCurrency(trade.price)}</td>
                     <td>{trade.investmentAmount != null ? formatAmountU(trade.investmentAmount) : '-'}</td>

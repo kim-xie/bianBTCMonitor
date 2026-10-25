@@ -10,6 +10,33 @@ import { StatisticsService } from '../services/StatisticsService';
 import { BinanceService } from '../services/BinanceService';
 import PriceDataModel from '../models/PriceData';
 import TradeModel from '../models/Trade';
+
+/**
+ * 获取北京时间今天0点对应的 Date 对象。
+ * 无论服务器位于哪个时区，都返回北京时间0点对应的绝对时刻，
+ * 避免生产环境(Render, UTC)与本地环境(UTC+8)的“今日”统计口径不一致。
+ */
+const getBeijingTodayStart = (): Date => {
+  const now = new Date();
+  // now + 8h 后取 UTC 分量 => 北京时间的年月日
+  const shifted = new Date(now.getTime() + 8 * 3600 * 1000);
+  // 北京时间今天0点 = 该日期的 UTC 零点 - 8小时
+  return new Date(Date.UTC(shifted.getUTCFullYear(), shifted.getUTCMonth(), shifted.getUTCDate()) - 8 * 3600 * 1000);
+};
+
+/**
+ * 将 YYYY-MM-DD 字符串按北京时间解析为 Date。
+ * isEnd=true 时返回北京时间当天 23:59:59，用于 endDate 包含全天数据。
+ */
+const parseBeijingDate = (dateStr: string, isEnd = false): Date => {
+  const [y, m, d] = dateStr.split('-').map(Number);
+  // 北京时间当天 00:00 = UTC 前一天 16:00
+  const start = new Date(Date.UTC(y, m - 1, d) - 8 * 3600 * 1000);
+  if (!isEnd) return start;
+  // 北京时间当天 23:59:59.999
+  return new Date(start.getTime() + 24 * 3600 * 1000 - 1);
+};
+
 const app = express();
 const server = http.createServer(app);
 const io = new Server(server, {
@@ -70,7 +97,7 @@ setInterval(() => {
 }, 60 * 60 * 1000); // 每小时清理一次
 
 // 添加资金跟踪
-let currentBalance = 1000; // 初始资金1000U
+let currentBalance = 100; // 初始资金100U
 
 // 计算当前资金基于所有已完成交易
 const calculateCurrentBalance = async () => {
@@ -80,7 +107,7 @@ const calculateCurrentBalance = async () => {
       profitLoss: { $exists: true }
     }).lean();
 
-    let balance = 1000; // 初始资金
+    let balance = 100; // 初始资金
     completedTrades.forEach(trade => {
       balance += (trade.profitLoss || 0);
     });
@@ -102,7 +129,7 @@ const calculateBalanceHistory = async () => {
     }).sort({ closeTime: 1 }).lean(); // 按平仓时间排序
 
     const history = [];
-    let balance = 1000; // 初始资金
+    let balance = 100; // 初始资金
 
     if (completedTrades.length > 0) {
       // 有交易记录的情况
@@ -112,7 +139,7 @@ const calculateBalanceHistory = async () => {
       
       history.push({
         time: startTime.toISOString(),
-        balance: 1000 // 初始资金固定为1000
+        balance: 100 // 初始资金固定为100
       });
 
       // 按时间顺序重建资金变化历史
@@ -127,7 +154,7 @@ const calculateBalanceHistory = async () => {
       // 没有交易记录的情况，只显示初始资金点
       history.push({
         time: new Date().toISOString(),
-        balance: 1000
+        balance: 100
       });
     }
 
@@ -157,9 +184,8 @@ import UserSubscriptionModel from '../models/UserSubscription';
 
 app.get('/api/stats', async (req: AuthRequest, res) => {
   try {
-    // 计算今日的开始时间
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
+    // 计算今日的开始时间（北京时间0点，跨时区一致）
+    const today = getBeijingTodayStart();
 
     const [stats, todayStats, balance, balanceHistory] = await Promise.all([
       statisticsService.calculateWinRate(),
@@ -282,11 +308,11 @@ app.get('/api/trades/search', async (req, res) => {
     }
 
     if (startDate) {
-      filters.startDate = new Date(startDate as string);
+      filters.startDate = parseBeijingDate(startDate as string);
     }
 
     if (endDate) {
-      filters.endDate = new Date(endDate as string);
+      filters.endDate = parseBeijingDate(endDate as string, true);
     }
 
     filters.limit = parseInt(limit as string);
@@ -343,7 +369,7 @@ app.post('/api/reset-data', authenticateToken, async (req: AuthRequest, res) => 
     const priceResult = await PriceDataModel.deleteMany({});
 
     // 重置当前资金为初始值
-    currentBalance = 1000;
+    currentBalance = 100;
 
     console.log(`用户 ${req.user.username} 已清空数据: ${tradesResult.deletedCount} 条交易, ${priceResult.deletedCount} 条价格数据`);
 
@@ -553,9 +579,8 @@ const generateTradingSignal = async () => {
 // 定期更新统计数据
 const updateStatistics = async () => {
   try {
-    // 计算今日的开始时间
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
+    // 计算今日的开始时间（北京时间0点，跨时区一致）
+    const today = getBeijingTodayStart();
 
     const [stats, todayStats, trades, balance] = await Promise.all([
       statisticsService.calculateWinRate(),
@@ -607,7 +632,22 @@ const updateTradeResults = async () => {
 
     for (const trade of pendingTrades) {
       console.log(`处理交易 ${trade._id}: 开仓时间 ${trade.timestamp}, 当前价格 ${currentPrice}`);
-      await tradingSignalService.updateTradeResult(trade._id, currentPrice);
+      const result = await tradingSignalService.updateTradeResult(trade._id, currentPrice);
+      // 广播平仓结果，供前端语音播报
+      if (result) {
+        io.emit('tradeClosed', result);
+      }
+    }
+
+    // 有交易被平仓时，检查是否还有未平仓持仓；仅当所有持仓都已平仓时才清除当前信号
+    if (pendingTrades.length > 0) {
+      const remainingOpen = await TradeModel.countDocuments({
+        symbol: 'BTCUSDT',
+        isCorrect: { $exists: false }
+      });
+      if (remainingOpen === 0) {
+        io.emit('signalClear');
+      }
     }
 
     // 更新统计和资金

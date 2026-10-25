@@ -12,6 +12,9 @@ export interface ITrade extends Document {
   reasoning?: string[];       // 入场原因
   prediction: 'UP' | 'DOWN';
 
+  // 信号所基于的5分钟K线收盘时间戳（毫秒），用于同根K线去重
+  klineCloseTime?: number;
+
   // 平仓相关字段
   closeTime?: Date;          // 平仓时间
   closePrice?: number;       // 平仓价格
@@ -39,6 +42,9 @@ const TradeSchema: Schema = new Schema({
   reasoning: [{ type: String }], // 入场原因
   prediction: { type: String, required: true, enum: ['UP', 'DOWN'] },
 
+  // 信号所基于的5分钟K线收盘时间戳，用于同根K线去重
+  klineCloseTime: { type: Number },
+
   // 平仓相关字段
   closeTime: { type: Date },
   closePrice: { type: Number },
@@ -56,5 +62,7 @@ const TradeSchema: Schema = new Schema({
 TradeSchema.index({ timestamp: -1 });
 TradeSchema.index({ signal: 1 });
 TradeSchema.index({ isCorrect: 1 });
+// 同一品种同一根5分钟K线只允许一笔交易（稀疏索引：历史无该字段的旧数据不参与约束）
+TradeSchema.index({ symbol: 1, klineCloseTime: 1 }, { unique: true, sparse: true });
 
 export default mongoose.model<ITrade>('Trade', TradeSchema);

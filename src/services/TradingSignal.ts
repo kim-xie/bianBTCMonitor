@@ -120,7 +120,7 @@ export class TradingSignalService {
       const signal = this.generateSignalFromPrediction(prediction, currentPrice);
 
       // 保存交易记录
-      await this.saveTrade(signal, currentPrice, prediction);
+      await this.saveTrade(signal, currentPrice, prediction, klineCloseTime);
 
       console.log(`✅ 成功生成并保存${signal.signal}信号，K线时间: ${klineCloseTime}`);
 
@@ -185,7 +185,7 @@ export class TradingSignalService {
   /**
    * 保存交易记录
    */
-  private async saveTrade(signal: TradingSignal, price: number, prediction: PredictionResult): Promise<void> {
+  private async saveTrade(signal: TradingSignal, price: number, prediction: PredictionResult, klineCloseTime: number): Promise<void> {
     // 根据信号确定交易类型：BUY信号对应做多(LONG)，SELL信号对应做空(SHORT)
     const tradeType = signal.signal === 'BUY' ? 'LONG' : 'SHORT';
     const investmentAmount = 10; // 固定买入金额10U
@@ -200,20 +200,30 @@ export class TradingSignalService {
       investmentAmount, // 添加买入金额
       indicators: prediction.indicators,
       prediction: signal.prediction,
-      reasoning: signal.reasoning // 入场原因
+      reasoning: signal.reasoning, // 入场原因
+      klineCloseTime // 信号所基于的5分钟K线收盘时间，用于同根K线去重
     };
 
-    await TradeModel.create(tradeData);
-    console.log(`已保存${signal.signal}交易信号，类型: ${tradeType}，价格: ${price}，投资金额: $${investmentAmount}，置信度: ${signal.confidence}%`);
+    try {
+      await TradeModel.create(tradeData);
+      console.log(`已保存${signal.signal}交易信号，类型: ${tradeType}，价格: ${price}，投资金额: ${investmentAmount}，置信度: ${signal.confidence}%`);
+    } catch (error: any) {
+      // E11000: 唯一索引冲突，说明该根5分钟K线已被（本进程重启/其它进程）交易过
+      if (error && error.code === 11000) {
+        console.log(`⚠️  K线 ${new Date(klineCloseTime).toLocaleString()} 已存在交易记录（唯一索引拦截），跳过重复开仓`);
+        return;
+      }
+      throw error;
+    }
   }
 
   /**
    * 更新交易结果（严格按照10分钟持仓）
    */
-  async updateTradeResult(tradeId: string, currentPrice: number): Promise<void> {
+  async updateTradeResult(tradeId: string, currentPrice: number): Promise<any> {
     try {
       const trade = await TradeModel.findById(tradeId);
-      if (!trade) return;
+      if (!trade) return null;
 
       // 严格按照10分钟计算平仓时间
       const closeTime = new Date(trade.timestamp.getTime() + 10 * 60 * 1000); // 10分钟后
@@ -254,8 +264,11 @@ export class TradingSignalService {
 
       // 发送飞书平仓通知
       await this.sendFeishuCloseNotification(trade, currentPrice, closeTime, isCorrect, profitLoss, profitLossPercent, holdDuration);
+
+      return { profitLoss, isCorrect, tradeType: trade.tradeType, signal: trade.signal };
     } catch (error) {
       console.error('更新交易结果时出错:', error);
+      return null;
     }
   }
 

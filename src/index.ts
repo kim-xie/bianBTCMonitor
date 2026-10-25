@@ -211,6 +211,16 @@ const cleanupOldData = async () => {
   }
 };
 
+/**
+ * 获取北京时间今天0点对应的 Date 对象，
+ * 保证本地(UTC+8)与生产(UTC)环境"今日"统计口径一致。
+ */
+const getBeijingTodayStart = (): Date => {
+  const now = new Date();
+  const shifted = new Date(now.getTime() + 8 * 3600 * 1000);
+  return new Date(Date.UTC(shifted.getUTCFullYear(), shifted.getUTCMonth(), shifted.getUTCDate()) - 8 * 3600 * 1000);
+};
+
 // 发送飞书统计通知
 const sendFeishuStatsNotification = async () => {
   try {
@@ -218,8 +228,7 @@ const sendFeishuStatsNotification = async () => {
     const historicalStats = await statisticsService.calculateWinRate();
 
     // 获取今日统计
-    const today = new Date();
-    today.setHours(0, 0, 0, 0); // 设置为今天0点
+    const today = getBeijingTodayStart();
     const todayStats = await statisticsService.calculateWinRate({ start: today, end: new Date() });
 
     const formatProfitLoss = (value: number) => {

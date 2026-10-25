@@ -7,7 +7,7 @@
     "node": ">=18"
   },
   "scripts": {
-    "dev": "ts-node-dev src/index.ts",
+    "dev": "ts-node-dev src/dashboard/server.ts",
     "build": "npm install --include=dev && tsc && node scripts/copy-assets.js",
     "start": "node dist/dashboard/server.js",
     "start:core": "node dist/index.js",

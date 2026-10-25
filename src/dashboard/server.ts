@@ -631,7 +631,20 @@ const updateStatistics = async () => {
 };
 
 // 定期任务
-setInterval(generateTradingSignal, 60000); // 每分钟生成一次信号
+// 信号检查对齐5分钟K线收盘时刻：每个5分钟边界后延迟5秒执行，替代固定60秒轮询，开仓延迟从最差60秒降至收盘后约5-10秒
+const scheduleSignalCheck = () => {
+  const interval = 5 * 60 * 1000;
+  const nextBoundary = Math.ceil(Date.now() / interval) * interval;
+  const wait = Math.max(nextBoundary + 5000 - Date.now(), 1000);
+  setTimeout(async () => {
+    try {
+      await generateTradingSignal();
+    } finally {
+      scheduleSignalCheck();
+    }
+  }, wait);
+};
+scheduleSignalCheck();
 setInterval(updateStatistics, 10000); // 每10秒更新一次统计
 
 // 处理交易结果更新（10分钟后）

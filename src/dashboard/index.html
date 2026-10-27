@@ -44,6 +44,692 @@
       return parseFloat(value.toFixed(2)) + 'U';
     };
 
+    // ==========================================
+    // 策略统计页面组件 (StrategyStats)
+    // ==========================================
+    const StrategyStats = ({ trades, onSelectStrategy }) => {
+      const [timeFilter, setTimeFilter] = useState('all'); // all, today, 3d, 7d
+      const [typeFilter, setTypeFilter] = useState('all'); // all, trend, reversal
+      const [statusFilter, setStatusFilter] = useState('all'); // all, active, disabled
+
+      // 时间范围过滤
+      const filteredTrades = React.useMemo(() => {
+        if (!trades || trades.length === 0) return [];
+        const now = Date.now();
+        return trades.filter(t => {
+          if (t.isCorrect === undefined) return false;
+          const tTime = new Date(t.timestamp).getTime();
+          if (timeFilter === 'today') {
+            const d = new Date(t.timestamp);
+            const today = new Date();
+            return d.getFullYear() === today.getFullYear() &&
+                   d.getMonth() === today.getMonth() &&
+                   d.getDate() === today.getDate();
+          }
+          if (timeFilter === '3d') {
+            return now - tTime <= 3 * 24 * 3600 * 1000;
+          }
+          if (timeFilter === '7d') {
+            return now - tTime <= 7 * 24 * 3600 * 1000;
+          }
+          return true;
+        });
+      }, [trades, timeFilter]);
+
+      // 策略解析器
+      const parseStrategy = (trade) => {
+        const r = (trade.reasoning && trade.reasoning[0]) || '';
+        const isLong = trade.signal === 'BUY';
+
+        if (r.includes('EMA50') && (r.includes('回踩') || r.includes('反弹') || r.includes('上涨趋势') || r.includes('下跌趋势')) && !r.includes('EMA200') && !r.includes('偏离')) {
+          return {
+            id: isLong ? 'ema50_long' : 'ema50_short',
+            category: '趋势策略',
+            type: 'trend',
+            name: isLong ? 'EMA50 回调顺势做多' : 'EMA50 反弹顺势做空',
+            direction: isLong ? 'BUY' : 'SELL',
+            desc: isLong ? '顺大级别多头回踩均线做多' : '顺大级别空头反弹均线做空',
+            status: 'active',
+            statusLabel: '核心主力',
+            keyword: 'EMA50'
+          };
+        }
+        if (r.includes('5连跌')) {
+          return {
+            id: '5down_long',
+            category: '反转策略',
+            type: 'reversal',
+            name: '5连跌 超跌反弹做多',
+            direction: 'BUY',
+            desc: '连续5根5分阴线放量超跌反弹',
+            status: 'active',
+            statusLabel: '主力王牌',
+            keyword: '5连跌'
+          };
+        }
+        if (r.includes('偏离')) {
+          return {
+            id: isLong ? 'dev_long' : 'dev_short',
+            category: '反转策略',
+            type: 'reversal',
+            name: isLong ? 'EMA50 极值偏离做多' : 'EMA50 极值偏离做空',
+            direction: isLong ? 'BUY' : 'SELL',
+            desc: '价格偏离EMA50超1.2%均值回归',
+            status: 'active',
+            statusLabel: '极端偏离',
+            keyword: '偏离'
+          };
+        }
+        if (r.includes('5连涨')) {
+          return {
+            id: '5up_short',
+            category: '反转策略',
+            type: 'reversal',
+            name: '5连涨 逆势猜顶做空',
+            direction: 'SELL',
+            desc: '连续5根阳线摸顶（易遭轧空已下线）',
+            status: 'disabled',
+            statusLabel: '已下线止血',
+            keyword: '5连涨'
+          };
+        }
+        if (r.includes('EMA200') || r.includes('平行')) {
+          return {
+            id: isLong ? 'ema200_long' : 'ema200_short',
+            category: '趋势策略',
+            type: 'trend',
+            name: isLong ? 'EMA50/200 平行上升做多' : 'EMA50/200 平行下降做空',
+            direction: isLong ? 'BUY' : 'SELL',
+            desc: 'EMA50/EMA200大周期平行通道',
+            status: isLong ? 'active' : 'disabled',
+            statusLabel: isLong ? '运行中' : '已停用',
+            keyword: 'EMA200'
+          };
+        }
+        if (r.includes('EMA150')) {
+          return {
+            id: isLong ? 'ema150_long' : 'ema150_short',
+            category: '趋势策略',
+            type: 'trend',
+            name: isLong ? 'EMA150 回调做多 (已下线)' : 'EMA150 反弹做空 (已下线)',
+            direction: isLong ? 'BUY' : 'SELL',
+            desc: '深幅破位假支撑（胜率低已下线）',
+            status: 'disabled',
+            statusLabel: '已下线',
+            keyword: 'EMA150'
+          };
+        }
+        if (r.includes('吞没')) {
+          return {
+            id: isLong ? 'engulf_long' : 'engulf_short',
+            category: '反转策略',
+            type: 'reversal',
+            name: isLong ? '长下影阳线吞没做多' : '长上影阴线吞没做空',
+            direction: isLong ? 'BUY' : 'SELL',
+            desc: '关键位置K线吞没反包形态',
+            status: 'testing',
+            statusLabel: '观察中',
+            keyword: '吞没'
+          };
+        }
+        return {
+          id: 'other',
+          category: '其他策略',
+          type: 'other',
+          name: r.split('｜')[0]?.split('，')[0] || '综合策略信号',
+          direction: isLong ? 'BUY' : 'SELL',
+          desc: '其他形态入场信号',
+          status: 'testing',
+          statusLabel: '其他',
+          keyword: r.slice(0, 6)
+        };
+      };
+
+      // 聚合各细分策略数据
+      const strategyList = React.useMemo(() => {
+        const map = {};
+        filteredTrades.forEach(t => {
+          const info = parseStrategy(t);
+          if (!map[info.id]) {
+            map[info.id] = {
+              ...info,
+              tradesCount: 0,
+              wins: 0,
+              losses: 0,
+              winPnl: 0,
+              lossPnl: 0,
+              totalPnl: 0,
+              confidenceSum: 0
+            };
+          }
+          const s = map[info.id];
+          s.tradesCount++;
+          s.confidenceSum += (t.confidence || 80);
+          const pnl = t.profitLoss || 0;
+          s.totalPnl += pnl;
+          if (t.isCorrect) {
+            s.wins++;
+            s.winPnl += pnl;
+          } else {
+            s.losses++;
+            s.lossPnl += Math.abs(pnl);
+          }
+        });
+
+        let list = Object.values(map).map(s => {
+          const winRate = s.tradesCount > 0 ? (s.wins / s.tradesCount) * 100 : 0;
+          const profitFactor = s.lossPnl > 0 ? (s.winPnl / s.lossPnl) : (s.winPnl > 0 ? 99 : 0);
+          const avgConfidence = s.tradesCount > 0 ? s.confidenceSum / s.tradesCount : 0;
+          return {
+            ...s,
+            winRate,
+            profitFactor,
+            avgConfidence
+          };
+        });
+
+        // 过滤状态
+        if (statusFilter !== 'all') {
+          list = list.filter(item => item.status === statusFilter);
+        }
+        // 过滤大类
+        if (typeFilter !== 'all') {
+          list = list.filter(item => item.type === typeFilter);
+        }
+
+        // 默认按净利润降序排序
+        list.sort((a, b) => b.totalPnl - a.totalPnl);
+        return list;
+      }, [filteredTrades, statusFilter, typeFilter]);
+
+      // 大盘 KPI
+      const kpis = React.useMemo(() => {
+        const total = filteredTrades.length;
+        const wins = filteredTrades.filter(t => t.isCorrect).length;
+        const losses = total - wins;
+        const winRate = total > 0 ? (wins / total) * 100 : 0;
+        const totalPnl = filteredTrades.reduce((sum, t) => sum + (t.profitLoss || 0), 0);
+        const winPnl = filteredTrades.filter(t => t.isCorrect).reduce((sum, t) => sum + (t.profitLoss || 0), 0);
+        const lossPnl = Math.abs(filteredTrades.filter(t => !t.isCorrect).reduce((sum, t) => sum + (t.profitLoss || 0), 0));
+        const profitFactor = lossPnl > 0 ? (winPnl / lossPnl) : (winPnl > 0 ? 99 : 0);
+
+        // 趋势与反转分项
+        const calcSub = (type) => {
+          const sub = filteredTrades.filter(t => parseStrategy(t).type === type);
+          const w = sub.filter(t => t.isCorrect).length;
+          const pnl = sub.reduce((sum, t) => sum + (t.profitLoss || 0), 0);
+          const wr = sub.length > 0 ? (w / sub.length) * 100 : 0;
+          return { count: sub.length, wins: w, losses: sub.length - w, pnl, wr };
+        };
+
+        const longTrades = filteredTrades.filter(t => t.signal === 'BUY');
+        const shortTrades = filteredTrades.filter(t => t.signal === 'SELL');
+        const longWins = longTrades.filter(t => t.isCorrect).length;
+        const shortWins = shortTrades.filter(t => t.isCorrect).length;
+
+        // 最佳策略
+        const bestStrategy = [...strategyList].sort((a,b) => b.totalPnl - a.totalPnl)[0];
+
+        return {
+          total,
+          wins,
+          losses,
+          winRate,
+          totalPnl,
+          winPnl,
+          lossPnl,
+          profitFactor,
+          trend: calcSub('trend'),
+          reversal: calcSub('reversal'),
+          long: { count: longTrades.length, wins: longWins, wr: longTrades.length ? (longWins / longTrades.length * 100) : 0 },
+          short: { count: shortTrades.length, wins: shortWins, wr: shortTrades.length ? (shortWins / shortTrades.length * 100) : 0 },
+          bestStrategy
+        };
+      }, [filteredTrades, strategyList]);
+
+      return (
+        <div className="space-y-6 pb-12 animate-fade-in text-slate-100">
+          {/* 页面顶部标题与时间过滤工具条 */}
+          <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 p-5 rounded-2xl bg-gradient-to-r from-slate-900/90 via-slate-800/80 to-slate-900/90 border border-cyan-500/20 shadow-lg shadow-cyan-500/5">
+            <div>
+              <div className="flex items-center gap-3">
+                <span className="p-2.5 rounded-xl bg-cyan-500/10 border border-cyan-500/30 text-cyan-400 text-xl font-bold">⚡</span>
+                <div>
+                  <h2 className="text-xl md:text-2xl font-bold bg-gradient-to-r from-cyan-400 via-sky-300 to-blue-400 bg-clip-text text-transparent">
+                    策略统计与胜率透视
+                  </h2>
+                  <p className="text-xs text-slate-400 mt-0.5">
+                    全维度透视各量化策略的胜率、盈亏比与实盘健康度（保本临界胜率: 55.6%）
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            {/* 时间跨度快捷切换 */}
+            <div className="flex items-center gap-1.5 p-1 rounded-xl bg-slate-800/80 border border-slate-700/60 self-start md:self-auto">
+              {[
+                { id: 'all', label: '全部数据' },
+                { id: 'today', label: '今日' },
+                { id: '3d', label: '近3天' },
+                { id: '7d', label: '近7天' }
+              ].map(tab => (
+                <button
+                  key={tab.id}
+                  onClick={() => setTimeFilter(tab.id)}
+                  className={`px-3 py-1.5 text-xs rounded-lg font-medium transition-all duration-200 ${
+                    timeFilter === tab.id
+                      ? 'bg-gradient-to-r from-cyan-500 to-blue-600 text-white shadow-md shadow-cyan-500/20'
+                      : 'text-slate-400 hover:text-slate-200 hover:bg-slate-700/50'
+                  }`}
+                >
+                  {tab.label}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* 核心指标卡片 (4列网格) */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+            {/* 1. 综合胜率 */}
+            <div className="relative overflow-hidden rounded-2xl bg-slate-900/70 border border-slate-800 p-5 shadow-lg backdrop-blur-md">
+              <div className="flex items-center justify-between text-xs text-slate-400 mb-2">
+                <span>综合实盘胜率</span>
+                <span className={`px-2 py-0.5 rounded-full font-medium text-[10px] ${kpis.winRate >= 55.6 ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' : 'bg-rose-500/10 text-rose-400 border border-rose-500/20'}`}>
+                  {kpis.winRate >= 55.6 ? '达标盈利' : '低于保本线'}
+                </span>
+              </div>
+              <div className="flex items-baseline gap-2">
+                <span className={`text-3xl font-extrabold tracking-tight ${kpis.winRate >= 55.6 ? 'text-emerald-400' : 'text-rose-400'}`}>
+                  {kpis.winRate.toFixed(1)}%
+                </span>
+                <span className="text-xs text-slate-400">
+                  {kpis.wins}胜 / {kpis.losses}负
+                </span>
+              </div>
+              {/* 进度条 */}
+              <div className="mt-3 w-full bg-slate-800 rounded-full h-2 overflow-hidden flex">
+                <div
+                  className="bg-gradient-to-r from-emerald-500 to-teal-400 h-full transition-all duration-500"
+                  style={{ width: `${kpis.winRate}%` }}
+                />
+                <div
+                  className="bg-rose-500/70 h-full transition-all duration-500"
+                  style={{ width: `${100 - kpis.winRate}%` }}
+                />
+              </div>
+              <div className="mt-2 flex justify-between text-[10px] text-slate-400">
+                <span>已结算 {kpis.total} 笔</span>
+                <span>基准平衡线: 55.6%</span>
+              </div>
+            </div>
+
+            {/* 2. 累计净收益 */}
+            <div className="relative overflow-hidden rounded-2xl bg-slate-900/70 border border-slate-800 p-5 shadow-lg backdrop-blur-md">
+              <div className="flex items-center justify-between text-xs text-slate-400 mb-2">
+                <span>累计净盈亏</span>
+                <span className="text-[10px] px-2 py-0.5 rounded-full bg-cyan-500/10 text-cyan-400 border border-cyan-500/20">
+                  10U / 单
+                </span>
+              </div>
+              <div className="flex items-baseline gap-1">
+                <span className={`text-3xl font-extrabold tracking-tight ${kpis.totalPnl >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+                  {kpis.totalPnl >= 0 ? `+${kpis.totalPnl.toFixed(1)}` : kpis.totalPnl.toFixed(1)}
+                </span>
+                <span className="text-sm font-semibold text-slate-400">U</span>
+              </div>
+              <div className="mt-3 flex items-center justify-between text-xs text-slate-400 pt-2 border-t border-slate-800">
+                <span className="text-emerald-400/90 font-medium">总盈利: +{kpis.winPnl.toFixed(0)}U</span>
+                <span className="text-rose-400/90 font-medium">总亏损: -{kpis.lossPnl.toFixed(0)}U</span>
+              </div>
+            </div>
+
+            {/* 3. 盈亏比 Profit Factor */}
+            <div className="relative overflow-hidden rounded-2xl bg-slate-900/70 border border-slate-800 p-5 shadow-lg backdrop-blur-md">
+              <div className="flex items-center justify-between text-xs text-slate-400 mb-2">
+                <span>盈亏比 (Profit Factor)</span>
+                <span className={`px-2 py-0.5 rounded-full font-medium text-[10px] ${kpis.profitFactor >= 1.4 ? 'bg-cyan-500/10 text-cyan-400 border border-cyan-500/20' : (kpis.profitFactor >= 1.0 ? 'bg-yellow-500/10 text-yellow-400 border border-yellow-500/20' : 'bg-rose-500/10 text-rose-400 border border-rose-500/20')}`}>
+                  {kpis.profitFactor >= 1.4 ? '高正期望' : (kpis.profitFactor >= 1.0 ? '保本运行' : '回撤警示')}
+                </span>
+              </div>
+              <div className="flex items-baseline gap-2">
+                <span className="text-3xl font-extrabold text-cyan-400 tracking-tight">
+                  {kpis.profitFactor >= 99 ? '∞' : kpis.profitFactor.toFixed(2)}
+                </span>
+                <span className="text-xs text-slate-400">总盈利/总亏损</span>
+              </div>
+              <div className="mt-3 text-xs text-slate-400 pt-2 border-t border-slate-800 flex justify-between">
+                <span>单笔盈利: +8.0U</span>
+                <span>单笔止损: -10.0U</span>
+              </div>
+            </div>
+
+            {/* 4. 王牌策略 */}
+            <div className="relative overflow-hidden rounded-2xl bg-slate-900/70 border border-slate-800 p-5 shadow-lg backdrop-blur-md">
+              <div className="flex items-center justify-between text-xs text-slate-400 mb-2">
+                <span className="flex items-center gap-1.5">
+                  <span className="text-amber-400 font-bold">🏆</span>
+                  <span>表现最佳策略</span>
+                </span>
+                <span className="text-[10px] px-2 py-0.5 rounded-full bg-amber-500/10 text-amber-300 border border-amber-500/20 font-medium">
+                  TOP 1
+                </span>
+              </div>
+              <div className="text-base font-bold text-slate-100 truncate mt-1">
+                {kpis.bestStrategy ? kpis.bestStrategy.name : '暂无数据'}
+              </div>
+              <div className="mt-3 flex items-center justify-between text-xs pt-2 border-t border-slate-800">
+                <span className="text-emerald-400 font-semibold">
+                  胜率: {kpis.bestStrategy ? `${kpis.bestStrategy.winRate.toFixed(1)}%` : '--'}
+                </span>
+                <span className="text-cyan-400 font-semibold">
+                  净收益: {kpis.bestStrategy ? `+${kpis.bestStrategy.totalPnl.toFixed(0)}U` : '--'}
+                </span>
+              </div>
+            </div>
+          </div>
+
+          {/* 策略大类与多空对比卡片 */}
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            {/* 趋势策略概览 */}
+            <div className="rounded-2xl bg-gradient-to-b from-cyan-950/30 to-slate-900/70 border border-cyan-500/30 p-5 relative overflow-hidden">
+              <div className="flex items-center justify-between mb-3">
+                <div className="flex items-center gap-2">
+                  <span className="w-2.5 h-2.5 rounded-full bg-cyan-400 shadow-sm shadow-cyan-400 animate-pulse"></span>
+                  <h3 className="font-bold text-base text-cyan-300">趋势策略系统</h3>
+                </div>
+                <span className="text-xs px-2 py-0.5 rounded-lg bg-cyan-500/10 text-cyan-400 border border-cyan-500/20">
+                  {kpis.trend.count} 笔成交
+                </span>
+              </div>
+              <p className="text-xs text-slate-400 mb-4">
+                顺大势做小级别回调：重点基于 EMA50 动态生命线支撑阻力精准切入
+              </p>
+              <div className="grid grid-cols-3 gap-2 py-3 border-y border-slate-800 text-center">
+                <div>
+                  <div className="text-[11px] text-slate-400">胜率</div>
+                  <div className="text-lg font-bold text-cyan-300">{kpis.trend.wr.toFixed(1)}%</div>
+                </div>
+                <div>
+                  <div className="text-[11px] text-slate-400">战绩</div>
+                  <div className="text-sm font-semibold text-slate-300 mt-0.5">{kpis.trend.wins}胜 / {kpis.trend.losses}负</div>
+                </div>
+                <div>
+                  <div className="text-[11px] text-slate-400">净收益</div>
+                  <div className={`text-sm font-bold mt-0.5 ${kpis.trend.pnl >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+                    {kpis.trend.pnl >= 0 ? `+${kpis.trend.pnl.toFixed(0)}` : kpis.trend.pnl.toFixed(0)}U
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* 反转策略概览 */}
+            <div className="rounded-2xl bg-gradient-to-b from-purple-950/30 to-slate-900/70 border border-purple-500/30 p-5 relative overflow-hidden">
+              <div className="flex items-center justify-between mb-3">
+                <div className="flex items-center gap-2">
+                  <span className="w-2.5 h-2.5 rounded-full bg-purple-400 shadow-sm shadow-purple-400"></span>
+                  <h3 className="font-bold text-base text-purple-300">反转策略系统</h3>
+                </div>
+                <span className="text-xs px-2 py-0.5 rounded-lg bg-purple-500/10 text-purple-400 border border-purple-500/20">
+                  {kpis.reversal.count} 笔成交
+                </span>
+              </div>
+              <p className="text-xs text-slate-400 mb-4">
+                博弈短线动能衰竭与均值回归：重点基于 5连跌放量超跌与均线极值偏离
+              </p>
+              <div className="grid grid-cols-3 gap-2 py-3 border-y border-slate-800 text-center">
+                <div>
+                  <div className="text-[11px] text-slate-400">胜率</div>
+                  <div className="text-lg font-bold text-purple-300">{kpis.reversal.wr.toFixed(1)}%</div>
+                </div>
+                <div>
+                  <div className="text-[11px] text-slate-400">战绩</div>
+                  <div className="text-sm font-semibold text-slate-300 mt-0.5">{kpis.reversal.wins}胜 / {kpis.reversal.losses}负</div>
+                </div>
+                <div>
+                  <div className="text-[11px] text-slate-400">净收益</div>
+                  <div className={`text-sm font-bold mt-0.5 ${kpis.reversal.pnl >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+                    {kpis.reversal.pnl >= 0 ? `+${kpis.reversal.pnl.toFixed(0)}` : kpis.reversal.pnl.toFixed(0)}U
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* 多空方向对比 */}
+            <div className="rounded-2xl bg-gradient-to-b from-slate-900/90 to-slate-900/70 border border-slate-800 p-5">
+              <div className="flex items-center justify-between mb-3">
+                <h3 className="font-bold text-base text-slate-200">多空方向透视</h3>
+                <span className="text-xs text-slate-400">共 {kpis.total} 笔</span>
+              </div>
+              <div className="space-y-4 pt-1">
+                {/* 做多 */}
+                <div>
+                  <div className="flex justify-between text-xs mb-1.5">
+                    <span className="text-emerald-400 font-semibold flex items-center gap-1">
+                      <span>🟢 做多 (BUY)</span>
+                      <span className="text-slate-400 text-[11px]">({kpis.long.count}笔)</span>
+                    </span>
+                    <span className="font-bold text-emerald-400">{kpis.long.wr.toFixed(1)}% 胜率</span>
+                  </div>
+                  <div className="w-full bg-slate-800 h-2 rounded-full overflow-hidden">
+                    <div className="bg-emerald-500 h-full rounded-full" style={{ width: `${kpis.long.wr}%` }}></div>
+                  </div>
+                </div>
+
+                {/* 做空 */}
+                <div>
+                  <div className="flex justify-between text-xs mb-1.5">
+                    <span className="text-rose-400 font-semibold flex items-center gap-1">
+                      <span>🔴 做空 (SELL)</span>
+                      <span className="text-slate-400 text-[11px]">({kpis.short.count}笔)</span>
+                    </span>
+                    <span className="font-bold text-rose-400">{kpis.short.wr.toFixed(1)}% 胜率</span>
+                  </div>
+                  <div className="w-full bg-slate-800 h-2 rounded-full overflow-hidden">
+                    <div className="bg-rose-500 h-full rounded-full" style={{ width: `${kpis.short.wr}%` }}></div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* 细分策略排行榜与明细列表 */}
+          <div className="rounded-2xl bg-slate-900/70 border border-slate-800 p-5 shadow-lg backdrop-blur-md">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-5">
+              <div>
+                <h3 className="text-lg font-bold text-slate-100 flex items-center gap-2">
+                  <span>细分策略胜率与战绩矩阵</span>
+                  <span className="text-xs px-2 py-0.5 rounded-full bg-slate-800 text-slate-400 font-normal">
+                    {strategyList.length} 种策略
+                  </span>
+                </h3>
+                <p className="text-xs text-slate-400 mt-1">按净利润贡献度降序排列，点击“查看记录”可自动筛选对应订单</p>
+              </div>
+
+              {/* 状态与大类筛选器 */}
+              <div className="flex flex-wrap items-center gap-2">
+                <select
+                  value={statusFilter}
+                  onChange={(e) => setStatusFilter(e.target.value)}
+                  className="px-2.5 py-1.5 rounded-lg bg-slate-800 border border-slate-700 text-xs text-slate-300 focus:outline-none focus:border-cyan-500"
+                >
+                  <option value="all">全部状态</option>
+                  <option value="active">运行中 (Active)</option>
+                  <option value="disabled">已下线 (Disabled)</option>
+                </select>
+
+                <select
+                  value={typeFilter}
+                  onChange={(e) => setTypeFilter(e.target.value)}
+                  className="px-2.5 py-1.5 rounded-lg bg-slate-800 border border-slate-700 text-xs text-slate-300 focus:outline-none focus:border-cyan-500"
+                >
+                  <option value="all">全部类型</option>
+                  <option value="trend">趋势策略</option>
+                  <option value="reversal">反转策略</option>
+                </select>
+              </div>
+            </div>
+
+            {/* 表格视图 */}
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-xs border-collapse">
+                <thead>
+                  <tr className="border-b border-slate-800 text-slate-400 uppercase tracking-wider text-[11px]">
+                    <th className="py-3 px-3">策略名称 / 逻辑</th>
+                    <th className="py-3 px-3">类别 / 方向</th>
+                    <th className="py-3 px-3">运行状态</th>
+                    <th className="py-3 px-3 text-center">样本量</th>
+                    <th className="py-3 px-3 text-center">胜 / 负</th>
+                    <th className="py-3 px-3 min-w-[140px]">实盘胜率</th>
+                    <th className="py-3 px-3 text-right">净盈亏</th>
+                    <th className="py-3 px-3 text-center">盈亏比</th>
+                    <th className="py-3 px-3 text-center">操作</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-800/60">
+                  {strategyList.map((item, idx) => {
+                    const isProfit = item.totalPnl >= 0;
+                    return (
+                      <tr key={item.id} className="hover:bg-slate-800/40 transition-colors">
+                        {/* 策略名 */}
+                        <td className="py-3.5 px-3">
+                          <div className="font-semibold text-slate-200 text-sm flex items-center gap-1.5">
+                            <span className="text-slate-400 font-mono text-xs w-4">#{idx + 1}</span>
+                            <span>{item.name}</span>
+                          </div>
+                          <div className="text-[11px] text-slate-400 mt-0.5">{item.desc}</div>
+                        </td>
+
+                        {/* 体系与方向 */}
+                        <td className="py-3.5 px-3">
+                          <div className="flex flex-col gap-1 items-start">
+                            <span className="px-2 py-0.5 rounded text-[10px] bg-slate-800 text-slate-300 border border-slate-700">
+                              {item.category}
+                            </span>
+                            <span className={`px-1.5 py-0.5 rounded text-[10px] font-bold ${item.direction === 'BUY' ? 'text-emerald-400 bg-emerald-500/10' : 'text-rose-400 bg-rose-500/10'}`}>
+                              {item.direction === 'BUY' ? '多 BUY' : '空 SELL'}
+                            </span>
+                          </div>
+                        </td>
+
+                        {/* 状态 Badge */}
+                        <td className="py-3.5 px-3">
+                          {item.status === 'active' ? (
+                            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-medium bg-emerald-500/10 text-emerald-400 border border-emerald-500/30">
+                              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-ping"></span>
+                              {item.statusLabel}
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-medium bg-rose-500/10 text-rose-400 border border-rose-500/20">
+                              <span className="w-1.5 h-1.5 rounded-full bg-rose-400"></span>
+                              {item.statusLabel}
+                            </span>
+                          )}
+                        </td>
+
+                        {/* 样本数 */}
+                        <td className="py-3.5 px-3 text-center font-mono text-slate-300 font-medium">
+                          {item.tradesCount} 笔
+                        </td>
+
+                        {/* 战绩 */}
+                        <td className="py-3.5 px-3 text-center">
+                          <span className="text-emerald-400 font-bold">{item.wins}胜</span>
+                          <span className="text-slate-400 mx-1">/</span>
+                          <span className="text-rose-400 font-bold">{item.losses}负</span>
+                        </td>
+
+                        {/* 胜率进度条 */}
+                        <td className="py-3.5 px-3">
+                          <div className="flex items-center justify-between mb-1">
+                            <span className={`font-bold ${item.winRate >= 65 ? 'text-emerald-400' : (item.winRate >= 50 ? 'text-yellow-400' : 'text-rose-400')}`}>
+                              {item.winRate.toFixed(1)}%
+                            </span>
+                          </div>
+                          <div className="w-full bg-slate-800 h-1.5 rounded-full overflow-hidden">
+                            <div
+                              className={`h-full rounded-full ${item.winRate >= 65 ? 'bg-emerald-500' : (item.winRate >= 50 ? 'bg-yellow-500' : 'bg-rose-500')}`}
+                              style={{ width: `${Math.min(item.winRate, 100)}%` }}
+                            ></div>
+                          </div>
+                        </td>
+
+                        {/* 净盈亏 */}
+                        <td className="py-3.5 px-3 text-right font-mono font-bold text-sm">
+                          <span className={isProfit ? 'text-emerald-400' : 'text-rose-400'}>
+                            {isProfit ? `+${item.totalPnl.toFixed(1)}` : item.totalPnl.toFixed(1)} U
+                          </span>
+                        </td>
+
+                        {/* 盈亏比 */}
+                        <td className="py-3.5 px-3 text-center font-mono text-slate-300">
+                          {item.profitFactor >= 99 ? '∞' : item.profitFactor.toFixed(2)}
+                        </td>
+
+                        {/* 操作 */}
+                        <td className="py-3.5 px-3 text-center">
+                          <button
+                            onClick={() => onSelectStrategy(item.keyword)}
+                            className="px-2.5 py-1 rounded-lg bg-cyan-500/10 hover:bg-cyan-500/20 text-cyan-400 border border-cyan-500/30 text-[11px] font-medium transition-all"
+                          >
+                            查看记录 →
+                          </button>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                  {strategyList.length === 0 && (
+                    <tr>
+                      <td colSpan="9" className="text-center py-8 text-slate-400">
+                        该筛选条件下暂无策略成交数据
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          {/* 策略优化备忘与专家诊断卡片 */}
+          <div className="p-5 rounded-2xl bg-gradient-to-r from-slate-900 via-slate-800/60 to-slate-900 border border-slate-800 text-xs">
+            <div className="flex items-center gap-2 mb-3 text-sm font-bold text-cyan-300">
+              <span>🛡️ 核心风控与策略优化备忘录</span>
+              <span className="text-[10px] px-2 py-0.5 rounded bg-cyan-500/10 text-cyan-400 border border-cyan-500/20 font-normal">
+                已实时在策略引擎中生效
+              </span>
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-4 text-slate-300">
+              <div className="p-3 rounded-xl bg-slate-800/40 border border-slate-700/40">
+                <div className="text-emerald-400 font-bold mb-1">✅ 聚焦 EMA50 黄金生命线</div>
+                <p className="text-slate-400 leading-relaxed text-[11px]">
+                  仅在健康趋势回踩 EMA50 时顺势开仓（实盘胜率 76.9%）；下线了胜率仅 33% 的 EMA150 破位假支撑单。
+                </p>
+              </div>
+
+              <div className="p-3 rounded-xl bg-slate-800/40 border border-slate-700/40">
+                <div className="text-emerald-400 font-bold mb-1">✅ 5连跌超跌做多过滤</div>
+                <p className="text-slate-400 leading-relaxed text-[11px]">
+                  5连跌超跌反弹是核心王牌（实盘胜率 68.4%），新增跌幅价差 ≥120 点过滤，杜绝窄幅横盘随机杂波。
+                </p>
+              </div>
+
+              <div className="p-3 rounded-xl bg-slate-800/40 border border-slate-700/40">
+                <div className="text-rose-400 font-bold mb-1">🛑 5连涨猜顶做空已下线</div>
+                <p className="text-slate-400 leading-relaxed text-[11px]">
+                  历史实盘中 5 连涨做空产生 -102U 亏损（胜率仅 36.7%）。BTC 强单边多头极易轧空，已全面阻断以避免逆风送损。
+                </p>
+              </div>
+
+              <div className="p-3 rounded-xl bg-slate-800/40 border border-slate-700/40">
+                <div className="text-cyan-400 font-bold mb-1">🔒 10分钟同向开仓互斥锁</div>
+                <p className="text-slate-400 leading-relaxed text-[11px]">
+                  已平仓结算前，10 分钟内禁止开出同方向新订单，杜绝单边逆势行情连续连开 4-5 单的马丁踩踏亏损。
+                </p>
+              </div>
+            </div>
+          </div>
+        </div>
+      );
+    };
 
     const CalendarStats = ({ trades, onQueryRange }) => {
       const [currentMonth, setCurrentMonth] = useState(new Date());
@@ -505,8 +1191,14 @@
       const initialBalance = 100; // 初始资金常量
       const [balanceHistory, setBalanceHistory] = useState([]);
       const [isConnected, setIsConnected] = useState(false);
-      const [activeView, setActiveView] = useState('dashboard');
+      const [activeView, setActiveView] = useState(() => {
+        if (typeof window !== 'undefined' && (window.location.pathname.includes('strategies') || window.location.hash === '#strategies')) {
+          return 'strategies';
+        }
+        return 'dashboard';
+      });
       const [tradesQueryRange, setTradesQueryRange] = useState(null); // 日历周统计跳转携带的时间范围
+      const [selectedStrategyKeyword, setSelectedStrategyKeyword] = useState('');
       const [chartTrade, setChartTrade] = useState(null);
       const [user, setUser] = useState(null);
       const [subscription, setSubscription] = useState(null);
@@ -1505,10 +2197,26 @@
                     backgroundColor: activeView === 'dashboard' ? '#00d4ff' : 'rgba(255, 255, 255, 0.1)',
                     color: '#fff',
                     cursor: 'pointer',
-                    fontSize: '14px'
+                    fontSize: '14px',
+                    fontWeight: activeView === 'dashboard' ? '600' : 'normal'
                   }}
                 >
                   监控面板
+                </button>
+                <button
+                  onClick={() => setActiveView('strategies')}
+                  style={{
+                    padding: '8px 16px',
+                    borderRadius: '8px',
+                    border: 'none',
+                    backgroundColor: activeView === 'strategies' ? '#00d4ff' : 'rgba(255, 255, 255, 0.1)',
+                    color: '#fff',
+                    cursor: 'pointer',
+                    fontSize: '14px',
+                    fontWeight: activeView === 'strategies' ? '600' : 'normal'
+                  }}
+                >
+                  策略统计
                 </button>
                 <button
                   onClick={() => setActiveView('calendar')}
@@ -1519,13 +2227,14 @@
                     backgroundColor: activeView === 'calendar' ? '#00d4ff' : 'rgba(255, 255, 255, 0.1)',
                     color: '#fff',
                     cursor: 'pointer',
-                    fontSize: '14px'
+                    fontSize: '14px',
+                    fontWeight: activeView === 'calendar' ? '600' : 'normal'
                   }}
                 >
                   日历统计
                 </button>
                 <button
-                  onClick={() => { setTradesQueryRange(null); setActiveView('trades'); }}
+                  onClick={() => { setTradesQueryRange(null); setSelectedStrategyKeyword(''); setActiveView('trades'); }}
                   style={{
                     padding: '8px 16px',
                     borderRadius: '8px',
@@ -1533,7 +2242,8 @@
                     backgroundColor: activeView === 'trades' ? '#00d4ff' : 'rgba(255, 255, 255, 0.1)',
                     color: '#fff',
                     cursor: 'pointer',
-                    fontSize: '14px'
+                    fontSize: '14px',
+                    fontWeight: activeView === 'trades' ? '600' : 'normal'
                   }}
                 >
                   交易查询
@@ -1924,6 +2634,15 @@
                     </table>
                   </div>
                 </>
+              ) : activeView === 'strategies' ? (
+                <StrategyStats
+                  trades={allTrades}
+                  onSelectStrategy={(keyword) => {
+                    setTradesQueryRange(null);
+                    setSelectedStrategyKeyword(keyword);
+                    setActiveView('trades');
+                  }}
+                />
               ) : activeView === 'calendar' ? (
                 <CalendarStats
                   trades={allTrades}
@@ -1933,7 +2652,12 @@
                   }}
                 />
               ) : (
-                <TradesQuery trades={allTrades} onChartView={setChartTrade} dateRange={tradesQueryRange} />
+                <TradesQuery
+                  trades={allTrades}
+                  onChartView={setChartTrade}
+                  dateRange={tradesQueryRange}
+                  initialKeyword={selectedStrategyKeyword}
+                />
               )}
             </>
           )}
@@ -2140,12 +2864,12 @@
       );
     };
 
-    const TradesQuery = ({ onChartView, dateRange }) => {
+    const TradesQuery = ({ onChartView, dateRange, initialKeyword }) => {
       const [trades, setTrades] = useState([]);
       const [allTrades, setAllTrades] = useState([]); // 存储所有交易数据
       const [loading, setLoading] = useState(false);
       const [filters, setFilters] = useState({
-        reasoningKeyword: '',    // 新增：入场原因关键词
+        reasoningKeyword: initialKeyword || '',    // 新增：入场原因关键词
         signal: '',             // 新增：交易信号
         strategy: '',           // 新增：策略筛选
         confidenceMin: '',      // 新增：最小置信度
@@ -2155,6 +2879,14 @@
         tradeType: '',
         result: ''
       });
+
+      useEffect(() => {
+        if (initialKeyword !== undefined && initialKeyword !== filters.reasoningKeyword) {
+          const next = { ...filters, reasoningKeyword: initialKeyword };
+          setFilters(next);
+          fetchTrades(next);
+        }
+      }, [initialKeyword]);
 
       const fetchAllTrades = async () => {
         try {

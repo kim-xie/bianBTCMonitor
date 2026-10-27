@@ -123,80 +123,57 @@ export class TechnicalAnalysisService {
     const isBullishTrend = indicators.ema50 > indicators.ema150;
     const isBearishTrend = indicators.ema50 < indicators.ema150;
 
-    // 寻找回调入场机会（逆势交易）
-    const ema50Range = 18; // EMA50上下20个点的范围
+    // 寻找回调入场机会（动态EMA50缓冲区，BTC在80,000点附近时约为35-50点，适配波动率）
+    const ema50Range = Math.max(30, this.lastFiveMinuteClosePrice * 0.0005);
 
     console.log('isBullishTrend:', isBullishTrend);
     console.log('ema50:', indicators.ema50);
     console.log('ema150:', indicators.ema150);
+    console.log('ema50Range:', ema50Range);
 
     /**
-     * 1、趋势策略：
-     *    上涨趋势中，5分钟K线做多条件
-     *      EMA50 + 18个点 >= 5分钟K线收盘价 >= EMA50 适合做多
-     *      EMA150 + 18个点 >= 5分钟K线收盘价 <= EMA150 适合做多
-     * 
-     * 2、反转策略：
-     *    5连
-     *    偏离
-     *      
-     * 3、情绪策略：
-     *    打止损
-     *    打止盈
-     *    关键位不开仓
+     * 策略体系（基于89笔实盘验证优化）：
+     * 1. EMA50回踩/反弹顺势（胜率76.9%）—— 仅EMA50，已下线EMA150（胜率33%）
+     * 2. 5连跌超跌反弹做多（胜率68.4%，价差≥120）—— 已下线5连涨猜顶（胜率36.7%）
+     * 3. 偏离EMA50超1.2%均值回归（胜率100%）
+     * 4. 同向10分钟持仓互斥（TradingSignal.ts），防连续吃损
      */
     if (isBullishTrend) {
       if (!this.isFiveMinuteUsed) {
-        // 上涨趋势中寻找回调做多机会
-        // 条件：收盘价在EMA50上下18个点范围内且没有长上影线
+        // 上涨趋势中寻找EMA50回调做多机会
+        // 条件：收盘价在EMA50上方指定范围内且没有长上影线
         if (this.lastFiveMinuteClosePrice >= indicators.ema50 &&
           this.lastFiveMinuteClosePrice <= indicators.ema50 + ema50Range &&
           !this.isUpperShadowTooLarge(lastFiveKline)) {
           score += 80;
-          reasoning.push(`趋势策略: 上涨趋势，收盘价(${this.lastFiveMinuteClosePrice.toFixed(2)})在EMA50(${indicators.ema50.toFixed(2)})上18个点范围内，无长上影线，进场做多`);
+          reasoning.push(`趋势策略: 多头回踩EMA50做多｜收盘${this.lastFiveMinuteClosePrice.toFixed(0)} ≈ EMA50 ${indicators.ema50.toFixed(0)}`);
         }
-        // 条件：收盘价在EMA150上下18个点范围内且没有长上影线
-        if (this.lastFiveMinuteClosePrice >= indicators.ema150 &&
-          this.lastFiveMinuteClosePrice <= indicators.ema150 + ema50Range &&
-          !this.isUpperShadowTooLarge(lastFiveKline)) {
-          score += 80;
-          reasoning.push(`趋势策略: 上涨趋势，收盘价(${this.lastFiveMinuteClosePrice.toFixed(2)})在EMA150(${indicators.ema150.toFixed(2)})上18个点范围内，无长上影线，进场做多`);
-        }
+        // 注意：EMA150深幅回调在实盘表现为破位下跌（胜率仅33%），已下线
       }
     } else if (isBearishTrend) {
       if (!this.isFiveMinuteUsed) {
-        // 下跌趋势中寻找反弹做空机会
-        // 条件：收盘价在EMA50上下18个点范围内且没有长下影线
+        // 下跌趋势中寻找EMA50反弹做空机会
+        // 条件：收盘价在EMA50下方指定范围内且没有长下影线
         if (this.lastFiveMinuteClosePrice >= indicators.ema50 - ema50Range &&
           this.lastFiveMinuteClosePrice <= indicators.ema50 &&
           !this.isLowerShadowTooLarge(lastFiveKline)) {
           score -= 80;
-          reasoning.push(`趋势策略: 下跌趋势，收盘价(${this.lastFiveMinuteClosePrice.toFixed(2)})在EMA50(${indicators.ema50.toFixed(2)})下18个点范围内，无长下影线，进场做空`);
+          reasoning.push(`趋势策略: 空头反弹EMA50做空｜收盘${this.lastFiveMinuteClosePrice.toFixed(0)} ≈ EMA50 ${indicators.ema50.toFixed(0)}`);
         }
-        // 条件：收盘价在EMA150上下18个点范围内且没有长下影线
-        if (this.lastFiveMinuteClosePrice >= indicators.ema150 - ema50Range &&
-          this.lastFiveMinuteClosePrice <= indicators.ema150 &&
-          !this.isLowerShadowTooLarge(lastFiveKline)) {
-          score -= 80;
-          reasoning.push(`趋势策略: 下跌趋势，收盘价(${this.lastFiveMinuteClosePrice.toFixed(2)})在EMA150(${indicators.ema150.toFixed(2)})下18个点范围内，无长下影线，进场做空`);
-        }
+        // 注意：EMA150反弹在实盘表现为多头突破（胜率仅33%），已下线
       }
     }
 
-    // 趋势策略：EMA50/EMA200平行趋势 + 回踩均线关键K线
+    // 趋势策略：EMA50/EMA200平行趋势 - 仅保留上升趋势平行回踩（下降平行回踩在实盘3笔全损，已停用）
     if (!this.isFiveMinuteUsed) {
       const emaTrendStrategy = this.detectEma200TrendPullbackStrategy(fiveMinuteKlines);
-      if (emaTrendStrategy) {
-        if (emaTrendStrategy.direction === 'UP') {
-          score += 80;
-        } else {
-          score -= 80;
-        }
+      if (emaTrendStrategy && emaTrendStrategy.direction === 'UP') {
+        score += 80;
         reasoning.push(emaTrendStrategy.reasoning);
       }
     }
 
-    // 5连涨跌策略
+    // 5连跌超跌反弹策略（实盘表现优异）
     if (!this.isFiveMinuteUsed && fiveMinuteKlines.length >= 5) {
       const recentFiveCandles = fiveMinuteKlines.slice(-5); // 最近5根K线
 
@@ -207,20 +184,14 @@ export class TechnicalAnalysisService {
 
       console.log(`最近5根K线: 最高价=${highestHigh.toFixed(2)}, 最低价=${lowestLow.toFixed(2)}, 价差=${priceRange.toFixed(2)}`);
 
-      // 检查连续趋势
-      const is5ConsecutiveUp = this.checkConsecutiveTrend(recentFiveCandles, 'UP');
       const is5ConsecutiveDown = this.checkConsecutiveTrend(recentFiveCandles, 'DOWN');
 
-      // 只有真正的5连涨/5连跌才触发信号
-      if (is5ConsecutiveUp) {
-        // 5连涨，进场做空
-        score -= 80;
-        reasoning.push(`反转策略: 5分钟K线5连涨，价差${priceRange.toFixed(2)}，进场做空`);
-      } else if (is5ConsecutiveDown) {
-        // 5连跌，进场做多
+      // 5连跌且价差达到有效阈值（至少120点，防止窄幅震荡误触）时进场做多
+      if (is5ConsecutiveDown && priceRange >= 120) {
         score += 80;
-        reasoning.push(`反转策略: 5分钟K线5连跌，价差${priceRange.toFixed(2)}，进场做多`);
+        reasoning.push(`反转策略: 5连跌超跌反弹做多｜价差${priceRange.toFixed(0)}点`);
       }
+      // 5连涨做空已下线：BTC上涨常伴随空头挤压（Short Squeeze），逆势摸顶亏损严重
     }
 
     // 长下影阳线吞没前一根阴线
@@ -247,7 +218,7 @@ export class TechnicalAnalysisService {
 
       if (isCurrentBullish && isPreviousBearish && isLongLowerShadow && isEngulfing) {
         score += 80;
-        reasoning.push(`反转策略: 长下影阳线吞没前一根阴线，进场做多`);
+        reasoning.push(`反转策略: 长下影阳线吞没做多`);
       }
     }
 
@@ -275,7 +246,7 @@ export class TechnicalAnalysisService {
 
       if (isCurrentBearish && isPreviousBullish && isLongUpperShadow && isEngulfing) {
         score -= 80;
-        reasoning.push(`反转策略: 长上影阴线吞没前一根阳线，进场做空`);
+        reasoning.push(`反转策略: 长上影阴线吞没做空`);
       }
     }
 
@@ -286,17 +257,17 @@ export class TechnicalAnalysisService {
       const deviation = this.lastFiveMinuteClosePrice - indicators.ema50;
       const deviationPercent = (deviation / indicators.ema50) * 100;
 
-      console.log(`偏离均线: 收盘价=${this.lastFiveMinuteClosePrice.toFixed(2)}, EMA50=${indicators.ema50.toFixed(2)}, 偏离点数=${deviation.toFixed(2)}, 偏离幅度=${deviationPercent.toFixed(2)}%`);
+      console.log(`偏离EMA50: ${deviationPercent.toFixed(2)}% (${deviation.toFixed(0)}点)`);
 
       // 5分钟K线收盘价偏离EMA50超过1.2%
       if (deviationPercent > 1.2) {
         score -= 80;
-        reasoning.push(`反转策略: 5分钟K线价格(${this.lastFiveMinuteClosePrice.toFixed(2)})偏离EMA50(${indicators.ema50.toFixed(2)}) ${deviation.toFixed(2)}点 偏离(${deviationPercent.toFixed(2)}%)，进场做空`);
+        reasoning.push(`反转策略: 偏离EMA50做空｜${this.lastFiveMinuteClosePrice.toFixed(0)} vs ${indicators.ema50.toFixed(0)} (+${deviationPercent.toFixed(1)}%)`);
       }
 
       if (deviationPercent < -1.2) {
         score += 80;
-        reasoning.push(`反转策略: 5分钟K线价格(${this.lastFiveMinuteClosePrice.toFixed(2)})偏离EMA50(${indicators.ema50.toFixed(2)}) ${deviation.toFixed(2)}点 偏离(${deviationPercent.toFixed(2)}%)，进场做多`);
+        reasoning.push(`反转策略: 偏离EMA50做多｜${this.lastFiveMinuteClosePrice.toFixed(0)} vs ${indicators.ema50.toFixed(0)} (${deviationPercent.toFixed(1)}%)`);
       }
     }
 
@@ -502,7 +473,7 @@ export class TechnicalAnalysisService {
         const crossedMa = this.crossesAboveMa(current, previous, ema50) ? 'EMA50' : 'EMA200';
         return {
           direction: 'UP',
-          reasoning: `趋势策略: EMA50/EMA200平行上升趋势，回踩${crossedMa}后关键阳线上穿均线${engulfsPrev ? '并反包前一根阴线' : '且实体大于前一根阴线实体的1/2'}，收线后进场做多`
+          reasoning: `趋势策略: EMA50/200平行上升，回踩${crossedMa}${engulfsPrev ? '反包' : '半包'}做多`
         };
       }
     }
@@ -519,7 +490,7 @@ export class TechnicalAnalysisService {
         const crossedMa = this.crossesBelowMa(current, previous, ema50) ? 'EMA50' : 'EMA200';
         return {
           direction: 'DOWN',
-          reasoning: `趋势策略: EMA50/EMA200平行下降趋势，反弹${crossedMa}后关键阴线下穿均线${engulfsPrev ? '并反包前一根阳线' : '且实体大于前一根阳线实体的1/2'}，收线后进场做空`
+          reasoning: `趋势策略: EMA50/200平行下降，反弹${crossedMa}${engulfsPrev ? '反包' : '半包'}做空`
         };
       }
     }

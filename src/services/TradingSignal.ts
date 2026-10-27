@@ -114,6 +114,20 @@ export class TradingSignalService {
         return null;
       }
 
+      // 同方向防连续吃损机制：若最近10分钟内已有同方向开仓且尚未平仓，跳过同向加仓，避免单边逆风行情连续吃损
+      const targetSignal = prediction.direction === 'UP' ? 'BUY' : 'SELL';
+      const hasRecentSameDirection = await TradeModel.findOne({
+        symbol,
+        signal: targetSignal,
+        isCorrect: { $exists: false },
+        timestamp: { $gte: new Date(Date.now() - 10 * 60 * 1000) }
+      });
+
+      if (hasRecentSameDirection) {
+        console.log(`⚠️ 最近10分钟内已有同方向(${targetSignal})未平仓持仓，跳过重复开仓以规避单边逆势连损风险`);
+        return null;
+      }
+
       console.log(`当前持仓数量: ${openPositions}笔，可以开仓`);
 
       // 生成交易信号

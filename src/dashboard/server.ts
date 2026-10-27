@@ -728,6 +728,10 @@ app.get('/management', (_req, res) => {
   res.sendFile(path.join(__dirname, 'public/subscription-management.html'));
 });
 
+app.get('/strategies', (_req, res) => {
+  res.sendFile(path.join(__dirname, 'index.html'));
+});
+
 app.get('/dashboard', (_req, res) => {
   res.sendFile(path.join(__dirname, 'public/dashboard.html'));
 });

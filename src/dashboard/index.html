@@ -68,6 +68,27 @@
       text-shadow: 0 0 10px rgba(245, 158, 11, 0.5), 0 0 20px rgba(245, 158, 11, 0.2);
     }
 
+    .terminal-glow-red {
+      text-shadow: 0 0 10px rgba(244, 63, 94, 0.5), 0 0 20px rgba(244, 63, 94, 0.2);
+    }
+
+    @keyframes chartActivePulse {
+      0% {
+        r: 0.35;
+        opacity: 0.9;
+        stroke-width: 0.15;
+      }
+      60%, 100% {
+        r: 1.4;
+        opacity: 0;
+        stroke-width: 0.05;
+      }
+    }
+
+    .chart-active-pulse {
+      animation: chartActivePulse 1.8s ease-out infinite;
+    }
+
     .terminal-panel {
       background: #080d14;
       border: 1px solid rgba(16, 185, 129, 0.25);
@@ -2323,18 +2344,19 @@
                     <div className="p-4 rounded-xl bg-[#080d14] border border-cyan-500/25 shadow-xl shadow-black/60 font-mono flex flex-col justify-between">
                       <div className="flex items-center justify-between mb-2">
                         <div className="flex items-center gap-2">
-                          <span className="w-2 h-2 rounded-full bg-cyan-400 shadow-sm shadow-cyan-400"></span>
+                          <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse shadow-sm shadow-emerald-400"></span>
                           <h3 className="font-bold text-sm text-slate-100 uppercase tracking-wide m-0">
                             01_EQUITY_CURVE <span className="text-xs text-slate-400 font-normal">[资金走势与净值动态]</span>
                           </h3>
                         </div>
-                        <span className="text-[10px] px-2 py-0.5 rounded bg-cyan-500/15 text-cyan-300 border border-cyan-500/30 font-bold">
-                          BASE: {formatAmountU(initialBalance)}
+                        <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-500/10 text-emerald-400 border border-emerald-500/30">
+                          <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-ping"></span>
+                          [ACTIVE]
                         </span>
                       </div>
 
                       <div className="flex items-baseline gap-3 my-2">
-                        <span className={`text-3xl font-extrabold tracking-tight ${currentBalance >= initialBalance ? 'text-emerald-400 terminal-glow-green' : 'text-rose-400'}`}>
+                        <span className={`text-3xl font-extrabold tracking-tight ${currentBalance >= initialBalance ? 'text-emerald-400 terminal-glow-green' : 'text-rose-400 terminal-glow-red'}`}>
                           <FlipNumber value={formatAmountU(currentBalance)} />
                         </span>
                         <span className={`text-xs font-semibold ${currentBalance >= initialBalance ? 'text-emerald-400' : 'text-rose-400'}`}>
@@ -2459,14 +2481,25 @@
                                   const pointColor = isProfit ? '#10b981' : '#f43f5e';
 
                                   return (
-                                    <circle
-                                      cx={x}
-                                      cy={y}
-                                      r="0.35"
-                                      fill={pointColor}
-                                      stroke="#ffffff"
-                                      strokeWidth="0.1"
-                                    />
+                                    <g key="active-endpoint">
+                                      <circle
+                                        cx={x}
+                                        cy={y}
+                                        r="0.38"
+                                        fill={pointColor}
+                                        stroke="#ffffff"
+                                        strokeWidth="0.1"
+                                      />
+                                      <circle
+                                        cx={x}
+                                        cy={y}
+                                        r="0.8"
+                                        fill="none"
+                                        stroke={pointColor}
+                                        strokeWidth="0.12"
+                                        className="chart-active-pulse"
+                                      />
+                                    </g>
                                   );
                                 })()}
 
@@ -2536,7 +2569,7 @@
                     <div className="p-4 rounded-xl bg-[#080d14] border border-emerald-500/25 shadow-xl shadow-black/60 font-mono">
                       <div className="flex items-center justify-between mb-3">
                         <div className="flex items-center gap-2">
-                          <span className="w-2 h-2 rounded-full bg-emerald-400 shadow-sm shadow-emerald-400"></span>
+                          <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse shadow-sm shadow-emerald-400"></span>
                           <h3 className="font-bold text-sm text-slate-100 uppercase tracking-wide m-0">
                             02_SYSTEM_METRICS <span className="text-xs text-slate-400 font-normal">[实盘表现总览]</span>
                           </h3>

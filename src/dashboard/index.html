@@ -4015,26 +4015,15 @@
 
               <button
                 onClick={() => {
+                  isUserScrolledAwayRef.current = false;
                   fetchKlines();
                   setTimeout(() => fixScrollToRight(true), 60);
                 }}
                 className="px-2.5 py-2 rounded bg-slate-800/80 hover:bg-slate-700 text-slate-300 hover:text-cyan-300 border border-slate-700 text-xs transition-colors flex items-center gap-1.5"
-                title="手动刷新K线并回归最新"
+                title="手动刷新K线"
               >
                 <span>↻</span>
                 <span className="hidden sm:inline">刷新</span>
-              </button>
-
-              <button
-                onClick={() => {
-                  isUserScrolledAwayRef.current = false;
-                  fixScrollToRight(true);
-                }}
-                className="px-2.5 py-2 rounded bg-cyan-500/10 hover:bg-cyan-500/25 text-cyan-400 hover:text-cyan-300 border border-cyan-500/30 text-xs transition-colors flex items-center gap-1.5"
-                title="锁定回最新K线（保持右侧间距）"
-              >
-                <span>⇥</span>
-                <span className="hidden sm:inline">居右锁定</span>
               </button>
             </div>
           </div>

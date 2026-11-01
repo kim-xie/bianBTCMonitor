@@ -3730,8 +3730,8 @@
             textColor: '#94a3b8'
           },
           grid: {
-            vertLines: { color: 'rgba(30, 41, 59, 0.4)' },
-            horzLines: { color: 'rgba(30, 41, 59, 0.4)' }
+            vertLines: { visible: false },
+            horzLines: { visible: false }
           },
           crosshair: {
             mode: LightweightCharts.CrosshairMode.Normal,
@@ -3780,16 +3780,16 @@
           color: '#f59e0b',
           lineWidth: 2,
           priceLineVisible: false,
-          lastValueVisible: true,
-          title: 'EMA50'
+          lastValueVisible: false,
+          title: ''
         });
 
         const ema200Series = chart.addLineSeries({
           color: '#a855f7',
           lineWidth: 2,
           priceLineVisible: false,
-          lastValueVisible: true,
-          title: 'EMA200'
+          lastValueVisible: false,
+          title: ''
         });
 
         const volumeSeries = chart.addHistogramSeries({
@@ -4216,7 +4216,7 @@
               width: containerRef.current.clientWidth,
               height: 400,
               layout: { background: { type: 'solid', color: '#05080c' }, textColor: '#94a3b8' },
-              grid: { vertLines: { color: 'rgba(30,41,59,0.5)' }, horzLines: { color: 'rgba(30,41,59,0.5)' } },
+              grid: { vertLines: { visible: false }, horzLines: { visible: false } },
               localization: {
                 timeFormatter: (t) => {
                   const d = new Date((t + 8 * 3600) * 1000);

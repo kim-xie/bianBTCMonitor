@@ -2337,7 +2337,7 @@
                         <span className={`text-3xl font-extrabold tracking-tight ${currentBalance >= initialBalance ? 'text-emerald-400 terminal-glow-green' : 'text-rose-400'}`}>
                           <FlipNumber value={formatAmountU(currentBalance)} />
                         </span>
-                        <span className="text-xs text-slate-400 font-semibold">
+                        <span className={`text-xs font-semibold ${currentBalance >= initialBalance ? 'text-emerald-400' : 'text-rose-400'}`}>
                           (NET: <FlipNumber value={`${currentBalance >= initialBalance ? '+' : ''}${formatAmountU(currentBalance - initialBalance)}`} /> / <FlipNumber value={`${currentBalance >= initialBalance ? '+' : ''}${((currentBalance - initialBalance) / initialBalance * 100).toFixed(1)}%`} />)
                         </span>
                       </div>
@@ -2530,12 +2530,6 @@
                           )}
                         </div>
                       )}
-                      <div className="mt-3 text-xs text-slate-400 flex justify-between pt-2 border-t border-slate-800/80">
-                        <span>TOTAL_CAPITAL: <span className="text-slate-200 font-bold">{formatAmountU(currentBalance)}</span></span>
-                        <span className={currentBalance >= initialBalance ? 'text-emerald-400 font-semibold' : 'text-rose-400 font-semibold'}>
-                          NET_RETURN: {currentBalance >= initialBalance ? '+' : ''}{((currentBalance - initialBalance) / initialBalance * 100).toFixed(1)}%
-                        </span>
-                      </div>
                     </div>
 
                     {/* 统计概览卡片 */}

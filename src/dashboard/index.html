@@ -103,6 +103,58 @@
       filter: invert(0.8) hue-rotate(100deg);
       cursor: pointer;
     }
+
+    /* ========================================================
+       数字变动翻页效果 (Flip Counter / 机械翻牌器)
+       ======================================================== */
+    .flip-card-unit {
+      display: inline-block;
+      position: relative;
+      perspective: 350px;
+      transform-style: preserve-3d;
+      vertical-align: baseline;
+      line-height: 1;
+    }
+    .flip-card-digit {
+      display: inline-block;
+      transform-style: preserve-3d;
+      backface-visibility: hidden;
+      will-change: transform, filter;
+      position: relative;
+    }
+    .flip-card-digit.is-number::after {
+      content: '';
+      position: absolute;
+      left: 0;
+      right: 0;
+      top: 50%;
+      height: 1px;
+      background: rgba(0, 0, 0, 0.45);
+      box-shadow: 0 1px 0 rgba(255, 255, 255, 0.07);
+      pointer-events: none;
+      opacity: 0.5;
+    }
+    .flip-card-digit.is-flipping {
+      animation: flipDigitDown 0.38s cubic-bezier(0.4, 0.0, 0.2, 1);
+    }
+    @keyframes flipDigitDown {
+      0% {
+        transform: perspective(350px) rotateX(0deg);
+        filter: brightness(1);
+      }
+      49.9% {
+        transform: perspective(350px) rotateX(-90deg) scale(0.96);
+        filter: brightness(0.5);
+      }
+      50% {
+        transform: perspective(350px) rotateX(90deg) scale(0.96);
+        filter: brightness(1.3);
+      }
+      100% {
+        transform: perspective(350px) rotateX(0deg) scale(1);
+        filter: brightness(1);
+      }
+    }
   </style>
 </head>
 
@@ -110,7 +162,59 @@
   <div id="root"></div>
 
   <script type="text/babel">
-    const { useState, useEffect } = React;
+    const { useState, useEffect, useRef } = React;
+
+    // ==========================================
+    // 数字变动翻页组件 (FlipChar / FlipNumber)
+    // ==========================================
+    const FlipChar = ({ char }) => {
+      const [displayChar, setDisplayChar] = useState(char);
+      const [isFlipping, setIsFlipping] = useState(false);
+      const prevCharRef = useRef(char);
+
+      useEffect(() => {
+        if (char !== prevCharRef.current) {
+          setIsFlipping(true);
+          const halfTimer = setTimeout(() => {
+            setDisplayChar(char);
+          }, 190);
+
+          const endTimer = setTimeout(() => {
+            setDisplayChar(char);
+            setIsFlipping(false);
+            prevCharRef.current = char;
+          }, 380);
+
+          return () => {
+            clearTimeout(halfTimer);
+            clearTimeout(endTimer);
+          };
+        }
+      }, [char]);
+
+      const isDigit = /\d/.test(displayChar);
+
+      return (
+        <span className="flip-card-unit">
+          <span className={`flip-card-digit ${isDigit ? 'is-number' : ''} ${isFlipping ? 'is-flipping' : ''}`}>
+            {displayChar}
+          </span>
+        </span>
+      );
+    };
+
+    const FlipNumber = ({ value, className = '' }) => {
+      const str = value !== undefined && value !== null ? String(value) : '';
+      const chars = str.split('');
+
+      return (
+        <span className={`inline-flex items-baseline font-mono ${className}`}>
+          {chars.map((char, idx) => (
+            <FlipChar key={`fc-${chars.length - 1 - idx}`} char={char} />
+          ))}
+        </span>
+      );
+    };
 
     const formatAmountU = (amount) => {
       const value = Number(amount) || 0;
@@ -452,14 +556,14 @@
             {/* 1. 综合胜率 */}
             <div className="relative overflow-hidden rounded-xl bg-[#080d14] border border-emerald-500/25 p-4 shadow-xl shadow-black/60">
               <div className="flex items-center justify-between text-xs text-slate-400 mb-2">
-                <span className="tracking-wider">// 01_OVERALL_WIN_RATE</span>
+                <span className="tracking-wider">01_OVERALL_WIN_RATE</span>
                 <span className={`px-2 py-0.5 rounded font-bold text-[10px] tracking-wider ${kpis.winRate >= 55.6 ? 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/30' : 'bg-rose-500/15 text-rose-400 border border-rose-500/30'}`}>
                   {kpis.winRate >= 55.6 ? '[达标盈利]' : '[低于保本线]'}
                 </span>
               </div>
               <div className="flex items-baseline gap-2">
                 <span className={`text-3xl font-extrabold tracking-tight ${kpis.winRate >= 55.6 ? 'text-emerald-400 terminal-glow-green' : 'text-rose-400'}`}>
-                  {kpis.winRate.toFixed(1)}%
+                  <FlipNumber value={`${kpis.winRate.toFixed(1)}%`} />
                 </span>
                 <span className="text-xs text-slate-400 font-semibold">
                   {kpis.wins}W / {kpis.losses}L
@@ -485,14 +589,14 @@
             {/* 2. 累计净收益 */}
             <div className="relative overflow-hidden rounded-xl bg-[#080d14] border border-cyan-500/25 p-4 shadow-xl shadow-black/60">
               <div className="flex items-center justify-between text-xs text-slate-400 mb-2">
-                <span className="tracking-wider">// 02_NET_PROFIT</span>
+                <span className="tracking-wider">02_NET_PROFIT</span>
                 <span className="text-[10px] px-2 py-0.5 rounded bg-cyan-500/15 text-cyan-300 border border-cyan-500/30 font-bold">
                   [10U/UNIT]
                 </span>
               </div>
               <div className="flex items-baseline gap-1">
                 <span className={`text-3xl font-extrabold tracking-tight ${kpis.totalPnl >= 0 ? 'text-emerald-400 terminal-glow-green' : 'text-rose-400'}`}>
-                  {kpis.totalPnl >= 0 ? `+${kpis.totalPnl.toFixed(1)}` : kpis.totalPnl.toFixed(1)}
+                  <FlipNumber value={kpis.totalPnl >= 0 ? `+${kpis.totalPnl.toFixed(1)}` : kpis.totalPnl.toFixed(1)} />
                 </span>
                 <span className="text-sm font-bold text-slate-400">U</span>
               </div>
@@ -505,14 +609,14 @@
             {/* 3. 盈亏比 Profit Factor */}
             <div className="relative overflow-hidden rounded-xl bg-[#080d14] border border-slate-700/80 p-4 shadow-xl shadow-black/60">
               <div className="flex items-center justify-between text-xs text-slate-400 mb-2">
-                <span className="tracking-wider">// 03_PROFIT_FACTOR</span>
+                <span className="tracking-wider">03_PROFIT_FACTOR</span>
                 <span className={`px-2 py-0.5 rounded font-bold text-[10px] tracking-wider ${kpis.profitFactor >= 1.4 ? 'bg-cyan-500/15 text-cyan-400 border border-cyan-500/30' : (kpis.profitFactor >= 1.0 ? 'bg-amber-500/15 text-amber-400 border border-amber-500/30' : 'bg-rose-500/15 text-rose-400 border border-rose-500/30')}`}>
                   {kpis.profitFactor >= 1.4 ? '[高正期望]' : (kpis.profitFactor >= 1.0 ? '[保本运行]' : '[回撤预警]')}
                 </span>
               </div>
               <div className="flex items-baseline gap-2">
                 <span className="text-3xl font-extrabold text-cyan-400 terminal-glow-cyan tracking-tight">
-                  {kpis.profitFactor >= 99 ? '∞' : kpis.profitFactor.toFixed(2)}
+                  <FlipNumber value={kpis.profitFactor >= 99 ? '∞' : kpis.profitFactor.toFixed(2)} />
                 </span>
                 <span className="text-xs text-slate-400 font-semibold">WIN/LOSS RATIO</span>
               </div>
@@ -527,7 +631,7 @@
               <div className="flex items-center justify-between text-xs text-slate-400 mb-2">
                 <span className="flex items-center gap-1.5 tracking-wider">
                   <span className="text-amber-400 font-bold">★</span>
-                  <span>// 04_ALPHA_STRATEGY</span>
+                  <span>04_ALPHA_STRATEGY</span>
                 </span>
                 <span className="text-[10px] px-2 py-0.5 rounded bg-amber-500/15 text-amber-300 border border-amber-500/30 font-bold">
                   [RANK_01]
@@ -554,7 +658,7 @@
               <div className="flex items-center justify-between mb-2">
                 <div className="flex items-center gap-2">
                   <span className="w-2 h-2 rounded-full bg-cyan-400 animate-pulse shadow-sm shadow-cyan-400"></span>
-                  <h3 className="font-bold text-sm text-cyan-300 uppercase tracking-wide">// 趋势策略系统 [TREND_SYS]</h3>
+                  <h3 className="font-bold text-sm text-cyan-300 uppercase tracking-wide">趋势策略系统 [TREND_SYS]</h3>
                 </div>
                 <span className="text-[11px] px-2 py-0.5 rounded bg-cyan-500/10 text-cyan-400 border border-cyan-500/20 font-bold">
                   {kpis.trend.count} ORDERS
@@ -566,7 +670,7 @@
               <div className="grid grid-cols-3 gap-2 py-2.5 border-y border-slate-800 text-center">
                 <div>
                   <div className="text-[10px] text-slate-400 uppercase">WIN_RATE</div>
-                  <div className="text-base font-bold text-cyan-300 mt-0.5">{kpis.trend.wr.toFixed(1)}%</div>
+                  <div className="text-base font-bold text-cyan-300 mt-0.5"><FlipNumber value={`${kpis.trend.wr.toFixed(1)}%`} /></div>
                 </div>
                 <div>
                   <div className="text-[10px] text-slate-400 uppercase">RECORD</div>
@@ -575,7 +679,7 @@
                 <div>
                   <div className="text-[10px] text-slate-400 uppercase">NET_PNL</div>
                   <div className={`text-xs font-bold mt-1 ${kpis.trend.pnl >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
-                    {kpis.trend.pnl >= 0 ? `+${kpis.trend.pnl.toFixed(0)}` : kpis.trend.pnl.toFixed(0)}U
+                    <FlipNumber value={`${kpis.trend.pnl >= 0 ? '+' : ''}${kpis.trend.pnl.toFixed(0)}U`} />
                   </div>
                 </div>
               </div>
@@ -586,7 +690,7 @@
               <div className="flex items-center justify-between mb-2">
                 <div className="flex items-center gap-2">
                   <span className="w-2 h-2 rounded-full bg-purple-400 shadow-sm shadow-purple-400"></span>
-                  <h3 className="font-bold text-sm text-purple-300 uppercase tracking-wide">// 反转策略系统 [REV_SYS]</h3>
+                  <h3 className="font-bold text-sm text-purple-300 uppercase tracking-wide">反转策略系统 [REV_SYS]</h3>
                 </div>
                 <span className="text-[11px] px-2 py-0.5 rounded bg-purple-500/10 text-purple-400 border border-purple-500/20 font-bold">
                   {kpis.reversal.count} ORDERS
@@ -598,7 +702,7 @@
               <div className="grid grid-cols-3 gap-2 py-2.5 border-y border-slate-800 text-center">
                 <div>
                   <div className="text-[10px] text-slate-400 uppercase">WIN_RATE</div>
-                  <div className="text-base font-bold text-purple-300 mt-0.5">{kpis.reversal.wr.toFixed(1)}%</div>
+                  <div className="text-base font-bold text-purple-300 mt-0.5"><FlipNumber value={`${kpis.reversal.wr.toFixed(1)}%`} /></div>
                 </div>
                 <div>
                   <div className="text-[10px] text-slate-400 uppercase">RECORD</div>
@@ -607,7 +711,7 @@
                 <div>
                   <div className="text-[10px] text-slate-400 uppercase">NET_PNL</div>
                   <div className={`text-xs font-bold mt-1 ${kpis.reversal.pnl >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
-                    {kpis.reversal.pnl >= 0 ? `+${kpis.reversal.pnl.toFixed(0)}` : kpis.reversal.pnl.toFixed(0)}U
+                    <FlipNumber value={`${kpis.reversal.pnl >= 0 ? '+' : ''}${kpis.reversal.pnl.toFixed(0)}U`} />
                   </div>
                 </div>
               </div>
@@ -616,7 +720,7 @@
             {/* 多空方向对比 */}
             <div className="rounded-xl bg-[#080d14] border border-slate-700/80 p-4 shadow-xl shadow-black/50">
               <div className="flex items-center justify-between mb-2">
-                <h3 className="font-bold text-sm text-slate-200 uppercase tracking-wide">// 多空方向透视 [DIR_RADAR]</h3>
+                <h3 className="font-bold text-sm text-slate-200 uppercase tracking-wide">多空方向透视 [DIR_RADAR]</h3>
                 <span className="text-[11px] text-slate-400 font-bold">TOTAL: {kpis.total}</span>
               </div>
               <div className="space-y-3 pt-1">
@@ -627,7 +731,7 @@
                       <span>▲ LONG (做多)</span>
                       <span className="text-slate-400 text-[11px]">[{kpis.long.count}笔]</span>
                     </span>
-                    <span className="font-bold text-emerald-400">{kpis.long.wr.toFixed(1)}% WR</span>
+                    <span className="font-bold text-emerald-400"><FlipNumber value={`${kpis.long.wr.toFixed(1)}%`} /> WR</span>
                   </div>
                   <div className="w-full bg-[#05080c] border border-slate-800 h-2 rounded overflow-hidden">
                     <div className="bg-emerald-500 h-full" style={{ width: `${kpis.long.wr}%` }}></div>
@@ -641,7 +745,7 @@
                       <span>▼ SHORT (做空)</span>
                       <span className="text-slate-400 text-[11px]">[{kpis.short.count}笔]</span>
                     </span>
-                    <span className="font-bold text-rose-400">{kpis.short.wr.toFixed(1)}% WR</span>
+                    <span className="font-bold text-rose-400"><FlipNumber value={`${kpis.short.wr.toFixed(1)}%`} /> WR</span>
                   </div>
                   <div className="w-full bg-[#05080c] border border-slate-800 h-2 rounded overflow-hidden">
                     <div className="bg-rose-500 h-full" style={{ width: `${kpis.short.wr}%` }}></div>
@@ -672,9 +776,9 @@
                   onChange={(e) => setStatusFilter(e.target.value)}
                   className="px-2.5 py-1.5 rounded bg-[#05080c] border border-slate-700/80 text-xs text-emerald-300 font-mono focus:outline-none focus:border-emerald-400 cursor-pointer"
                 >
-                  <option value="all">// 状态: 全部</option>
-                  <option value="active">// 状态: 运行中 (Active)</option>
-                  <option value="disabled">// 状态: 已下线 (Disabled)</option>
+                  <option value="all">状态: 全部</option>
+                  <option value="active">状态: 运行中 (Active)</option>
+                  <option value="disabled">状态: 已下线 (Disabled)</option>
                 </select>
 
                 <select
@@ -682,9 +786,9 @@
                   onChange={(e) => setTypeFilter(e.target.value)}
                   className="px-2.5 py-1.5 rounded bg-[#05080c] border border-slate-700/80 text-xs text-cyan-300 font-mono focus:outline-none focus:border-cyan-400 cursor-pointer"
                 >
-                  <option value="all">// 分类: 全部体系</option>
-                  <option value="trend">// 分类: 趋势策略</option>
-                  <option value="reversal">// 分类: 反转策略</option>
+                  <option value="all">分类: 全部体系</option>
+                  <option value="trend">分类: 趋势策略</option>
+                  <option value="reversal">分类: 反转策略</option>
                 </select>
               </div>
             </div>
@@ -694,15 +798,15 @@
               <table className="w-full text-left text-xs border-collapse font-mono">
                 <thead>
                   <tr className="border-b border-slate-800 text-slate-400 uppercase tracking-wider text-[11px] bg-[#05080c]/60">
-                    <th className="py-2.5 px-3">// 策略名称与模型</th>
-                    <th className="py-2.5 px-3">// 体系/方向</th>
-                    <th className="py-2.5 px-3">// 状态</th>
-                    <th className="py-2.5 px-3 text-center">// 样本</th>
-                    <th className="py-2.5 px-3 text-center">// 胜/负</th>
-                    <th className="py-2.5 px-3 min-w-[130px]">// 实盘胜率</th>
-                    <th className="py-2.5 px-3 text-right">// 净盈亏</th>
-                    <th className="py-2.5 px-3 text-center">// 盈亏比</th>
-                    <th className="py-2.5 px-3 text-center">// 动作</th>
+                    <th className="py-2.5 px-3">策略名称与模型</th>
+                    <th className="py-2.5 px-3">体系/方向</th>
+                    <th className="py-2.5 px-3">状态</th>
+                    <th className="py-2.5 px-3 text-center">样本</th>
+                    <th className="py-2.5 px-3 text-center">胜/负</th>
+                    <th className="py-2.5 px-3 min-w-[130px]">实盘胜率</th>
+                    <th className="py-2.5 px-3 text-right">净盈亏</th>
+                    <th className="py-2.5 px-3 text-center">盈亏比</th>
+                    <th className="py-2.5 px-3 text-center">动作</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-800/60">
@@ -836,7 +940,7 @@
           {/* 策略规则与风控引擎配置 (Terminal Sysconfig Log) */}
           <div className="p-4 rounded-xl bg-[#080d14] border border-slate-700/80 text-xs font-mono shadow-xl shadow-black/60">
             <div className="flex items-center gap-2 mb-3 text-xs font-bold text-emerald-400 tracking-wider">
-              <span>// SYSTEM_LOG :: CORE_RULES_AND_RISK_GUARD</span>
+              <span>SYSTEM_LOG :: CORE_RULES_AND_RISK_GUARD</span>
               <span className="text-[10px] px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-300 border border-emerald-500/20 font-normal">
                 [ENGINE_ONLINE]
               </span>
@@ -1055,7 +1159,7 @@
             </div>
 
             <div className="grid grid-cols-8 gap-2 mb-2">
-              {['// 周日', '// 周一', '// 周二', '// 周三', '// 周四', '// 周五', '// 周六', '// 周汇总'].map(day => (
+              {['周日', '周一', '周二', '周三', '周四', '周五', '周六', '周汇总'].map(day => (
                 <div key={day} className="text-center font-bold text-slate-400 text-xs py-2 bg-[#05080c]/80 rounded border border-slate-800/80 tracking-wider">
                   {day}
                 </div>
@@ -1181,7 +1285,7 @@
                     <div className="flex items-center gap-2 mb-3 pb-2 border-b border-slate-800">
                       <span className="text-cyan-400 font-bold">&gt;</span>
                       <h3 className="text-sm font-bold text-slate-200 uppercase tracking-wide m-0">
-                        // MONTHLY_PERFORMANCE_BREAKDOWN <span className="text-xs text-slate-400 font-normal">[{year}年度月份复盘]</span>
+                        MONTHLY_PERFORMANCE_BREAKDOWN <span className="text-xs text-slate-400 font-normal">[{year}年度月份复盘]</span>
                       </h3>
                     </div>
                     <div className="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-7 gap-2">
@@ -1267,7 +1371,7 @@
                     <div className="flex items-center gap-2 mb-3 pb-2 border-b border-slate-800">
                       <span className="text-amber-400 font-bold">&gt;</span>
                       <h3 className="text-sm font-bold text-slate-200 uppercase tracking-wide m-0">
-                        // YEARLY_ARCHIVE_DATA <span className="text-xs text-slate-400 font-normal">[年度历史总览]</span>
+                        YEARLY_ARCHIVE_DATA <span className="text-xs text-slate-400 font-normal">[年度历史总览]</span>
                       </h3>
                     </div>
                     <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-6 gap-2">
@@ -1380,7 +1484,7 @@
                 </h2>
               </div>
               <p className="text-slate-400 text-xs mt-1.5">
-                {mode === 'login' ? '// 请输入访问凭据以登入 BTC Oracle 量化监控系统' : '// 注册新量化节点访问权限'}
+                {mode === 'login' ? '请输入访问凭据以登入 BTC Oracle 量化监控系统' : '注册新量化节点访问权限'}
               </p>
             </div>
 
@@ -1392,7 +1496,7 @@
 
             <form onSubmit={handleSubmit} className="space-y-4 font-mono">
               <div>
-                <label className="block text-[11px] text-slate-400 uppercase mb-1.5 tracking-wider">// USERNAME / 用户名</label>
+                <label className="block text-[11px] text-slate-400 uppercase mb-1.5 tracking-wider">USERNAME / 用户名</label>
                 <input
                   type="text"
                   name="username"
@@ -1406,7 +1510,7 @@
 
               {mode === 'register' && (
                 <div>
-                  <label className="block text-[11px] text-slate-400 uppercase mb-1.5 tracking-wider">// EMAIL / 邮箱地址</label>
+                  <label className="block text-[11px] text-slate-400 uppercase mb-1.5 tracking-wider">EMAIL / 邮箱地址</label>
                   <input
                     type="email"
                     name="email"
@@ -1420,7 +1524,7 @@
               )}
 
               <div>
-                <label className="block text-[11px] text-slate-400 uppercase mb-1.5 tracking-wider">// PASSWORD / 访问密码</label>
+                <label className="block text-[11px] text-slate-400 uppercase mb-1.5 tracking-wider">PASSWORD / 访问密码</label>
                 <input
                   type="password"
                   name="password"
@@ -2077,7 +2181,7 @@
                 </div>
                 <h3 className="text-lg font-bold text-slate-100 uppercase font-mono mb-2">请先登录以访问 BTC Oracle</h3>
                 <p className="text-slate-400 text-xs font-mono mb-6 leading-relaxed">
-                  // 需要终端访问权限以加载实盘信号、均线模型与量化资金矩阵
+                  需要终端访问权限以加载实盘信号、均线模型与量化资金矩阵
                 </p>
                 <button
                   onClick={() => setShowAuthModal(true)}
@@ -2098,7 +2202,7 @@
                       <div>
                         <div className="flex items-center gap-2 text-xs text-cyan-400 font-mono mb-1">
                           <span className="w-2 h-2 rounded-full bg-cyan-400 animate-pulse shadow-sm shadow-cyan-400"></span>
-                          <span>// REALTIME_SIGNAL_TELEMETRY :: 5-MIN KLINE STREAM</span>
+                          <span>REALTIME_SIGNAL_TELEMETRY :: 5-MIN KLINE STREAM</span>
                         </div>
                         <div className="flex items-center gap-2">
                           <span className="text-cyan-400 font-bold">&gt;</span>
@@ -2170,12 +2274,12 @@
 
                                 <div className="flex items-center gap-3">
                                   <div className="flex items-center gap-1.5 text-xs">
-                                    <span className="text-[10px] text-slate-400 uppercase tracking-widest">// CONFIDENCE:</span>
+                                    <span className="text-[10px] text-slate-400 uppercase tracking-widest">CONFIDENCE:</span>
                                     <span className={`font-black text-sm ${
                                       conf >= 85 ? 'text-emerald-400 terminal-glow-green' :
                                       conf >= 80 ? 'text-cyan-400 terminal-glow-cyan' : 'text-amber-400'
                                     }`}>
-                                      {conf}%
+                                      <FlipNumber value={`${conf}%`} />
                                     </span>
                                   </div>
 
@@ -2188,14 +2292,14 @@
                               <div className="space-y-1 text-xs">
                                 {sig.recommendedAction && (
                                   <div className="flex items-start gap-1.5 text-[11px]">
-                                    <span className="text-cyan-400 font-bold tracking-wider">// ACTION:</span>
+                                    <span className="text-cyan-400 font-bold tracking-wider">ACTION:</span>
                                     <span className="text-cyan-200 font-semibold">{sig.recommendedAction}</span>
                                   </div>
                                 )}
 
                                 {sig.reasoning && sig.reasoning.length > 0 && (
                                   <div className="flex items-start gap-1.5 text-[11px] leading-relaxed text-slate-300">
-                                    <span className="text-emerald-400 font-bold tracking-wider">// REASON:</span>
+                                    <span className="text-emerald-400 font-bold tracking-wider">REASON:</span>
                                     <span className="text-slate-300">{Array.isArray(sig.reasoning) ? sig.reasoning.join(' ｜ ') : sig.reasoning}</span>
                                   </div>
                                 )}
@@ -2221,7 +2325,7 @@
                         <div className="flex items-center gap-2">
                           <span className="w-2 h-2 rounded-full bg-cyan-400 shadow-sm shadow-cyan-400"></span>
                           <h3 className="font-bold text-sm text-slate-100 uppercase tracking-wide m-0">
-                            // 01_EQUITY_CURVE <span className="text-xs text-slate-400 font-normal">[资金走势与净值动态]</span>
+                            01_EQUITY_CURVE <span className="text-xs text-slate-400 font-normal">[资金走势与净值动态]</span>
                           </h3>
                         </div>
                         <span className="text-[10px] px-2 py-0.5 rounded bg-cyan-500/15 text-cyan-300 border border-cyan-500/30 font-bold">
@@ -2231,10 +2335,10 @@
 
                       <div className="flex items-baseline gap-3 my-2">
                         <span className={`text-3xl font-extrabold tracking-tight ${currentBalance >= initialBalance ? 'text-emerald-400 terminal-glow-green' : 'text-rose-400'}`}>
-                          {formatAmountU(currentBalance)}
+                          <FlipNumber value={formatAmountU(currentBalance)} />
                         </span>
                         <span className="text-xs text-slate-400 font-semibold">
-                          (NET: {currentBalance >= initialBalance ? '+' : ''}{formatAmountU(currentBalance - initialBalance)} / {currentBalance >= initialBalance ? '+' : ''}{((currentBalance - initialBalance) / initialBalance * 100).toFixed(1)}%)
+                          (NET: <FlipNumber value={`${currentBalance >= initialBalance ? '+' : ''}${formatAmountU(currentBalance - initialBalance)}`} /> / <FlipNumber value={`${currentBalance >= initialBalance ? '+' : ''}${((currentBalance - initialBalance) / initialBalance * 100).toFixed(1)}%`} />)
                         </span>
                       </div>
 
@@ -2428,7 +2532,7 @@
                         <div className="flex items-center gap-2">
                           <span className="w-2 h-2 rounded-full bg-emerald-400 shadow-sm shadow-emerald-400"></span>
                           <h3 className="font-bold text-sm text-slate-100 uppercase tracking-wide m-0">
-                            // 02_SYSTEM_METRICS <span className="text-xs text-slate-400 font-normal">[实盘表现总览]</span>
+                            02_SYSTEM_METRICS <span className="text-xs text-slate-400 font-normal">[实盘表现总览]</span>
                           </h3>
                         </div>
                       </div>
@@ -2437,50 +2541,50 @@
                         <>
                           <div className="mb-3 p-2.5 rounded-lg bg-[#05080c] border border-emerald-500/30 grid grid-cols-3 gap-2 text-center">
                             <div>
-                              <div className="text-[10px] text-slate-400 uppercase">// 今日订单</div>
-                              <div className="text-base font-bold text-cyan-300 mt-0.5">{stats.todayStats?.totalTrades || 0}笔</div>
+                              <div className="text-[10px] text-slate-400 uppercase">今日订单</div>
+                              <div className="text-base font-bold text-cyan-300 mt-0.5"><FlipNumber value={`${stats.todayStats?.totalTrades || 0}笔`} /></div>
                             </div>
                             <div className="border-x border-slate-800">
-                              <div className="text-[10px] text-slate-400 uppercase">// 实盘胜率</div>
+                              <div className="text-[10px] text-slate-400 uppercase">实盘胜率</div>
                               <div className={`text-base font-bold mt-0.5 ${stats.todayStats?.winRate >= 50 ? 'text-emerald-400' : 'text-rose-400'}`}>
-                                {formatPercentage(stats.todayStats?.winRate || 0)}
+                                <FlipNumber value={formatPercentage(stats.todayStats?.winRate || 0)} />
                               </div>
                             </div>
                             <div>
-                              <div className="text-[10px] text-slate-400 uppercase">// 今日净利</div>
+                              <div className="text-[10px] text-slate-400 uppercase">今日净利</div>
                               <div className={`text-base font-bold mt-0.5 ${stats.todayStats?.totalProfitLoss >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
-                                {stats.todayStats?.totalProfitLoss >= 0 ? '+' : ''}{formatAmountU(stats.todayStats?.totalProfitLoss || 0)}
+                                <FlipNumber value={`${stats.todayStats?.totalProfitLoss >= 0 ? '+' : ''}${formatAmountU(stats.todayStats?.totalProfitLoss || 0)}`} />
                               </div>
                             </div>
                           </div>
 
                           <div className="grid grid-cols-3 gap-2 text-center text-xs">
                             <div className="p-2 rounded bg-[#05080c] border border-slate-800">
-                              <div className="text-[10px] text-slate-400 uppercase">// 总交易数</div>
-                              <div className="text-sm font-bold text-slate-100 mt-0.5">{stats.totalTrades}</div>
+                              <div className="text-[10px] text-slate-400 uppercase">总交易数</div>
+                              <div className="text-sm font-bold text-slate-100 mt-0.5"><FlipNumber value={stats.totalTrades} /></div>
                             </div>
                             <div className="p-2 rounded bg-[#05080c] border border-slate-800">
-                              <div className="text-[10px] text-slate-400 uppercase">// 综合胜率</div>
+                              <div className="text-[10px] text-slate-400 uppercase">综合胜率</div>
                               <div className={`text-sm font-bold mt-0.5 ${stats.winRate >= 60 ? 'text-emerald-400' : 'text-rose-400'}`}>
-                                {formatPercentage(stats.winRate)}
+                                <FlipNumber value={formatPercentage(stats.winRate)} />
                               </div>
                             </div>
                             <div className="p-2 rounded bg-[#05080c] border border-slate-800">
-                              <div className="text-[10px] text-slate-400 uppercase">// 盈利次数</div>
-                              <div className="text-sm font-bold text-emerald-400 mt-0.5">{stats.winningTrades}</div>
+                              <div className="text-[10px] text-slate-400 uppercase">盈利次数</div>
+                              <div className="text-sm font-bold text-emerald-400 mt-0.5"><FlipNumber value={stats.winningTrades} /></div>
                             </div>
                             <div className="p-2 rounded bg-[#05080c] border border-slate-800">
-                              <div className="text-[10px] text-slate-400 uppercase">// 亏损次数</div>
-                              <div className="text-sm font-bold text-rose-400 mt-0.5">{stats.losingTrades}</div>
+                              <div className="text-[10px] text-slate-400 uppercase">亏损次数</div>
+                              <div className="text-sm font-bold text-rose-400 mt-0.5"><FlipNumber value={stats.losingTrades} /></div>
                             </div>
                             <div className="p-2 rounded bg-[#05080c] border border-slate-800">
-                              <div className="text-[10px] text-slate-400 uppercase">// 持仓中</div>
-                              <div className="text-sm font-bold text-amber-400 mt-0.5">{stats.openTrades || 0}</div>
+                              <div className="text-[10px] text-slate-400 uppercase">持仓中</div>
+                              <div className="text-sm font-bold text-amber-400 mt-0.5"><FlipNumber value={stats.openTrades || 0} /></div>
                             </div>
                             <div className="p-2 rounded bg-[#05080c] border border-slate-800">
-                              <div className="text-[10px] text-slate-400 uppercase">// 累计盈亏</div>
+                              <div className="text-[10px] text-slate-400 uppercase">累计盈亏</div>
                               <div className={`text-sm font-bold mt-0.5 ${stats.totalProfitLoss >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
-                                {stats.totalProfitLoss >= 0 ? `+${formatAmountU(stats.totalProfitLoss)}` : formatAmountU(stats.totalProfitLoss)}
+                                <FlipNumber value={stats.totalProfitLoss >= 0 ? `+${formatAmountU(stats.totalProfitLoss)}` : formatAmountU(stats.totalProfitLoss)} />
                               </div>
                             </div>
                           </div>
@@ -2513,16 +2617,16 @@
                       <table className="w-full text-left text-xs border-collapse font-mono">
                         <thead>
                           <tr className="border-b border-slate-800 text-slate-400 uppercase tracking-wider text-[11px] bg-[#05080c]/60">
-                            <th className="py-2.5 px-3">// 开仓时间</th>
-                            <th className="py-2.5 px-3">// 开仓价</th>
-                            <th className="py-2.5 px-3">// 开仓金额</th>
-                            <th className="py-2.5 px-3">// 方向</th>
-                            <th className="py-2.5 px-3">// 入场原因</th>
-                            <th className="py-2.5 px-3">// 平仓价</th>
-                            <th className="py-2.5 px-3">// 价差</th>
-                            <th className="py-2.5 px-3">// 平仓时间</th>
-                            <th className="py-2.5 px-3 text-right">// 盈亏</th>
-                            <th className="py-2.5 px-3 text-center">// 动作</th>
+                            <th className="py-2.5 px-3">开仓时间</th>
+                            <th className="py-2.5 px-3">开仓价</th>
+                            <th className="py-2.5 px-3">开仓金额</th>
+                            <th className="py-2.5 px-3">方向</th>
+                            <th className="py-2.5 px-3">入场原因</th>
+                            <th className="py-2.5 px-3">平仓价</th>
+                            <th className="py-2.5 px-3">价差</th>
+                            <th className="py-2.5 px-3">平仓时间</th>
+                            <th className="py-2.5 px-3 text-right">盈亏</th>
+                            <th className="py-2.5 px-3 text-center">动作</th>
                           </tr>
                         </thead>
                         <tbody className="divide-y divide-slate-800/60">
@@ -2823,23 +2927,23 @@
             </div>
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mb-3 text-xs">
               <div className="p-2 rounded bg-[#05080c] border border-slate-800">
-                <span className="text-slate-400 text-[10px] uppercase block">// 开仓价 / 时间</span>
+                <span className="text-slate-400 text-[10px] uppercase block">开仓价 / 时间</span>
                 <span className="font-bold text-slate-100">{formatCurrency(trade.price)}</span>
                 <span className="text-[10px] text-slate-400 block mt-0.5">{new Date(trade.timestamp).toLocaleString('zh-CN')}</span>
               </div>
               <div className="p-2 rounded bg-[#05080c] border border-slate-800">
-                <span className="text-slate-400 text-[10px] uppercase block">// 平仓价 / 时间</span>
+                <span className="text-slate-400 text-[10px] uppercase block">平仓价 / 时间</span>
                 <span className="font-bold text-slate-100">{trade.closePrice ? formatCurrency(trade.closePrice) : '持仓中'}</span>
                 <span className="text-[10px] text-slate-400 block mt-0.5">{trade.closeTime ? new Date(trade.closeTime).toLocaleString('zh-CN') : '--'}</span>
               </div>
               <div className="p-2 rounded bg-[#05080c] border border-slate-800">
-                <span className="text-slate-400 text-[10px] uppercase block">// 实盘结算盈亏</span>
+                <span className="text-slate-400 text-[10px] uppercase block">实盘结算盈亏</span>
                 <span className={`font-bold text-base ${pnl != null && pnl >= 0 ? 'text-emerald-400 terminal-glow-green' : 'text-rose-400'}`}>
                   {pnl != null ? `${pnl > 0 ? '+' : ''}${formatAmountU(pnl)}` : '--'}
                 </span>
               </div>
               <div className="p-2 rounded bg-[#05080c] border border-slate-800">
-                <span className="text-slate-400 text-[10px] uppercase block">// 持仓周期</span>
+                <span className="text-slate-400 text-[10px] uppercase block">持仓周期</span>
                 <span className="font-bold text-cyan-300">{trade.holdDuration ? trade.holdDuration + ' 分钟' : '--'}</span>
               </div>
             </div>
@@ -3048,7 +3152,7 @@
             <div className="grid grid-cols-1 md:grid-cols-12 gap-3 mb-4 font-mono">
               {/* 入场原因关键词 */}
               <div className="md:col-span-3">
-                <label className="block text-[11px] text-slate-400 uppercase tracking-wider mb-1.5">// 入场原因关键词</label>
+                <label className="block text-[11px] text-slate-400 uppercase tracking-wider mb-1.5">入场原因关键词</label>
                 <input
                   type="text"
                   value={filters.reasoningKeyword}
@@ -3060,7 +3164,7 @@
 
               {/* 策略 */}
               <div className="md:col-span-2">
-                <label className="block text-[11px] text-slate-400 uppercase tracking-wider mb-1.5">// 策略体系</label>
+                <label className="block text-[11px] text-slate-400 uppercase tracking-wider mb-1.5">策略体系</label>
                 <select
                   value={filters.strategy}
                   onChange={(e) => handleFilterChange('strategy', e.target.value)}
@@ -3074,7 +3178,7 @@
 
               {/* 时间范围 */}
               <div className="md:col-span-3">
-                <label className="block text-[11px] text-slate-400 uppercase tracking-wider mb-1.5">// 时间周期范围</label>
+                <label className="block text-[11px] text-slate-400 uppercase tracking-wider mb-1.5">时间周期范围</label>
                 <div className="flex items-center gap-1.5">
                   <input
                     type="date"
@@ -3103,7 +3207,7 @@
 
               {/* 交易方向 */}
               <div className="md:col-span-2">
-                <label className="block text-[11px] text-slate-400 uppercase tracking-wider mb-1.5">// 方向</label>
+                <label className="block text-[11px] text-slate-400 uppercase tracking-wider mb-1.5">方向</label>
                 <select
                   value={filters.tradeType}
                   onChange={(e) => handleFilterChange('tradeType', e.target.value)}
@@ -3117,7 +3221,7 @@
 
               {/* 预测结果 */}
               <div className="md:col-span-2">
-                <label className="block text-[11px] text-slate-400 uppercase tracking-wider mb-1.5">// 预测结果</label>
+                <label className="block text-[11px] text-slate-400 uppercase tracking-wider mb-1.5">预测结果</label>
                 <select
                   value={filters.result}
                   onChange={(e) => handleFilterChange('result', e.target.value)}
@@ -3192,16 +3296,16 @@
               <table className="w-full text-left text-xs border-collapse font-mono" style={{ minWidth: '800px' }}>
                 <thead>
                   <tr className="border-b border-slate-800 text-slate-400 uppercase tracking-wider text-[11px] bg-[#05080c]/60">
-                    <th className="py-2.5 px-3">// 开仓时间</th>
-                    <th className="py-2.5 px-3">// 开仓价</th>
-                    <th className="py-2.5 px-3">// 开仓金额</th>
-                    <th className="py-2.5 px-3">// 方向</th>
-                    <th className="py-2.5 px-3">// 入场原因</th>
-                    <th className="py-2.5 px-3">// 平仓价</th>
-                    <th className="py-2.5 px-3">// 价差</th>
-                    <th className="py-2.5 px-3">// 平仓时间</th>
-                    <th className="py-2.5 px-3 text-right">// 盈亏</th>
-                    <th className="py-2.5 px-3 text-center">// 动作</th>
+                    <th className="py-2.5 px-3">开仓时间</th>
+                    <th className="py-2.5 px-3">开仓价</th>
+                    <th className="py-2.5 px-3">开仓金额</th>
+                    <th className="py-2.5 px-3">方向</th>
+                    <th className="py-2.5 px-3">入场原因</th>
+                    <th className="py-2.5 px-3">平仓价</th>
+                    <th className="py-2.5 px-3">价差</th>
+                    <th className="py-2.5 px-3">平仓时间</th>
+                    <th className="py-2.5 px-3 text-right">盈亏</th>
+                    <th className="py-2.5 px-3 text-center">动作</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-800/60">

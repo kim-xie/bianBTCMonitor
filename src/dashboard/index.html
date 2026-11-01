@@ -1947,7 +1947,7 @@
             const minBalance = Math.min(...balanceHistory.map(p => p.balance));
             const maxBalance = Math.max(...balanceHistory.map(p => p.balance));
             y = maxBalance > minBalance ?
-              100 - ((dataPoint.balance - minBalance) / (maxBalance - minBalance)) * 100 : 50;
+              92.5 - ((dataPoint.balance - minBalance) / (maxBalance - minBalance)) * 85 : 50;
           }
 
           // 转换为实际像素位置
@@ -2348,16 +2348,17 @@
                           position: 'relative',
                           display: 'flex',
                           flexDirection: 'column',
-                          height: '200px',
+                          height: '180px',
                           background: '#05080c',
                           border: '1px solid #1e293b',
                           borderRadius: '8px',
-                          padding: '10px'
+                          padding: '12px 10px',
+                          overflow: 'hidden'
                         }}
                         onMouseMove={handleChartMouseMove}
                         onMouseLeave={handleChartMouseLeave}
                       >
-                        <div style={{ position: 'relative', height: '200px', width: '100%' }}>
+                        <div style={{ position: 'relative', height: '100%', width: '100%' }}>
                           <svg width="100%" height="100%" viewBox="0 0 100 20" preserveAspectRatio="none">
                             {balanceHistory.length > 0 && (
                               <>
@@ -2384,7 +2385,7 @@
                                       const minBalance = Math.min(...balanceHistory.map(p => p.balance));
                                       const maxBalance = Math.max(...balanceHistory.map(p => p.balance));
                                       y = maxBalance > minBalance ?
-                                        20 - ((point.balance - minBalance) / (maxBalance - minBalance)) * 20 : 10;
+                                        18.5 - ((point.balance - minBalance) / (maxBalance - minBalance)) * 17 : 10;
                                     }
 
                                     const pointData = { x, y, balance: point.balance };
@@ -2451,7 +2452,7 @@
                                     const minBalance = Math.min(...balanceHistory.map(p => p.balance));
                                     const maxBalance = Math.max(...balanceHistory.map(p => p.balance));
                                     y = maxBalance > minBalance ?
-                                      20 - ((lastPoint.balance - minBalance) / (maxBalance - minBalance)) * 20 : 10;
+                                      18.5 - ((lastPoint.balance - minBalance) / (maxBalance - minBalance)) * 17 : 10;
                                   }
 
                                   const isProfit = lastPoint.balance >= initialBalance;
@@ -2477,25 +2478,6 @@
                             )}
                           </svg>
                         </div>
-                        {balanceHistory.length > 0 && (
-                          <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '8px', padding: '0 2px' }}>
-                            {balanceHistory[0] && (
-                              <div style={{ fontSize: '11px', color: '#64748b', fontFamily: 'monospace' }}>
-                                {new Date(balanceHistory[0].time).toLocaleDateString('zh-CN', { month: 'short', day: 'numeric' })}
-                              </div>
-                            )}
-                            {balanceHistory.length > 2 && (
-                              <div style={{ fontSize: '11px', color: '#475569', fontFamily: 'monospace' }}>
-                                {new Date(balanceHistory[Math.floor(balanceHistory.length / 2)].time).toLocaleDateString('zh-CN', { month: 'short', day: 'numeric' })}
-                              </div>
-                            )}
-                            {balanceHistory[balanceHistory.length - 1] && (
-                              <div style={{ fontSize: '11px', color: '#64748b', fontFamily: 'monospace' }}>
-                                {new Date(balanceHistory[balanceHistory.length - 1].time).toLocaleDateString('zh-CN', { month: 'short', day: 'numeric' })}
-                              </div>
-                            )}
-                          </div>
-                        )}
 
                         {/* 终端风格鼠标悬停提示框 */}
                         <div
@@ -2518,6 +2500,36 @@
                           }}
                         />
                       </div>
+
+                      {/* X轴时间刻度 - 独立于图表边框外部下方，不遮挡曲线 */}
+                      {balanceHistory.length > 0 && (
+                        <div className="flex justify-between items-center text-[11px] text-slate-500 font-mono px-1.5 mt-2">
+                          {balanceHistory[0] && (
+                            <div>
+                              {new Date(balanceHistory[0].time).toLocaleDateString('zh-CN', { month: 'short', day: 'numeric' })}
+                            </div>
+                          )}
+                          {balanceHistory.length > 2 && (() => {
+                            const firstDate = new Date(balanceHistory[0].time);
+                            const midDate = new Date(balanceHistory[Math.floor(balanceHistory.length / 2)].time);
+                            const lastDate = new Date(balanceHistory[balanceHistory.length - 1].time);
+                            const isSameDay = midDate.toDateString() === lastDate.toDateString();
+                            return (
+                              <div className="text-slate-500">
+                                {isSameDay
+                                  ? `${midDate.toLocaleDateString('zh-CN', { month: 'short', day: 'numeric' })} ${midDate.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', hour12: false })}`
+                                  : midDate.toLocaleDateString('zh-CN', { month: 'short', day: 'numeric' })
+                                }
+                              </div>
+                            );
+                          })()}
+                          {balanceHistory[balanceHistory.length - 1] && (
+                            <div>
+                              {new Date(balanceHistory[balanceHistory.length - 1].time).toLocaleDateString('zh-CN', { month: 'short', day: 'numeric' })}
+                            </div>
+                          )}
+                        </div>
+                      )}
                       <div className="mt-3 text-xs text-slate-400 flex justify-between pt-2 border-t border-slate-800/80">
                         <span>TOTAL_CAPITAL: <span className="text-slate-200 font-bold">{formatAmountU(currentBalance)}</span></span>
                         <span className={currentBalance >= initialBalance ? 'text-emerald-400 font-semibold' : 'text-rose-400 font-semibold'}>

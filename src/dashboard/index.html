@@ -3462,7 +3462,6 @@
       const candleSeriesRef = React.useRef(null);
       const ema50SeriesRef = React.useRef(null);
       const ema200SeriesRef = React.useRef(null);
-      const volumeSeriesRef = React.useRef(null);
       const candlesRef = React.useRef([]);
       const isInitialScrollRef = React.useRef(true);
       const prevPriceRef = React.useRef(null);
@@ -3477,7 +3476,6 @@
       const [countdown, setCountdown] = useState('--:--');
       const [latestEma50, setLatestEma50] = useState(null);
       const [latestEma200, setLatestEma200] = useState(null);
-      const [latestVol, setLatestVol] = useState(null);
       const [trendStatus, setTrendStatus] = useState('CALCULATING...');
       const [hoverData, setHoverData] = useState(null);
       const [loading, setLoading] = useState(true);
@@ -3559,13 +3557,6 @@
             };
             candlesRef.current.push(newBar);
             candleSeriesRef.current.update(newBar);
-            if (volumeSeriesRef.current) {
-              volumeSeriesRef.current.update({
-                time: currentBarTime,
-                value: newBar.volume,
-                color: 'rgba(16, 185, 129, 0.45)'
-              });
-            }
             fixScrollToRight(true);
           }
 
@@ -3624,16 +3615,9 @@
           const ema50Data = calculateEMA(uniqueCandles, 50);
           const ema200Data = calculateEMA(uniqueCandles, 200);
 
-          const volumeData = uniqueCandles.map(c => ({
-            time: c.time,
-            value: c.volume,
-            color: c.close >= c.open ? 'rgba(16, 185, 129, 0.45)' : 'rgba(244, 63, 94, 0.45)'
-          }));
-
           // 更新状态
           if (lastCandle) {
             setCurrentPrice(lastCandle.close);
-            setLatestVol(lastCandle.volume ? lastCandle.volume.toFixed(2) : '0.00');
           }
           if (ema50Data.length > 0) {
             setLatestEma50(ema50Data[ema50Data.length - 1].value);
@@ -3671,7 +3655,6 @@
           if (candleSeriesRef.current) candleSeriesRef.current.setData(uniqueCandles);
           if (ema50SeriesRef.current) ema50SeriesRef.current.setData(ema50Data);
           if (ema200SeriesRef.current) ema200SeriesRef.current.setData(ema200Data);
-          if (volumeSeriesRef.current) volumeSeriesRef.current.setData(volumeData);
 
           // 首次加载或重绘时，锁定最新K线停靠在右侧（按固定的 12 根K线舒适边距对齐右边距）
           if (isInitialScrollRef.current) {
@@ -3804,17 +3787,6 @@
           title: ''
         });
 
-        const volumeSeries = chart.addHistogramSeries({
-          priceFormat: { type: 'volume' },
-          priceScaleId: '', // 叠加在主图底部
-        });
-        volumeSeries.priceScale().applyOptions({
-          scaleMargins: {
-            top: 0.82, // 成交量最高占主图底部18%高度
-            bottom: 0,
-          },
-        });
-
         // 2. 监听时间轴拖动锁定检测
         chart.timeScale().subscribeVisibleLogicalRangeChange(range => {
           if (!range) return;
@@ -3833,7 +3805,6 @@
           const c = param.seriesData.get(candleSeries);
           const e50 = param.seriesData.get(ema50Series);
           const e200 = param.seriesData.get(ema200Series);
-          const v = param.seriesData.get(volumeSeries);
           setHoverData({
             time: param.time,
             open: c ? c.open : null,
@@ -3841,8 +3812,7 @@
             low: c ? c.low : null,
             close: c ? c.close : null,
             ema50: e50 ? e50.value : null,
-            ema200: e200 ? e200.value : null,
-            volume: v ? v.value : null
+            ema200: e200 ? e200.value : null
           });
         });
 
@@ -3850,7 +3820,6 @@
         candleSeriesRef.current = candleSeries;
         ema50SeriesRef.current = ema50Series;
         ema200SeriesRef.current = ema200Series;
-        volumeSeriesRef.current = volumeSeries;
 
         // 响应窗口尺寸变化
         const handleResize = () => {
@@ -4006,7 +3975,6 @@
       const displayLow = hoverData?.low;
       const displayEma50 = hoverData?.ema50 ?? latestEma50;
       const displayEma200 = hoverData?.ema200 ?? latestEma200;
-      const displayVol = hoverData?.volume ?? latestVol;
 
       return (
         <div className="p-4 rounded-xl bg-[#080d14] border border-cyan-500/35 shadow-2xl shadow-black/80 font-mono relative overflow-hidden mb-6">
@@ -4146,7 +4114,7 @@
               </div>
             )}
 
-            {/* 主K线 + EMA50/200 + 成交量图表 */}
+            {/* 主K线 + EMA50/200 走势图表 */}
             <div ref={mainContainerRef} className="w-full" style={{ minHeight: '420px' }}></div>
           </div>
         </div>

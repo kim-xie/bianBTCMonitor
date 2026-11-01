@@ -444,6 +444,18 @@ io.on('connection', (socket: any) => {
 
 // 实时价格更新
 let currentPrice = 65000;
+
+// 监听币安WebSocket实时价格流，毫秒级广播给前端
+binanceService.addPriceListener((price: number) => {
+  if (price && price > 0) {
+    currentPrice = price;
+    io.emit('priceUpdate', {
+      price: currentPrice,
+      timestamp: new Date().toISOString()
+    });
+  }
+});
+
 const updatePrice = async () => {
   try {
     const ticker = await binanceService.getCurrentPrice();
@@ -463,8 +475,8 @@ const updatePrice = async () => {
   }
 };
 
-// 启动价格更新定时器
-setInterval(updatePrice, 5000); // 每5秒更新一次真实价格
+// 启动价格更新定时器作为保底
+setInterval(updatePrice, 5000); // 每5秒更新一次真实价格并入库
 
 /**
  * 确保获取的是已收盘的5分钟K线

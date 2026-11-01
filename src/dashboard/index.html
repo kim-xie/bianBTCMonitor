@@ -3409,8 +3409,11 @@
       const rsiSeriesRef = React.useRef(null);
       const candlesRef = React.useRef([]);
       const isInitialScrollRef = React.useRef(true);
+      const prevPriceRef = React.useRef(null);
+      const isUserScrolledAwayRef = React.useRef(false);
 
       const [currentPrice, setCurrentPrice] = useState(null);
+      const [priceFlash, setPriceFlash] = useState(''); // 'up' | 'down' | ''
       const [countdown, setCountdown] = useState('--:--');
       const [latestEma50, setLatestEma50] = useState(null);
       const [latestEma200, setLatestEma200] = useState(null);
@@ -3420,6 +3423,21 @@
       const [hoverData, setHoverData] = useState(null);
       const [loading, setLoading] = useState(true);
       const [error, setError] = useState('');
+
+      // 保持最新K线固定在右侧，按固定的 6 根K线黄金边距对齐右侧价格轴
+      const fixScrollToRight = (force = false) => {
+        try {
+          if (!force && isUserScrolledAwayRef.current) return;
+          if (chartRef.current) {
+            chartRef.current.timeScale().scrollToPosition(0, false);
+          }
+          if (rsiChartRef.current) {
+            rsiChartRef.current.timeScale().scrollToPosition(0, false);
+          }
+        } catch (e) {
+          // ignore
+        }
+      };
 
       const formatNumber = (num, digits = 2) => {
         if (num == null || isNaN(num)) return '--';
@@ -3572,13 +3590,14 @@
           if (volumeSeriesRef.current) volumeSeriesRef.current.setData(volumeData);
           if (rsiSeriesRef.current) rsiSeriesRef.current.setData(rsiData);
 
-          // 首次加载或重绘时，锁定最新K线停靠在右侧（按固定的 6 根K线间隙对齐右边距）
+          // 首次加载或重绘时，锁定最新K线停靠在右侧（按固定的 6 根K线黄金间距对齐右边距）
           if (isInitialScrollRef.current) {
             isInitialScrollRef.current = false;
-            setTimeout(() => {
-              if (chartRef.current) chartRef.current.timeScale().scrollToRealTime();
-              if (rsiChartRef.current) rsiChartRef.current.timeScale().scrollToRealTime();
-            }, 60);
+            fixScrollToRight(true);
+            setTimeout(() => fixScrollToRight(true), 60);
+            setTimeout(() => fixScrollToRight(true), 250);
+          } else if (!isUserScrolledAwayRef.current) {
+            fixScrollToRight(false);
           }
 
           setLoading(false);
@@ -3750,10 +3769,15 @@
           axisLabelVisible: false
         });
 
-        // 3. 联动同步两张图表的时间轴
+        // 3. 联动同步两张图表的时间轴与用户拖动锁定检测
         let isSyncing = false;
         chart.timeScale().subscribeVisibleLogicalRangeChange(range => {
-          if (isSyncing || !range || !rsiChart) return;
+          if (!range) return;
+          if (candlesRef.current && candlesRef.current.length > 0) {
+            const totalBars = candlesRef.current.length;
+            isUserScrolledAwayRef.current = (range.to < totalBars - 1);
+          }
+          if (isSyncing || !rsiChart) return;
           isSyncing = true;
           rsiChart.timeScale().setVisibleLogicalRange(range);
           isSyncing = false;
@@ -3803,6 +3827,7 @@
           if (rsiChart && rsiContainerRef.current) {
             rsiChart.applyOptions({ width: rsiContainerRef.current.clientWidth });
           }
+          fixScrollToRight();
         };
         window.addEventListener('resize', handleResize);
 
@@ -3845,7 +3870,110 @@
         };
       }, []);
 
-      // 监听WebSocket实时价格更新
+      // 价格跳动闪烁动效
+      useEffect(() => {
+        if (currentPrice != null && prevPriceRef.current != null) {
+          if (currentPrice > prevPriceRef.current) {
+            setPriceFlash('up');
+          } else if (currentPrice < prevPriceRef.current) {
+            setPriceFlash('down');
+          }
+          const timer = setTimeout(() => setPriceFlash(''), 600);
+          return () => clearTimeout(timer);
+        }
+        prevPriceRef.current = currentPrice;
+      }, [currentPrice]);
+
+      // 1. 直连币安官方 WebSocket 5m K线流 (毫秒级连续跳动)
+      useEffect(() => {
+        let ws = null;
+        let isUnmounted = false;
+        let reconnectTimer = null;
+
+        const connectBinanceWs = () => {
+          if (isUnmounted) return;
+          try {
+            ws = new WebSocket('wss://stream.binance.com:9443/ws/btcusdt@kline_5m');
+
+            ws.onmessage = (event) => {
+              try {
+                const msg = JSON.parse(event.data);
+                if (!msg || !msg.k) return;
+                const k = msg.k;
+                const barTime = Math.floor(k.t / 1000);
+                const bar = {
+                  time: barTime,
+                  open: parseFloat(k.o),
+                  high: parseFloat(k.h),
+                  low: parseFloat(k.l),
+                  close: parseFloat(k.c),
+                  volume: parseFloat(k.v)
+                };
+
+                // 实时跳动价格显示
+                setCurrentPrice(bar.close);
+
+                // 实时跳动最新蜡烛图柱状
+                if (candleSeriesRef.current) {
+                  candleSeriesRef.current.update(bar);
+                }
+
+                // 实时跳动成交量柱
+                if (volumeSeriesRef.current) {
+                  volumeSeriesRef.current.update({
+                    time: barTime,
+                    value: bar.volume,
+                    color: bar.close >= bar.open ? 'rgba(16, 185, 129, 0.45)' : 'rgba(244, 63, 94, 0.45)'
+                  });
+                }
+
+                // 保持最新K线固定在右侧，按黄金间隙对齐右边距
+                if (!isUserScrolledAwayRef.current) {
+                  fixScrollToRight(false);
+                }
+
+                // 更新内存中的最新K线
+                if (candlesRef.current && candlesRef.current.length > 0) {
+                  const lastIdx = candlesRef.current.length - 1;
+                  const last = candlesRef.current[lastIdx];
+                  if (last.time === barTime) {
+                    candlesRef.current[lastIdx] = bar;
+                  } else if (barTime > last.time) {
+                    candlesRef.current.push(bar);
+                    fixScrollToRight(true);
+                  }
+                }
+              } catch (err) {
+                // ignore
+              }
+            };
+
+            ws.onerror = () => {
+              if (ws) ws.close();
+            };
+
+            ws.onclose = () => {
+              if (!isUnmounted) {
+                reconnectTimer = setTimeout(connectBinanceWs, 4000);
+              }
+            };
+          } catch (e) {
+            if (!isUnmounted) {
+              reconnectTimer = setTimeout(connectBinanceWs, 5000);
+            }
+          }
+        };
+
+        connectBinanceWs();
+
+        return () => {
+          isUnmounted = true;
+          if (reconnectTimer) clearTimeout(reconnectTimer);
+          if (ws) ws.close();
+        };
+      }, []);
+
+      // 2. 监听服务端 Socket.IO 实时价格更新（双通道保障与价格跳动）
       useEffect(() => {
         if (!socket) return;
         const handlePrice = (data) => {
@@ -3854,17 +3982,45 @@
           setCurrentPrice(p);
 
           // 实时更新最后一根K线
-          if (candleSeriesRef.current && candlesRef.current.length > 0) {
-            const last = candlesRef.current[candlesRef.current.length - 1];
+          if (candleSeriesRef.current && candlesRef.current && candlesRef.current.length > 0) {
             const nowSec = Math.floor(Date.now() / 1000);
-            if (nowSec - last.time < 300) {
+            const currentBarTime = Math.floor(nowSec / 300) * 300;
+            const lastIdx = candlesRef.current.length - 1;
+            const last = candlesRef.current[lastIdx];
+
+            if (last.time === currentBarTime || last.time > currentBarTime) {
               const updated = {
                 ...last,
                 high: Math.max(last.high, p),
                 low: Math.min(last.low, p),
                 close: p
               };
+              candlesRef.current[lastIdx] = updated;
               candleSeriesRef.current.update(updated);
+            } else {
+              // 跨越5分钟周期生成新K线
+              const newBar = {
+                time: currentBarTime,
+                open: p,
+                high: p,
+                low: p,
+                close: p,
+                volume: 0
+              };
+              candlesRef.current.push(newBar);
+              candleSeriesRef.current.update(newBar);
+              if (volumeSeriesRef.current) {
+                volumeSeriesRef.current.update({
+                  time: currentBarTime,
+                  value: 0,
+                  color: 'rgba(16, 185, 129, 0.45)'
+                });
+              }
+              fixScrollToRight(true);
+            }
+
+            if (!isUserScrolledAwayRef.current) {
+              fixScrollToRight(false);
             }
           }
         };
@@ -3902,7 +4058,11 @@
                 </div>
 
                 <div className="flex items-center gap-2">
-                  <span className="text-xl md:text-2xl font-black text-slate-100 tracking-wider">
+                  <span className={`text-xl md:text-2xl font-black tracking-wider transition-colors duration-200 ${
+                    priceFlash === 'up' ? 'text-emerald-400 drop-shadow-[0_0_8px_rgba(16,185,129,0.5)]' :
+                    priceFlash === 'down' ? 'text-rose-400 drop-shadow-[0_0_8px_rgba(244,63,94,0.5)]' :
+                    'text-slate-100'
+                  }`}>
                     ${formatNumber(displayPrice, 2)}
                   </span>
                   <span className={`text-[10px] px-2 py-0.5 rounded font-bold border ${
@@ -3935,10 +4095,7 @@
               <button
                 onClick={() => {
                   fetchKlines();
-                  setTimeout(() => {
-                    if (chartRef.current) chartRef.current.timeScale().scrollToRealTime();
-                    if (rsiChartRef.current) rsiChartRef.current.timeScale().scrollToRealTime();
-                  }, 60);
+                  setTimeout(() => fixScrollToRight(true), 60);
                 }}
                 className="px-2.5 py-2 rounded bg-slate-800/80 hover:bg-slate-700 text-slate-300 hover:text-cyan-300 border border-slate-700 text-xs transition-colors flex items-center gap-1.5"
                 title="手动刷新K线并回归最新"
@@ -3948,10 +4105,7 @@
               </button>
 
               <button
-                onClick={() => {
-                  if (chartRef.current) chartRef.current.timeScale().scrollToRealTime();
-                  if (rsiChartRef.current) rsiChartRef.current.timeScale().scrollToRealTime();
-                }}
+                onClick={() => fixScrollToRight(true)}
                 className="px-2.5 py-2 rounded bg-cyan-500/10 hover:bg-cyan-500/25 text-cyan-400 hover:text-cyan-300 border border-cyan-500/30 text-xs transition-colors flex items-center gap-1.5"
                 title="锁定回最新K线（固定右侧边距）"
               >

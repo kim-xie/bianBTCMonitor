@@ -52,20 +52,13 @@ export interface ProxyConfig {
   };
 }
 
-export interface ProxyConfig {
-  host: string;
-  port: number;
-  auth?: {
-    username: string;
-    password: string;
-  };
-}
-
 export class BinanceService {
   private readonly BASE_URL = 'https://api.binance.com/api/v3';
+  private readonly FAPI_BASE_URL = 'https://fapi.binance.com/fapi/v1';
   private readonly WS_URL = 'wss://stream.binance.com:9443';
   private readonly SYMBOL = 'BTCUSDT';
   private axiosInstance: AxiosInstance;
+  private fapiAxiosInstance: AxiosInstance;
   private wsClient?: WebSocket;
   private wsConnected = false;
   private priceListeners: ((price: number) => void)[] = [];
@@ -75,6 +68,7 @@ export class BinanceService {
   constructor(proxyConfig?: ProxyConfig) {
     // 使用封装的axios实例创建函数
     this.axiosInstance = createAxiosInstance(this.BASE_URL, proxyConfig);
+    this.fapiAxiosInstance = createAxiosInstance(this.FAPI_BASE_URL, proxyConfig);
 
     // 初始化WebSocket连接
     this.initWebSocket(proxyConfig);
@@ -206,6 +200,71 @@ export class BinanceService {
       }
     }
     throw new Error('无法获取K线数据，所有重试都失败了');
+  }
+
+  /**
+   * 获取币安事件合约标的指数K线数据 (Index Price Klines)
+   * 接口: GET https://fapi.binance.com/fapi/v1/indexPriceKlines
+   */
+  async getIndexPriceKlines(pair: string = 'BTCUSDT', interval: string = '5m', limit: number = 250, startTime?: number, endTime?: number): Promise<BinanceKline[]> {
+    const maxRetries = 3;
+    for (let i = 0; i < maxRetries; i++) {
+      try {
+        const response = await this.fapiAxiosInstance.get('/indexPriceKlines', {
+          params: {
+            pair,
+            interval,
+            limit,
+            ...(startTime && { startTime }),
+            ...(endTime && { endTime })
+          }
+        });
+
+        return response.data.map((kline: any[]) => ({
+          openTime: kline[0],
+          open: kline[1],
+          high: kline[2],
+          low: kline[3],
+          close: kline[4],
+          volume: kline[5] || '0',
+          closeTime: kline[6],
+          quoteAssetVolume: kline[7] || '0',
+          numberOfTrades: kline[8] || 0,
+          takerBuyBaseAssetVolume: kline[9] || '0',
+          takerBuyQuoteAssetVolume: kline[10] || '0',
+          ignore: kline[11] || '0'
+        }));
+      } catch (error: any) {
+        console.error(`获取事件合约指数K线失败 (尝试 ${i + 1}/${maxRetries}):`, error.message);
+        if (i < maxRetries - 1) {
+          await new Promise(resolve => setTimeout(resolve, 1500 * (i + 1)));
+        }
+      }
+    }
+    throw new Error('无法获取事件合约指数K线数据，所有重试都失败了');
+  }
+
+  /**
+   * 获取币安事件合约标的指数最新价格与结算预估
+   * 接口: GET https://fapi.binance.com/fapi/v1/premiumIndex
+   */
+  async getIndexPrice(symbol: string = 'BTCUSDT'): Promise<{ symbol: string; indexPrice: number; markPrice: number; estimatedSettlePrice: number; time: number }> {
+    try {
+      const response = await this.fapiAxiosInstance.get('/premiumIndex', {
+        params: { symbol }
+      });
+      const data = response.data;
+      return {
+        symbol: data.symbol,
+        indexPrice: parseFloat(data.indexPrice),
+        markPrice: parseFloat(data.markPrice),
+        estimatedSettlePrice: parseFloat(data.estimatedSettlePrice),
+        time: data.time
+      };
+    } catch (error: any) {
+      console.error('获取事件合约指数价格失败:', error.message);
+      throw error;
+    }
   }
 
   /**

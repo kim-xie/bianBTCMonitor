@@ -2843,9 +2843,6 @@
             <>
               {activeView === 'dashboard' ? (
                 <>
-                  {/* BTC 5分钟周期K线图实时走势卡片 (EMA50/EMA200, K线倒计时, 成交量) */}
-                  <BtcRealtimeKlineCard socket={socketInstance} />
-
                   <div className="main-grid">
                     {/* 资金走势卡片 */}
                     <div className="p-4 rounded-xl bg-[#080d14] border border-cyan-500/25 shadow-xl shadow-black/60 font-mono flex flex-col justify-between">
@@ -3142,6 +3139,9 @@
                       )}
                     </div>
                   </div>
+
+                  {/* BTC 5分钟周期K线图实时走势卡片 (EMA50/EMA200, K线倒计时, 成交量) */}
+                  <BtcRealtimeKlineCard socket={socketInstance} />
 
                   {/* 最近交易流水明细面板 */}
                   <div className="p-4 rounded-xl bg-[#080d14] border border-emerald-500/25 shadow-2xl shadow-black/80 font-mono">

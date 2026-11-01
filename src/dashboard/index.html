@@ -3408,6 +3408,7 @@
       const volumeSeriesRef = React.useRef(null);
       const rsiSeriesRef = React.useRef(null);
       const candlesRef = React.useRef([]);
+      const isInitialScrollRef = React.useRef(true);
 
       const [currentPrice, setCurrentPrice] = useState(null);
       const [countdown, setCountdown] = useState('--:--');
@@ -3571,6 +3572,15 @@
           if (volumeSeriesRef.current) volumeSeriesRef.current.setData(volumeData);
           if (rsiSeriesRef.current) rsiSeriesRef.current.setData(rsiData);
 
+          // 首次加载或重绘时，锁定最新K线停靠在右侧（按固定的 6 根K线间隙对齐右边距）
+          if (isInitialScrollRef.current) {
+            isInitialScrollRef.current = false;
+            setTimeout(() => {
+              if (chartRef.current) chartRef.current.timeScale().scrollToRealTime();
+              if (rsiChartRef.current) rsiChartRef.current.timeScale().scrollToRealTime();
+            }, 60);
+          }
+
           setLoading(false);
           setError('');
         } catch (err) {
@@ -3618,6 +3628,11 @@
             timeVisible: true,
             secondsVisible: false,
             borderColor: '#1e293b',
+            rightOffset: 6, // 固定当前最新K线距离右侧价格轴的距离为6根K线（标准黄金边距）
+            barSpacing: 8,  // 适中的K线柱宽度
+            minBarSpacing: 3,
+            shiftVisibleRangeOnNewBar: true, // 新K线生成时自动推移，恒定保持该右侧边距
+            lockVisibleTimeRangeOnResize: true,
             tickMarkFormatter: (t) => {
               const d = new Date((t + 8 * 3600) * 1000);
               const iso = d.toISOString();
@@ -3686,7 +3701,12 @@
             horzLine: { color: 'rgba(6, 182, 212, 0.35)', width: 1, style: LightweightCharts.LineStyle.Dashed }
           },
           timeScale: {
-            visible: false // 隐藏时间刻度以保持与主图严格对齐
+            visible: false, // 隐藏时间刻度以保持与主图严格对齐
+            rightOffset: 6,
+            barSpacing: 8,
+            minBarSpacing: 3,
+            shiftVisibleRangeOnNewBar: true,
+            lockVisibleTimeRangeOnResize: true
           },
           rightPriceScale: {
             borderColor: '#1e293b',
@@ -3913,12 +3933,30 @@
               </div>
 
               <button
-                onClick={fetchKlines}
+                onClick={() => {
+                  fetchKlines();
+                  setTimeout(() => {
+                    if (chartRef.current) chartRef.current.timeScale().scrollToRealTime();
+                    if (rsiChartRef.current) rsiChartRef.current.timeScale().scrollToRealTime();
+                  }, 60);
+                }}
                 className="px-2.5 py-2 rounded bg-slate-800/80 hover:bg-slate-700 text-slate-300 hover:text-cyan-300 border border-slate-700 text-xs transition-colors flex items-center gap-1.5"
-                title="手动刷新K线"
+                title="手动刷新K线并回归最新"
               >
                 <span>↻</span>
                 <span className="hidden sm:inline">刷新</span>
+              </button>
+
+              <button
+                onClick={() => {
+                  if (chartRef.current) chartRef.current.timeScale().scrollToRealTime();
+                  if (rsiChartRef.current) rsiChartRef.current.timeScale().scrollToRealTime();
+                }}
+                className="px-2.5 py-2 rounded bg-cyan-500/10 hover:bg-cyan-500/25 text-cyan-400 hover:text-cyan-300 border border-cyan-500/30 text-xs transition-colors flex items-center gap-1.5"
+                title="锁定回最新K线（固定右侧边距）"
+              >
+                <span>⇥</span>
+                <span className="hidden sm:inline">居右锁定</span>
               </button>
             </div>
           </div>

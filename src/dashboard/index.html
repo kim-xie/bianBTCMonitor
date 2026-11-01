@@ -1465,6 +1465,7 @@
 
     const Dashboard = () => {
       const [currentSignal, setCurrentSignal] = useState(null);
+      const [recentSignals, setRecentSignals] = useState([]); // 信号监控队列：保存最近3笔信号
       const [stats, setStats] = useState(null);
       const [recentTrades, setRecentTrades] = useState([]);
       const [allTrades, setAllTrades] = useState([]); // 所有交易数据，用于日历统计
@@ -1546,6 +1547,16 @@
 
         socket.on('tradingSignal', (signal) => {
           setCurrentSignal(signal);
+          // 动态加入最近信号列表，保持队列最多3个
+          setRecentSignals(prev => {
+            const filtered = prev.filter(s => {
+              if (signal.timestamp && s.timestamp) {
+                return new Date(s.timestamp).getTime() !== new Date(signal.timestamp).getTime();
+              }
+              return true;
+            });
+            return [signal, ...filtered].slice(0, 3);
+          });
           // 语音播报新信号
           speak(signal.signal === 'BUY' ? '您有新的做多订单' : '您有新的做空订单');
         });
@@ -1615,6 +1626,26 @@
           }
 
           setRecentTrades(trades);
+          // 若最近信号队列为空，使用历史交易前3条进行初始化展示
+          if (Array.isArray(trades) && trades.length > 0) {
+            setRecentSignals(prev => {
+              if (prev.length > 0) return prev;
+              return trades
+                .filter(t => t.signal && t.reasoning)
+                .slice(0, 3)
+                .map(t => ({
+                  timestamp: t.timestamp,
+                  symbol: t.symbol || 'BTCUSDT',
+                  currentPrice: t.price,
+                  signal: t.signal,
+                  prediction: t.prediction || (t.signal === 'BUY' ? 'UP' : 'DOWN'),
+                  confidence: t.confidence || 80,
+                  reasoning: Array.isArray(t.reasoning) ? t.reasoning : [t.reasoning],
+                  recommendedAction: t.recommendedAction || (t.signal === 'BUY' ? '建议开仓做多 - 均线反包' : '建议开仓做空 - 均线反包'),
+                  investmentAmount: t.investmentAmount || 10
+                }));
+            });
+          }
           // 同步刷新日历统计所用的全部交易数据，避免日历需等待60秒轮询才更新
           fetchAllTrades();
         });
@@ -1732,6 +1763,25 @@
           if (tradesRes.ok) {
             const tradesData = await tradesRes.json();
             setRecentTrades(tradesData);
+            if (Array.isArray(tradesData) && tradesData.length > 0) {
+              setRecentSignals(prev => {
+                if (prev.length > 0) return prev;
+                return tradesData
+                  .filter(t => t.signal && t.reasoning)
+                  .slice(0, 3)
+                  .map(t => ({
+                    timestamp: t.timestamp,
+                    symbol: t.symbol || 'BTCUSDT',
+                    currentPrice: t.price,
+                    signal: t.signal,
+                    prediction: t.prediction || (t.signal === 'BUY' ? 'UP' : 'DOWN'),
+                    confidence: t.confidence || 80,
+                    reasoning: Array.isArray(t.reasoning) ? t.reasoning : [t.reasoning],
+                    recommendedAction: t.recommendedAction || (t.signal === 'BUY' ? '建议开仓做多 - 均线反包' : '建议开仓做空 - 均线反包'),
+                    investmentAmount: t.investmentAmount || 10
+                  }));
+              });
+            }
           }
         } catch (error) {
           console.error('获取初始数据失败:', error);
@@ -2041,74 +2091,128 @@
             <>
               {activeView === 'dashboard' ? (
                 <>
-                  {currentSignal && (
-                    <div className="p-4 rounded-xl bg-[#080d14] border border-cyan-500/35 shadow-2xl shadow-black/80 font-mono relative overflow-hidden mb-6">
-                      <div className="absolute top-0 left-0 right-0 h-[2px] bg-gradient-to-r from-cyan-500 via-emerald-400 to-cyan-500 opacity-90"></div>
-                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-slate-800">
-                        <div>
-                          <div className="flex items-center gap-2 text-xs text-cyan-400 font-mono mb-1">
-                            <span className="w-2 h-2 rounded-full bg-cyan-400 animate-pulse shadow-sm shadow-cyan-400"></span>
-                            <span>// REALTIME_SIGNAL_DISPATCH :: 5-MIN KLINE</span>
-                          </div>
-                          <div className="flex items-center gap-2">
-                            <span className="text-cyan-400 font-bold">&gt;</span>
-                            <h2 className="text-lg md:text-xl font-bold tracking-wider text-slate-100 uppercase m-0 flex items-center">
-                              当前信号:
-                              <span className={`ml-2 px-2.5 py-0.5 rounded text-xs font-extrabold tracking-wider ${
-                                currentSignal.signal === 'BUY'
-                                  ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-400 shadow-sm shadow-emerald-500/30'
-                                  : 'bg-rose-500/20 text-rose-300 border border-rose-400 shadow-sm shadow-rose-500/30'
-                              }`}>
-                                {currentSignal.signal === 'BUY' ? '▲ 做多 BUY' : '▼ 做空 SELL'}
-                              </span>
-                            </h2>
-                          </div>
+                  {/* 实时信号监控卡片 (固定动态展示最近3个信号流 · 监控风格) */}
+                  <div className="p-4 rounded-xl bg-[#080d14] border border-cyan-500/35 shadow-2xl shadow-black/80 font-mono relative overflow-hidden mb-6">
+                    <div className="absolute top-0 left-0 right-0 h-[2px] bg-gradient-to-r from-cyan-500 via-emerald-400 to-purple-500 opacity-90"></div>
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-slate-800">
+                      <div>
+                        <div className="flex items-center gap-2 text-xs text-cyan-400 font-mono mb-1">
+                          <span className="w-2 h-2 rounded-full bg-cyan-400 animate-pulse shadow-sm shadow-cyan-400"></span>
+                          <span>// REALTIME_SIGNAL_TELEMETRY :: 5-MIN KLINE STREAM</span>
                         </div>
-                        <div className="flex items-center gap-3 self-start sm:self-auto">
-                          <div className="text-right">
-                            <div className="text-[10px] text-slate-400 uppercase tracking-widest">// CONFIDENCE</div>
-                            <div className={`text-2xl font-black ${
-                              currentSignal.confidence >= 85 ? 'text-emerald-400 terminal-glow-green' :
-                              currentSignal.confidence >= 70 ? 'text-cyan-400 terminal-glow-cyan' : 'text-amber-400'
-                            }`}>
-                              {currentSignal.confidence}%
-                            </div>
-                          </div>
+                        <div className="flex items-center gap-2">
+                          <span className="text-cyan-400 font-bold">&gt;</span>
+                          <h2 className="text-lg md:text-xl font-bold tracking-wider text-slate-100 uppercase m-0 flex items-center">
+                            实时信号监控
+                            <span className="ml-2 text-xs text-slate-400 font-normal font-mono">[动态队列 · 最近3笔信号]</span>
+                          </h2>
                         </div>
                       </div>
 
-                      <div className="mt-3 grid grid-cols-1 sm:grid-cols-3 gap-2.5 text-xs">
-                        <div className="p-2.5 rounded bg-[#05080c] border border-slate-800">
-                          <span className="text-slate-400 uppercase text-[10px] block">// SIGNAL_PRICE</span>
-                          <span className="text-slate-100 font-bold text-sm">{formatCurrency(currentSignal.currentPrice)}</span>
-                        </div>
-                        <div className="p-2.5 rounded bg-[#05080c] border border-slate-800">
-                          <span className="text-slate-400 uppercase text-[10px] block">// PREDICTION</span>
-                          <span className={`font-bold text-sm ${currentSignal.prediction === 'UP' ? 'text-emerald-400' : 'text-rose-400'}`}>
-                            {currentSignal.prediction === 'UP' ? '▲ 上涨 (UP)' : '▼ 下跌 (DOWN)'}
-                          </span>
-                        </div>
-                        <div className="p-2.5 rounded bg-[#05080c] border border-slate-800">
-                          <span className="text-slate-400 uppercase text-[10px] block">// RECOMMENDED_ACTION</span>
-                          <span className="text-cyan-300 font-bold text-sm">{currentSignal.recommendedAction}</span>
-                        </div>
-                      </div>
-
-                      <div className="mt-3 p-3 rounded-lg bg-[#05080c] border border-slate-800/80 text-xs">
-                        <div className="text-slate-400 text-[11px] mb-1.5 flex items-center gap-1 font-bold uppercase tracking-wider text-cyan-400">
-                          <span>&gt; ANALYSIS_REASONING [入场判定依据]</span>
-                        </div>
-                        <div className="space-y-1">
-                          {currentSignal.reasoning.map((reason, index) => (
-                            <div key={index} className="text-slate-300 flex items-start gap-1.5 text-[11px] leading-relaxed">
-                              <span className="text-cyan-400 font-bold">»</span>
-                              <span>{reason}</span>
-                            </div>
-                          ))}
-                        </div>
+                      <div className="flex items-center gap-2 self-start sm:self-auto">
+                        <span className="text-[11px] px-2.5 py-1 rounded bg-cyan-500/10 text-cyan-300 border border-cyan-500/30 font-bold tracking-wider flex items-center gap-1.5">
+                          <span className="w-1.5 h-1.5 rounded-full bg-emerald-400"></span>
+                          QUEUE: {recentSignals.length}/3 SIGNALS
+                        </span>
                       </div>
                     </div>
-                  )}
+
+                    {/* 信号列表展示（最多显示最近3个） */}
+                    {recentSignals && recentSignals.length > 0 ? (
+                      <div className="mt-3.5 space-y-3">
+                        {recentSignals.slice(0, 3).map((sig, idx) => {
+                          const isBuy = sig.signal === 'BUY';
+                          const isLatest = idx === 0;
+                          const isCurrentActive = currentSignal && sig.timestamp && currentSignal.timestamp && new Date(sig.timestamp).getTime() === new Date(currentSignal.timestamp).getTime();
+                          const timeStr = sig.timestamp ? new Date(sig.timestamp).toLocaleTimeString('zh-CN', { hour12: false }) : '--:--:--';
+                          const dateStr = sig.timestamp ? new Date(sig.timestamp).toLocaleDateString('zh-CN', { month: '2-digit', day: '2-digit' }) : '';
+                          const conf = sig.confidence || 80;
+
+                          return (
+                            <div
+                              key={sig.timestamp || idx}
+                              className={`p-3 rounded-lg border transition-all ${
+                                isLatest
+                                  ? isBuy
+                                    ? 'bg-[#060f14] border-emerald-500/40 shadow-lg shadow-emerald-500/10'
+                                    : 'bg-[#12080c] border-rose-500/40 shadow-lg shadow-rose-500/10'
+                                  : 'bg-[#05080c] border-slate-800/90 opacity-85 hover:opacity-100'
+                              }`}
+                            >
+                              <div className="flex flex-wrap items-center justify-between gap-2 mb-2 pb-2 border-b border-slate-800/60">
+                                <div className="flex items-center gap-2">
+                                  <span className={`text-[10px] px-2 py-0.5 rounded font-extrabold tracking-wider ${
+                                    isLatest
+                                      ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-400'
+                                      : 'bg-slate-800 text-slate-400 border border-slate-700'
+                                  }`}>
+                                    #{String(idx + 1).padStart(2, '0')} {isLatest ? '[最新 NEW]' : ''}
+                                  </span>
+
+                                  {isCurrentActive && (
+                                    <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-300 border border-amber-400 animate-pulse font-bold">
+                                      [持仓中 ACTIVE]
+                                    </span>
+                                  )}
+
+                                  <span className={`px-2.5 py-0.5 rounded text-xs font-black tracking-wider flex items-center gap-1 ${
+                                    isBuy
+                                      ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-400/80 terminal-glow-green'
+                                      : 'bg-rose-500/20 text-rose-300 border border-rose-400/80'
+                                  }`}>
+                                    {isBuy ? '▲ 做多 BUY' : '▼ 做空 SELL'}
+                                  </span>
+
+                                  <span className="text-slate-100 font-bold text-sm">
+                                    {formatCurrency(sig.currentPrice)}
+                                  </span>
+                                </div>
+
+                                <div className="flex items-center gap-3">
+                                  <div className="flex items-center gap-1.5 text-xs">
+                                    <span className="text-[10px] text-slate-400 uppercase tracking-widest">// CONFIDENCE:</span>
+                                    <span className={`font-black text-sm ${
+                                      conf >= 85 ? 'text-emerald-400 terminal-glow-green' :
+                                      conf >= 80 ? 'text-cyan-400 terminal-glow-cyan' : 'text-amber-400'
+                                    }`}>
+                                      {conf}%
+                                    </span>
+                                  </div>
+
+                                  <div className="text-[11px] text-slate-400 font-mono">
+                                    {dateStr} {timeStr}
+                                  </div>
+                                </div>
+                              </div>
+
+                              <div className="space-y-1 text-xs">
+                                {sig.recommendedAction && (
+                                  <div className="flex items-start gap-1.5 text-[11px]">
+                                    <span className="text-cyan-400 font-bold tracking-wider">// ACTION:</span>
+                                    <span className="text-cyan-200 font-semibold">{sig.recommendedAction}</span>
+                                  </div>
+                                )}
+
+                                {sig.reasoning && sig.reasoning.length > 0 && (
+                                  <div className="flex items-start gap-1.5 text-[11px] leading-relaxed text-slate-300">
+                                    <span className="text-emerald-400 font-bold tracking-wider">// REASON:</span>
+                                    <span className="text-slate-300">{Array.isArray(sig.reasoning) ? sig.reasoning.join(' ｜ ') : sig.reasoning}</span>
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    ) : (
+                      <div className="mt-3.5 p-6 rounded-lg bg-[#05080c] border border-dashed border-slate-800 text-center">
+                        <div className="text-cyan-400 font-mono text-xs mb-1">&gt; LISTENING_FOR_SIGNALS...</div>
+                        <div className="text-slate-400 text-xs font-mono">
+                          正在持续监听5分钟K线实时信号流，新信号触发后将动态加入本卡片（队列自动保留最新3笔）
+                        </div>
+                      </div>
+                    )}
+                  </div>
 
                   <div className="main-grid">
                     {/* 资金走势卡片 */}

@@ -169,57 +169,78 @@ export class TechnicalAnalysisService {
         const prevLow = +prevKline.low;
         const prevHigh = +prevKline.high;
 
-        const isPrevBearish = prevClose < prevOpen;
+        // 支持2根K线或3根K线（启明星/十字星停顿后反包）复合形态
+        const prev2Kline = fiveMinuteKlines.length >= 3 ? fiveMinuteKlines[fiveMinuteKlines.length - 3] : null;
+        const prev2Open = prev2Kline ? +prev2Kline.open : prevOpen;
+        const prev2Close = prev2Kline ? +prev2Kline.close : prevClose;
+
+        // 前一根是阴线，或者前一根是平价十字星/停顿星线(prevClose <= prevOpen 且 prev2Kline为阴线)
+        const isPrevBearish = prevClose < prevOpen || (prevClose <= prevOpen && prev2Close < prev2Open);
         const isCurrBullish = currClose > currOpen;
 
         const prevBody = Math.abs(prevOpen - prevClose);
         const currBody = Math.abs(currClose - currOpen);
 
-        // 形态判断：前阴后阳，且阳线收盘反包阴线开盘价，或实体覆盖前阴80%以上且收在前阴中点上方
+        // 形态判断：
+        // 1. 标准单阴反包：当前阳线反包前阴开盘价，或实体强反转刺透
+        // 2. 启明星/3根K线平台反包：前前阴 -> 前一根十字星停顿 -> 当前阳线收盘反包前前阴中点或开盘
         const isEngulfing = currClose >= prevOpen;
         const isStrongPiercing = currClose > (prevOpen + prevClose) / 2 && currBody >= prevBody * 0.8 && currClose > prevClose;
+        const isMorningStar = !!(prev2Kline && (prev2Close < prev2Open) && (prevBody <= currBody * 0.4 || Math.abs(prevClose - prevOpen) <= 5) && (currClose >= (prev2Open + prev2Close) / 2));
 
-        if (isPrevBearish && isCurrBullish && (isEngulfing || isStrongPiercing)) {
+        if (isPrevBearish && isCurrBullish && (isEngulfing || isStrongPiercing || isMorningStar)) {
           const ema50 = indicators.ema50;
           const ema200 = indicators.ema200;
 
-          // 检查这两根K线是否触碰或包含 EMA50 或 EMA200
-          const minLow = Math.min(prevLow, currLow);
+          // 检查这两根/三根K线是否触碰或包含 EMA50 或 EMA200
+          const minLow = Math.min(prevLow, currLow, prev2Kline ? +prev2Kline.low : prevLow);
           const maxHigh = Math.max(prevHigh, currHigh);
 
           const touchesEma50 = minLow <= ema50 && maxHigh >= ema50;
           const touchesEma200 = minLow <= ema200 && maxHigh >= ema200;
 
+          // 计算距离 EMA50 或 EMA200 的收盘偏离度百分比
+          const distEma50Pct = (Math.abs(currClose - ema50) / ema50) * 100;
+          const distEma200Pct = (Math.abs(currClose - ema200) / ema200) * 100;
+
+          const isNear50 = distEma50Pct <= distEma200Pct;
+          const minDistPct = isNear50 ? distEma50Pct : distEma200Pct;
+          const targetMa = isNear50 ? 'EMA50' : 'EMA200';
+
           let confidence = 70;
           let maTag = '';
 
+          // 均线距离评估与置信度打分：
+          // 真正的均线回踩要求价格贴近均线；离EMA50太远(>0.30%)直接降至80以下不操作
           if (touchesEma50 || touchesEma200) {
-            // 直接踩在均线上，赋予最高置信度 95%
-            confidence = 95;
-            maTag = touchesEma50 ? '回踩EMA50(踩线)' : '回踩EMA200(踩线)';
-          } else {
-            // 未直接触线，计算距离 EMA50 或 EMA200 的最近距离百分比
-            const distEma50Pct = (Math.abs(currClose - ema50) / ema50) * 100;
-            const distEma200Pct = (Math.abs(currClose - ema200) / ema200) * 100;
-
-            const isNear50 = distEma50Pct <= distEma200Pct;
-            const minDistPct = isNear50 ? distEma50Pct : distEma200Pct;
-            const targetMa = isNear50 ? 'EMA50' : 'EMA200';
-
-            // 越靠近均线置信度越高（梯度：90% -> 85% -> 80% -> 75% -> 70%）
-            if (minDistPct <= 0.15) {
-              confidence = 90;
-            } else if (minDistPct <= 0.35) {
-              confidence = 85;
-            } else if (minDistPct <= 0.65) {
-              confidence = 80;
-            } else if (minDistPct <= 1.0) {
-              confidence = 75;
+            if (minDistPct <= 0.30) {
+              confidence = 95;
+              maTag = touchesEma50 ? '回踩EMA50(踩线)' : '回踩EMA200(踩线)';
             } else {
-              confidence = 70;
+              // 虽有触线但实体冲出均线过远(>0.30%)，追高风险大，下调置信度
+              confidence = 75;
+              maTag = `${touchesEma50 ? '碰EMA50' : '碰EMA200'}但收盘偏离均线过远(+${minDistPct.toFixed(2)}%)`;
             }
+          } else {
+            // 未触线，越靠近均线置信度越高；离EMA50过远直接降权
+            if (minDistPct <= 0.15) {
+              confidence = 85;
+              maTag = `贴近${targetMa}(${minDistPct.toFixed(2)}%)`;
+            } else if (minDistPct <= 0.30) {
+              confidence = 80;
+              maTag = `距${targetMa} ${minDistPct.toFixed(2)}%`;
+            } else if (minDistPct <= 0.50) {
+              confidence = 75;
+              maTag = `距${targetMa}偏远(+${minDistPct.toFixed(2)}%)`;
+            } else {
+              // 严重悬空偏离均线（如高位悬空反包追高），大幅降低置信度
+              confidence = 60;
+              maTag = `严重偏离${targetMa}(+${minDistPct.toFixed(2)}%｜远离均线追高高风险)`;
+            }
+          }
 
-            maTag = `距${targetMa} ${minDistPct.toFixed(2)}%`;
+          if (isMorningStar && !isEngulfing) {
+            maTag = `启明星形态｜${maTag}`;
           }
 
           score = confidence;
@@ -261,57 +282,78 @@ export class TechnicalAnalysisService {
         const prevLow = +prevKline.low;
         const prevHigh = +prevKline.high;
 
-        const isPrevBullish = prevClose > prevOpen; // 前一根为阳线反弹
-        const isCurrBearish = currClose < currOpen; // 当前根为阴线下杀
+        // 支持2根K线或3根K线（暮星/十字星停顿后反包下杀）复合形态
+        const prev2Kline = fiveMinuteKlines.length >= 3 ? fiveMinuteKlines[fiveMinuteKlines.length - 3] : null;
+        const prev2Open = prev2Kline ? +prev2Kline.open : prevOpen;
+        const prev2Close = prev2Kline ? +prev2Kline.close : prevClose;
+
+        // 前一根为阳线，或者前一根为平价十字星/停顿星线(prevClose >= prevOpen 且 prev2Kline为阳线)
+        const isPrevBullish = prevClose > prevOpen || (prevClose >= prevOpen && prev2Close > prev2Open);
+        const isCurrBearish = currClose < currOpen;
 
         const prevBody = Math.abs(prevClose - prevOpen);
         const currBody = Math.abs(currClose - currOpen);
 
-        // 形态判断：前阳后阴，且阴线收盘跌破阳线开盘价，或实体覆盖前阳80%以上且收在前阳中点下方
+        // 形态判断：
+        // 1. 标准单阳反包：当前阴线跌破前阳开盘价，或实体强反转刺透
+        // 2. 暮星/3根K线平台反包：前前阳 -> 前一根十字星停顿 -> 当前阴线收盘跌破前前阳中点或开盘
         const isEngulfing = currClose <= prevOpen;
         const isStrongPiercing = currClose < (prevOpen + prevClose) / 2 && currBody >= prevBody * 0.8 && currClose < prevClose;
+        const isEveningStar = !!(prev2Kline && (prev2Close > prev2Open) && (prevBody <= currBody * 0.4 || Math.abs(prevClose - prevOpen) <= 5) && (currClose <= (prev2Open + prev2Close) / 2));
 
-        if (isPrevBullish && isCurrBearish && (isEngulfing || isStrongPiercing)) {
+        if (isPrevBullish && isCurrBearish && (isEngulfing || isStrongPiercing || isEveningStar)) {
           const ema50 = indicators.ema50;
           const ema200 = indicators.ema200;
 
-          // 检查这两根K线是否触碰或包含 EMA50 或 EMA200
+          // 检查这两根/三根K线是否触碰或包含 EMA50 或 EMA200
           const minLow = Math.min(prevLow, currLow);
-          const maxHigh = Math.max(prevHigh, currHigh);
+          const maxHigh = Math.max(prevHigh, currHigh, prev2Kline ? +prev2Kline.high : prevHigh);
 
           const touchesEma50 = minLow <= ema50 && maxHigh >= ema50;
           const touchesEma200 = minLow <= ema200 && maxHigh >= ema200;
 
+          // 计算距离 EMA50 或 EMA200 的收盘偏离度百分比
+          const distEma50Pct = (Math.abs(currClose - ema50) / ema50) * 100;
+          const distEma200Pct = (Math.abs(currClose - ema200) / ema200) * 100;
+
+          const isNear50 = distEma50Pct <= distEma200Pct;
+          const minDistPct = isNear50 ? distEma50Pct : distEma200Pct;
+          const targetMa = isNear50 ? 'EMA50' : 'EMA200';
+
           let confidence = 70;
           let maTag = '';
 
+          // 均线距离评估与置信度打分：
+          // 真正的均线反弹要求价格贴近均线；离EMA50太远(>0.30%)直接降至80以下不操作
           if (touchesEma50 || touchesEma200) {
-            // 直接触碰或受阻于均线，赋予最高置信度 95%
-            confidence = 95;
-            maTag = touchesEma50 ? '反弹EMA50(碰线)' : '反弹EMA200(碰线)';
-          } else {
-            // 未直接触线，计算距离 EMA50 或 EMA200 的最近距离百分比
-            const distEma50Pct = (Math.abs(currClose - ema50) / ema50) * 100;
-            const distEma200Pct = (Math.abs(currClose - ema200) / ema200) * 100;
-
-            const isNear50 = distEma50Pct <= distEma200Pct;
-            const minDistPct = isNear50 ? distEma50Pct : distEma200Pct;
-            const targetMa = isNear50 ? 'EMA50' : 'EMA200';
-
-            // 越靠近均线置信度越高（梯度：90% -> 85% -> 80% -> 75% -> 70%）
-            if (minDistPct <= 0.15) {
-              confidence = 90;
-            } else if (minDistPct <= 0.35) {
-              confidence = 85;
-            } else if (minDistPct <= 0.65) {
-              confidence = 80;
-            } else if (minDistPct <= 1.0) {
-              confidence = 75;
+            if (minDistPct <= 0.30) {
+              confidence = 95;
+              maTag = touchesEma50 ? '反弹EMA50(碰线)' : '反弹EMA200(碰线)';
             } else {
-              confidence = 70;
+              // 虽有触线但实体脱离均线过远(>0.30%)，追空风险大，下调置信度
+              confidence = 75;
+              maTag = `${touchesEma50 ? '碰EMA50' : '碰EMA200'}但收盘偏离均线过远(-${minDistPct.toFixed(2)}%)`;
             }
+          } else {
+            // 未触线，越靠近均线置信度越高；离EMA50过远直接降权
+            if (minDistPct <= 0.15) {
+              confidence = 85;
+              maTag = `贴近${targetMa}(${minDistPct.toFixed(2)}%)`;
+            } else if (minDistPct <= 0.30) {
+              confidence = 80;
+              maTag = `距${targetMa} ${minDistPct.toFixed(2)}%`;
+            } else if (minDistPct <= 0.50) {
+              confidence = 75;
+              maTag = `距${targetMa}偏远(-${minDistPct.toFixed(2)}%)`;
+            } else {
+              // 严重悬空偏离均线（如低位悬空反包追空），大幅降低置信度
+              confidence = 60;
+              maTag = `严重偏离${targetMa}(-${minDistPct.toFixed(2)}%｜远离均线追空高风险)`;
+            }
+          }
 
-            maTag = `距${targetMa} ${minDistPct.toFixed(2)}%`;
+          if (isEveningStar && !isEngulfing) {
+            maTag = `暮星形态｜${maTag}`;
           }
 
           score = -confidence;
@@ -365,9 +407,9 @@ export class TechnicalAnalysisService {
     const currLow = +currKline.low;
     const pullbackLow = Math.min(+prevKline.low, currLow);
 
-    // 回看最近 5~50 根K线（在当前回调反包之前的高点）
+    // 回看最近 5~50 根K线（在当前回调反包之前的高点，至少排除当前K线及本轮回踩停顿的3根K线）
     const startIndex = Math.max(0, fiveMinuteKlines.length - 50);
-    const endIndex = fiveMinuteKlines.length - 2; // 排除当前K线和前一根回调K线
+    const endIndex = Math.max(0, fiveMinuteKlines.length - 4);
     const lookback = fiveMinuteKlines.slice(startIndex, endIndex);
 
     if (lookback.length < 3) {
@@ -395,10 +437,10 @@ export class TechnicalAnalysisService {
       }
     }
 
-    // 去重并过滤出高于当前回调低点且高于当前开盘价的有效阻力位
+    // 去重并过滤出高于当前回调低点至少0.25%且高于当前开盘价的有效波段前高阻力位
     const uniqueLevels = Array.from(new Set(candidateLevels));
     const validLevels = uniqueLevels.filter(lvl =>
-      lvl > pullbackLow + (currClose * 0.001) && lvl >= currOpen
+      lvl > pullbackLow + (currClose * 0.0025) && lvl >= currOpen
     );
 
     if (validLevels.length === 0) {
@@ -460,9 +502,9 @@ export class TechnicalAnalysisService {
     const currLow = +currKline.low;
     const bounceHigh = Math.max(+prevKline.high, currHigh);
 
-    // 回看最近 5~50 根K线（在当前反弹反包之前的低点）
+    // 回看最近 5~50 根K线（在当前反弹反包之前的低点，至少排除当前K线及本轮反弹停顿的3根K线）
     const startIndex = Math.max(0, fiveMinuteKlines.length - 50);
-    const endIndex = fiveMinuteKlines.length - 2;
+    const endIndex = Math.max(0, fiveMinuteKlines.length - 4);
     const lookback = fiveMinuteKlines.slice(startIndex, endIndex);
 
     if (lookback.length < 3) {
@@ -490,10 +532,10 @@ export class TechnicalAnalysisService {
       }
     }
 
-    // 去重并过滤出低于当前反弹高点且低于当前开盘价的有效支撑位
+    // 去重并过滤出低于当前反弹高点至少0.25%且低于当前开盘价的有效波段前低支撑位
     const uniqueLevels = Array.from(new Set(candidateLevels));
     const validLevels = uniqueLevels.filter(lvl =>
-      lvl < bounceHigh - (currClose * 0.001) && lvl <= currOpen
+      lvl < bounceHigh - (currClose * 0.0025) && lvl <= currOpen
     );
 
     if (validLevels.length === 0) {

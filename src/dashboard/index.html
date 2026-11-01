@@ -3422,12 +3422,14 @@
       const [loading, setLoading] = useState(true);
       const [error, setError] = useState('');
 
-      // 保持最新K线固定在右侧，按固定的 6 根K线黄金边距对齐右侧价格轴
+      // 保持最新K线默认离右侧价格轴留出足够的间隙（默认 12 根K线舒适边距，约 100px）
+      const DEFAULT_RIGHT_OFFSET = 12;
+
       const fixScrollToRight = (force = false) => {
         try {
           if (!force && isUserScrolledAwayRef.current) return;
           if (chartRef.current) {
-            chartRef.current.timeScale().scrollToPosition(0, false);
+            chartRef.current.timeScale().scrollToPosition(DEFAULT_RIGHT_OFFSET, false);
           }
         } catch (e) {
           // ignore
@@ -3607,8 +3609,8 @@
             timeVisible: true,
             secondsVisible: false,
             borderColor: '#1e293b',
-            rightOffset: 6, // 固定当前最新K线距离右侧价格轴的距离为6根K线（标准黄金边距）
-            barSpacing: 8,  // 适中的K线柱宽度
+            rightOffset: 12, // 默认当前最新K线距离右侧价格轴保持 12 根K线的舒适间距（约100px）
+            barSpacing: 9,   // 适中的K线柱宽度
             minBarSpacing: 3,
             shiftVisibleRangeOnNewBar: true, // 新K线生成时自动推移，恒定保持该右侧边距
             lockVisibleTimeRangeOnResize: true,
@@ -3980,9 +3982,12 @@
               </button>
 
               <button
-                onClick={() => fixScrollToRight(true)}
+                onClick={() => {
+                  isUserScrolledAwayRef.current = false;
+                  fixScrollToRight(true);
+                }}
                 className="px-2.5 py-2 rounded bg-cyan-500/10 hover:bg-cyan-500/25 text-cyan-400 hover:text-cyan-300 border border-cyan-500/30 text-xs transition-colors flex items-center gap-1.5"
-                title="锁定回最新K线（固定右侧边距）"
+                title="锁定回最新K线（保持右侧间距）"
               >
                 <span>⇥</span>
                 <span className="hidden sm:inline">居右锁定</span>

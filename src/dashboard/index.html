@@ -3456,18 +3456,9 @@
       const prevPriceRef = React.useRef(null);
       const isUserScrolledAwayRef = React.useRef(false);
 
-      // 数据源模式：'index' (币安事件合约BTC指数) | 'spot' (币安现货撮合K线)
-      const [dataSource, setDataSource] = useState(() => {
-        try {
-          return localStorage.getItem('btc_kline_source') || 'index';
-        } catch (e) {
-          return 'index';
-        }
-      });
-      const dataSourceRef = React.useRef(dataSource);
-      useEffect(() => {
-        dataSourceRef.current = dataSource;
-      }, [dataSource]);
+      // 全量使用币安事件合约BTC综合标的指数数据源
+      const dataSource = 'index';
+      const dataSourceRef = React.useRef('index');
 
       const [currentPrice, setCurrentPrice] = useState(null);
       const [priceFlash, setPriceFlash] = useState(''); // 'up' | 'down' | ''
@@ -3910,7 +3901,7 @@
         prevPriceRef.current = currentPrice;
       }, [currentPrice]);
 
-      // 1. 直连币安官方 WebSocket 5m 现货 K 线流
+      // 1. 直连币安官方 WebSocket 事件合约标的指数实时流
       useEffect(() => {
         let ws = null;
         let isUnmounted = false;
@@ -3919,52 +3910,15 @@
         const connectBinanceWs = () => {
           if (isUnmounted) return;
           try {
-            ws = new WebSocket('wss://stream.binance.com:9443/ws/btcusdt@kline_5m');
+            ws = new WebSocket('wss://fstream.binance.com/ws/btcusdt@indexPrice');
 
             ws.onmessage = (event) => {
               try {
-                if (dataSourceRef.current !== 'spot') return;
                 const msg = JSON.parse(event.data);
-                if (!msg || !msg.k) return;
-                const k = msg.k;
-                const barTime = Math.floor(k.t / 1000);
-                const bar = {
-                  time: barTime,
-                  open: parseFloat(k.o),
-                  high: parseFloat(k.h),
-                  low: parseFloat(k.l),
-                  close: parseFloat(k.c),
-                  volume: parseFloat(k.v)
-                };
-
-                setCurrentPrice(bar.close);
-
-                if (candleSeriesRef.current) {
-                  candleSeriesRef.current.update(bar);
-                }
-
-                if (volumeSeriesRef.current) {
-                  volumeSeriesRef.current.update({
-                    time: barTime,
-                    value: bar.volume,
-                    color: bar.close >= bar.open ? 'rgba(16, 185, 129, 0.45)' : 'rgba(244, 63, 94, 0.45)'
-                  });
-                }
-
-                if (!isUserScrolledAwayRef.current) {
-                  fixScrollToRight(false);
-                }
-
-                if (candlesRef.current && candlesRef.current.length > 0) {
-                  const lastIdx = candlesRef.current.length - 1;
-                  const last = candlesRef.current[lastIdx];
-                  if (last.time === barTime) {
-                    candlesRef.current[lastIdx] = bar;
-                  } else if (barTime > last.time) {
-                    candlesRef.current.push(bar);
-                    fixScrollToRight(true);
-                  }
-                }
+                const rawPrice = msg.p || msg.c;
+                if (!rawPrice) return;
+                const p = parseFloat(rawPrice);
+                updateLatestCandle(p);
               } catch (err) {}
             };
 
@@ -3993,37 +3947,29 @@
         };
       }, []);
 
-      // 2. 监听服务端 Socket.IO 实时价格更新（双通道保障：现货 priceUpdate 与 事件合约指数 indexPriceUpdate）
+      // 2. 监听服务端 Socket.IO 实时价格更新（双通道保障：priceUpdate 与 indexPriceUpdate）
       useEffect(() => {
         if (!socket) return;
 
-        const handleSpotPrice = (data) => {
-          if (dataSourceRef.current !== 'spot') return;
-          if (!data || !data.price) return;
-          updateLatestCandle(data.price);
-        };
-
-        const handleIndexPrice = (data) => {
-          if (dataSourceRef.current !== 'index') return;
+        const handlePrice = (data) => {
           if (!data || !data.price) return;
           if (data.estimatedSettlePrice) setEstimatedSettle(parseFloat(data.estimatedSettlePrice));
           if (data.markPrice) setMarkPrice(parseFloat(data.markPrice));
           updateLatestCandle(data.price);
         };
 
-        socket.on('priceUpdate', handleSpotPrice);
-        socket.on('indexPriceUpdate', handleIndexPrice);
+        socket.on('priceUpdate', handlePrice);
+        socket.on('indexPriceUpdate', handlePrice);
 
         return () => {
-          socket.off('priceUpdate', handleSpotPrice);
-          socket.off('indexPriceUpdate', handleIndexPrice);
+          socket.off('priceUpdate', handlePrice);
+          socket.off('indexPriceUpdate', handlePrice);
         };
       }, [socket]);
 
-      // 3. 事件合约指数模式下的 2秒 高频保底轮询（无论用户网络/代理环境如何，都绝对持续跳动不卡顿）
+      // 3. 事件合约指数 2秒 高频保底轮询（无论用户网络/代理环境如何，都绝对持续跳动不卡顿）
       useEffect(() => {
         const pollIndexTick = async () => {
-          if (dataSourceRef.current !== 'index') return;
           try {
             const res = await fetch('/api/index-price');
             if (res.ok) {
@@ -4059,19 +4005,19 @@
             <div>
               <div className="flex flex-wrap items-center gap-2 text-xs font-mono mb-1">
                 <span className="w-2 h-2 rounded-full bg-cyan-400 animate-pulse shadow-sm shadow-cyan-400"></span>
-                <span className={dataSource === 'index' ? 'text-cyan-300 font-bold' : 'text-cyan-400'}>
-                  {dataSource === 'index' ? '🎯 币安事件合约 :: BTCUSDT 标的指数实时流' : 'BTCUSDT :: 5-MIN CANDLESTICK REALTIME STREAM'}
+                <span className="text-cyan-300 font-bold">
+                  🎯 币安事件合约 :: BTCUSDT 标的指数实时流
                 </span>
                 <span className="text-slate-600 text-[10px]">|</span>
                 <span className="text-slate-400 text-[11px]">
-                  {dataSource === 'index' ? 'Coinbase/Kraken/OKX/Binance等全球主流所现货加权指数' : '币安官方现货单一撮合买卖盘'}
+                  Coinbase/Kraken/OKX/Binance等全球主流所现货综合加权 (防插针防操盘)
                 </span>
               </div>
               <div className="flex flex-wrap items-center gap-3">
                 <div className="flex items-center gap-2">
                   <span className="text-cyan-400 font-bold">&gt;</span>
                   <h2 className="text-lg md:text-xl font-bold tracking-wider text-slate-100 uppercase m-0 flex items-center">
-                    {dataSource === 'index' ? 'BTC 5分钟事件合约标的指数实时走势' : 'BTC 5分钟周期K线图实时走势'}
+                    BTC 5分钟事件合约标的指数实时走势
                   </h2>
                 </div>
 
@@ -4096,33 +4042,12 @@
               </div>
             </div>
 
-            {/* 右侧：数据源双模切换 Tab、5分钟K线倒计时与刷新 */}
+            {/* 右侧：事件合约接入确认徽章、5分钟K线倒计时与刷新 */}
             <div className="flex flex-wrap items-center gap-2.5">
-              {/* 数据源切换 Tab：事件合约指数 vs 现货撮合 */}
-              <div className="flex items-center p-0.5 rounded-lg bg-slate-900 border border-slate-700/80 shadow-inner">
-                <button
-                  onClick={() => handleSourceChange('index')}
-                  className={`px-2.5 py-1 text-xs font-bold rounded-md transition-all flex items-center gap-1.5 ${
-                    dataSource === 'index'
-                      ? 'bg-cyan-500/25 text-cyan-300 border border-cyan-400/50 shadow-sm shadow-cyan-500/20'
-                      : 'text-slate-400 hover:text-slate-200'
-                  }`}
-                  title="币安App事件合约官方结算使用的综合指数K线（推荐）"
-                >
-                  <span className={`w-1.5 h-1.5 rounded-full ${dataSource === 'index' ? 'bg-cyan-400 animate-pulse' : 'bg-slate-500'}`}></span>
-                  <span>🎯 事件合约指数</span>
-                </button>
-                <button
-                  onClick={() => handleSourceChange('spot')}
-                  className={`px-2.5 py-1 text-xs font-bold rounded-md transition-all flex items-center gap-1.5 ${
-                    dataSource === 'spot'
-                      ? 'bg-slate-700 text-slate-100 border border-slate-600 shadow-sm'
-                      : 'text-slate-400 hover:text-slate-200'
-                  }`}
-                  title="币安现货撮合K线"
-                >
-                  <span>现货撮合价</span>
-                </button>
+              {/* 事件合约接入确认徽章 */}
+              <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-950/40 border border-emerald-500/40 shadow-inner text-emerald-300 text-xs font-bold font-mono">
+                <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse shadow-sm shadow-emerald-400"></span>
+                <span>🎯 币安事件合约全量接入</span>
               </div>
 
               {/* 5M K线倒计时 */}
@@ -4153,7 +4078,7 @@
             </div>
           </div>
 
-          {/* 指标数据状态栏 (OHLC + EMA50 + EMA200 + 事件合约结算/VOL) */}
+          {/* 指标数据状态栏 (OHLC + EMA50 + EMA200 + 事件合约结算说明) */}
           <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 py-2 text-xs border-b border-slate-800/60 bg-[#05080c]/60 -mx-4 px-4">
             {displayOpen != null && (
               <div className="flex items-center gap-1 text-[11px] text-slate-400">
@@ -4176,29 +4101,20 @@
               <span className="text-purple-200 font-mono font-bold">${formatNumber(displayEma200, 2)}</span>
             </div>
 
-            {dataSource === 'index' ? (
-              <div className="flex flex-wrap items-center gap-2 text-[11px] text-cyan-300/90 bg-cyan-950/30 px-2 py-0.5 rounded border border-cyan-500/20">
-                <span className="text-cyan-400 font-bold">🏛️ 事件合约标的:</span>
-                <span>综合加权指数 (防操盘)</span>
-                {estimatedSettle != null && (
-                  <span className="text-amber-300 font-bold ml-1">
-                    | 预估结算价: ${formatNumber(estimatedSettle, 2)}
-                  </span>
-                )}
-                {markPrice != null && (
-                  <span className="text-slate-400 ml-1">
-                    | 标记价: ${formatNumber(markPrice, 2)}
-                  </span>
-                )}
-              </div>
-            ) : (
-              displayVol != null && (
-                <div className="flex items-center gap-1 text-[11px] text-slate-400">
-                  <span className="text-slate-400 font-bold">VOL:</span>
-                  <span className="text-slate-300 font-mono font-semibold">{displayVol} BTC</span>
-                </div>
-              )
-            )}
+            <div className="flex flex-wrap items-center gap-2 text-[11px] text-cyan-300/90 bg-cyan-950/30 px-2 py-0.5 rounded border border-cyan-500/20">
+              <span className="text-cyan-400 font-bold">🏛️ 事件合约标的:</span>
+              <span>综合加权指数 (防插针)</span>
+              {estimatedSettle != null && (
+                <span className="text-amber-300 font-bold ml-1">
+                  | 预估结算价: ${formatNumber(estimatedSettle, 2)}
+                </span>
+              )}
+              {markPrice != null && (
+                <span className="text-slate-400 ml-1">
+                  | 标记价: ${formatNumber(markPrice, 2)}
+                </span>
+              )}
+            </div>
           </div>
 
           {/* 图表主区域 */}

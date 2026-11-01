@@ -8,7 +8,7 @@ import path from 'path';
 import { TradingSignalService } from '../services/TradingSignal';
 import { StatisticsService } from '../services/StatisticsService';
 import { BinanceService } from '../services/BinanceService';
-import PriceDataModel from '../models/PriceData';
+import PriceDataModel, { IPriceData } from '../models/PriceData';
 import TradeModel from '../models/Trade';
 
 /**
@@ -407,34 +407,37 @@ app.post('/api/reset-data', authenticateToken, async (req: AuthRequest, res) => 
 
 app.get('/api/current-price', async (_req, res) => {
   try {
+    const info = await binanceService.getIndexPrice('BTCUSDT');
+    res.json({
+      price: info.indexPrice,
+      markPrice: info.markPrice,
+      estimatedSettlePrice: info.estimatedSettlePrice,
+      timestamp: new Date(info.time).toISOString()
+    });
+  } catch (error) {
     const latestPrice = await PriceDataModel
       .findOne()
       .sort({ timestamp: -1 })
       .lean();
 
-    res.json({ price: latestPrice?.price || 65000 });
-  } catch (error) {
-    res.status(500).json({ error: '获取当前价格失败' });
+    res.json({ price: latestPrice?.price || 78000 });
   }
 });
 
 app.get('/api/klines', async (req, res) => {
   try {
-    const interval = typeof req.query.interval === 'string' ? req.query.interval : '10m';
-    const limit = Math.min(parseInt(String(req.query.limit), 10) || 200, 500);
+    const interval = typeof req.query.interval === 'string' ? req.query.interval : '5m';
+    const limit = Math.min(parseInt(String(req.query.limit), 10) || 250, 1000);
     const start = parseInt(String(req.query.start), 10) || undefined;
     const end = parseInt(String(req.query.end), 10) || undefined;
-    const source = (req.query.source as string) || (req.query.type as string) || 'spot';
 
-    const klines = (source === 'index')
-      ? await binanceService.getIndexPriceKlines('BTCUSDT', interval, limit, start, end)
-      : await binanceService.getKlines(interval, limit, start, end);
-
+    // 全量切换为事件合约标的综合指数K线数据
+    const klines = await binanceService.getIndexPriceKlines('BTCUSDT', interval, limit, start, end);
     const trades = await TradeModel.find().sort({ timestamp: -1 }).limit(100).lean();
-    res.json({ klines, trades, source });
+    res.json({ klines, trades, source: 'index' });
   } catch (error) {
-    console.error('获取K线数据失败:', error);
-    res.status(500).json({ error: '获取K线数据失败' });
+    console.error('获取事件合约K线数据失败:', error);
+    res.status(500).json({ error: '获取事件合约K线数据失败' });
   }
 });
 
@@ -472,8 +475,8 @@ io.on('connection', (socket: any) => {
   });
 });
 
-// 实时价格更新
-let currentPrice = 65000;
+// 实时价格更新（全量为币安事件合约标的指数）
+let currentPrice = 78000;
 
 // 监听币安WebSocket实时价格流，毫秒级广播给前端
 binanceService.addPriceListener((price: number) => {
@@ -486,57 +489,59 @@ binanceService.addPriceListener((price: number) => {
   }
 });
 
+// 全量轮询币安事件合约标的指数最新价格与结算预估
 const updatePrice = async () => {
-  try {
-    const ticker = await binanceService.getCurrentPrice();
-    const priceData = binanceService.convertToPriceData(ticker);
-
-    currentPrice = priceData.price || currentPrice;
-
-    io.emit('priceUpdate', {
-      price: currentPrice,
-      timestamp: new Date().toISOString()
-    });
-
-    // 保存到数据库
-    await PriceDataModel.create(priceData);
-  } catch (error) {
-    console.error('获取价格失败:', error);
-  }
-};
-
-// 启动价格更新定时器作为保底
-setInterval(updatePrice, 5000); // 每5秒更新一次真实价格并入库
-
-// 币安事件合约标的指数实时广播
-let currentIndexPrice: number | null = null;
-const updateIndexPrice = async () => {
   try {
     const info = await binanceService.getIndexPrice('BTCUSDT');
     if (info && info.indexPrice > 0) {
-      currentIndexPrice = info.indexPrice;
-      io.emit('indexPriceUpdate', {
-        symbol: info.symbol,
-        price: info.indexPrice,
+      currentPrice = info.indexPrice;
+
+      const priceData: Partial<IPriceData> = {
+        symbol: 'BTCUSDT',
+        timestamp: new Date(info.time),
+        price: currentPrice,
+        volume: 0,
+        high: info.markPrice || currentPrice,
+        low: info.markPrice || currentPrice,
+        open: currentPrice,
+        close: currentPrice
+      };
+
+      // 毫秒级向前端所有已连接客户端广播事件合约实时行情与结算预估
+      io.emit('priceUpdate', {
+        price: currentPrice,
         markPrice: info.markPrice,
         estimatedSettlePrice: info.estimatedSettlePrice,
         timestamp: new Date(info.time).toISOString()
       });
+
+      io.emit('indexPriceUpdate', {
+        symbol: info.symbol,
+        price: currentPrice,
+        markPrice: info.markPrice,
+        estimatedSettlePrice: info.estimatedSettlePrice,
+        timestamp: new Date(info.time).toISOString()
+      });
+
+      // 保存到数据库
+      await PriceDataModel.create(priceData);
     }
   } catch (error) {
-    // 忽略偶发请求异常
+    console.error('获取事件合约指数价格失败:', error);
   }
 };
-setInterval(updateIndexPrice, 2000); // 每2秒轮询并向前端推送事件合约指数实时行情
+
+// 启动价格更新定时器：每2秒轮询事件合约标的指数入库并实时广播
+setInterval(updatePrice, 2000);
 
 /**
  * 确保获取的是已收盘的5分钟K线
  */
 async function getClosedFiveMinuteKlines() {
-  // 获取K线数据（多获取一些以确保有已收盘的，EMA200需要至少200根）
-  const klines = await binanceService.getKlines('5m', 400);
+  // 获取币安事件合约BTC指数K线数据（多获取一些以确保有已收盘的，EMA200需要至少200根）
+  const klines = await binanceService.getIndexPriceKlines('BTCUSDT', '5m', 400);
 
-  console.log(`📊 获取到${klines.length}根5分钟K线`);
+  console.log(`📊 获取到${klines.length}根币安事件合约5分钟指数K线`);
 
   // 当前UTC时间
   const now = new Date().getTime();

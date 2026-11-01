@@ -77,19 +77,23 @@ export class BinanceService {
   /**
    * 初始化WebSocket连接
    */
+  /**
+   * 初始化WebSocket连接 (连接币安事件合约标的指数实时流)
+   */
   private initWebSocket(proxyConfig?: ProxyConfig): void {
     try {
       // 检查是否有代理配置
       const proxyUrl = process.env.HTTPS_PROXY || (proxyConfig ? `http://${proxyConfig.host}:${proxyConfig.port}` : undefined);
       const proxyAgent = proxyUrl ? new HttpsProxyAgent(proxyUrl) : undefined;
-      this.wsClient = new WebSocket(`${this.WS_URL}/ws/${this.SYMBOL.toLowerCase()}@ticker`, {
+      // 切换为事件合约标的指数实时WebSocket流
+      this.wsClient = new WebSocket(`wss://fstream.binance.com/ws/${this.SYMBOL.toLowerCase()}@indexPrice`, {
         agent: proxyAgent, // 传入代理
-        pingTimeout: 10000, // 关键：如果 10 秒内没响应，视为断开，触发重连
-        pingInterval: 20000 // 每 20 秒主动发一次 ping (可选，保持链路活跃)
+        pingTimeout: 10000,
+        pingInterval: 20000
       } as ClientOptions);
 
       this.wsClient.onopen = () => {
-        console.log('币安 WebSocket 连接已建立');
+        console.log('币安事件合约标的指数 WebSocket 连接已建立');
         this.wsConnected = true;
         this.reconnectAttempts = 0;
       };
@@ -97,10 +101,13 @@ export class BinanceService {
       this.wsClient.onmessage = (event) => {
         try {
           const data = JSON.parse(event.data.toString());
-          const price = parseFloat(data.c); // 最新价格
-
-          // 通知所有监听器
-          this.priceListeners.forEach(listener => listener(price));
+          // 标的指数流中价格字段为 p，普通ticker中为 c
+          const rawPrice = data.p || data.c;
+          if (rawPrice) {
+            const price = parseFloat(rawPrice);
+            // 通知所有监听器
+            this.priceListeners.forEach(listener => listener(price));
+          }
         } catch (error) {
           console.error('WebSocket消息解析错误:', error);
         }
@@ -141,30 +148,61 @@ export class BinanceService {
   }
 
   /**
-   * 获取当前BTC价格
+   * 获取当前BTC价格（全量切换为币安事件合约BTC综合标的指数价格）
    */
   async getCurrentPrice(): Promise<BinanceTicker> {
     const maxRetries = 3;
     for (let i = 0; i < maxRetries; i++) {
       try {
-        const response = await this.axiosInstance.get('/ticker/24hr', {
+        const response = await this.fapiAxiosInstance.get('/premiumIndex', {
           params: { symbol: this.SYMBOL }
         });
-        return response.data;
+        const d = response.data;
+        const indexPriceStr = String(d.indexPrice || d.markPrice || '78000');
+        return {
+          symbol: d.symbol || this.SYMBOL,
+          priceChange: '0',
+          priceChangePercent: '0',
+          weightedAvgPrice: indexPriceStr,
+          prevClosePrice: indexPriceStr,
+          lastPrice: indexPriceStr,
+          lastQty: '0',
+          bidPrice: indexPriceStr,
+          bidQty: '0',
+          askPrice: indexPriceStr,
+          askQty: '0',
+          openPrice: indexPriceStr,
+          highPrice: d.markPrice || indexPriceStr,
+          lowPrice: d.markPrice || indexPriceStr,
+          volume: '0',
+          quoteVolume: '0',
+          openTime: d.time || Date.now(),
+          closeTime: d.time || Date.now(),
+          firstId: 0,
+          lastId: 0,
+          count: 0
+        };
       } catch (error: any) {
-        console.error(`获取币安价格失败 (尝试 ${i + 1}/${maxRetries}):`, error.message);
+        console.error(`获取币安事件合约指数价格失败 (尝试 ${i + 1}/${maxRetries}):`, error.message);
         if (i < maxRetries - 1) {
-          await new Promise(resolve => setTimeout(resolve, 2000 * (i + 1))); // 指数退避
+          await new Promise(resolve => setTimeout(resolve, 1500 * (i + 1))); // 指数退避
         }
       }
     }
-    throw new Error('无法获取实时价格数据，所有重试都失败了');
+    throw new Error('无法获取实时事件合约指数价格数据，所有重试都失败了');
   }
 
   /**
-   * 获取K线数据
+   * 获取K线数据（全量切换为币安事件合约BTC综合标的指数K线数据）
    */
-  async getKlines(interval: string = '1m', limit: number = 100, startTime?: number, endTime?: number): Promise<BinanceKline[]> {
+  async getKlines(interval: string = '5m', limit: number = 250, startTime?: number, endTime?: number): Promise<BinanceKline[]> {
+    return this.getIndexPriceKlines(this.SYMBOL, interval, limit, startTime, endTime);
+  }
+
+  /**
+   * 保留原生现货K线数据获取接口（备用）
+   */
+  async getSpotKlines(interval: string = '1m', limit: number = 100, startTime?: number, endTime?: number): Promise<BinanceKline[]> {
     const maxRetries = 3;
     for (let i = 0; i < maxRetries; i++) {
       try {
@@ -193,13 +231,13 @@ export class BinanceService {
           ignore: kline[11]
         }));
       } catch (error: any) {
-        console.error(`获取K线数据失败 (尝试 ${i + 1}/${maxRetries}):`, error.message);
+        console.error(`获取现货K线数据失败 (尝试 ${i + 1}/${maxRetries}):`, error.message);
         if (i < maxRetries - 1) {
           await new Promise(resolve => setTimeout(resolve, 2000 * (i + 1)));
         }
       }
     }
-    throw new Error('无法获取K线数据，所有重试都失败了');
+    throw new Error('无法获取现货K线数据，所有重试都失败了');
   }
 
   /**

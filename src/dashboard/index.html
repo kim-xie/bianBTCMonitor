@@ -1971,7 +1971,7 @@
                   <span className="text-slate-200 font-bold">{user.username}</span>
                   <span className="text-slate-600">|</span>
                   <span className={`text-[10px] font-semibold ${subscription && !subscription.isExpired ? 'text-emerald-400' : 'text-amber-400'}`}>
-                    {subscription ? (subscription.isExpired ? '[过期 EXPIRED]' : `[剩余 ${subscription.timeLeft || 1}天]`) : '[未订阅 TRIAL]`}
+                    {subscription ? (subscription.isExpired ? '[过期 EXPIRED]' : `[剩余 ${subscription.timeLeft || 1}天]`) : '[未订阅 TRIAL]'}
                   </span>
                   <button
                     onClick={() => {

@@ -34,7 +34,7 @@ const TradeSchema: Schema = new Schema({
   signal: { type: String, required: true, enum: ['BUY', 'SELL'] },
   tradeType: { type: String, required: true, enum: ['LONG', 'SHORT'] },
   confidence: { type: Number, required: true, min: 0, max: 100 },
-  investmentAmount: { type: Number, required: true, default: 5 }, // 默认买入金额5U
+  investmentAmount: { type: Number, required: true, default: 100 }, // 默认买入金额100U
   indicators: {
     ema50: { type: Number, required: true },
     ema150: { type: Number, required: true },

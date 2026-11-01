@@ -112,7 +112,7 @@ setInterval(() => {
 }, 60 * 60 * 1000); // 每小时清理一次
 
 // 添加资金跟踪
-let currentBalance = 500; // 初始资金500U
+let currentBalance = 1000; // 初始资金1000U
 
 // 计算当前资金基于所有已完成交易
 const calculateCurrentBalance = async () => {
@@ -122,7 +122,7 @@ const calculateCurrentBalance = async () => {
       profitLoss: { $exists: true }
     }).lean();
 
-    let balance = 500; // 初始资金500U
+    let balance = 1000; // 初始资金1000U
     completedTrades.forEach(trade => {
       balance += (trade.profitLoss || 0);
     });
@@ -144,7 +144,7 @@ const calculateBalanceHistory = async () => {
     }).sort({ closeTime: 1 }).lean(); // 按平仓时间排序
 
     const history = [];
-    let balance = 500; // 初始资金500U
+    let balance = 1000; // 初始资金1000U
 
     if (completedTrades.length > 0) {
       // 有交易记录的情况
@@ -154,7 +154,7 @@ const calculateBalanceHistory = async () => {
       
       history.push({
         time: startTime.toISOString(),
-        balance: 500 // 初始资金固定为500
+        balance: 1000 // 初始资金固定为1000
       });
 
       // 按时间顺序重建资金变化历史
@@ -169,7 +169,7 @@ const calculateBalanceHistory = async () => {
       // 没有交易记录的情况，只显示初始资金点
       history.push({
         time: new Date().toISOString(),
-        balance: 500
+        balance: 1000
       });
     }
 
@@ -388,7 +388,7 @@ app.post('/api/reset-data', authenticateToken, async (req: AuthRequest, res) => 
     const priceResult = await PriceDataModel.deleteMany({});
 
     // 重置当前资金为初始值
-    currentBalance = 500;
+    currentBalance = 1000;
 
     console.log(`用户 ${req.user.username} 已清空数据: ${tradesResult.deletedCount} 条交易, ${priceResult.deletedCount} 条价格数据`);
 

@@ -164,7 +164,7 @@ export class TradingSignalService {
     const signal = prediction.direction === 'UP' ? 'BUY' : 'SELL';
     const recommendedAction = this.generateRecommendedAction(prediction, currentPrice);
 
-    const investmentAmount = 10; // 固定买入金额10U
+    const investmentAmount = 100; // 固定买入金额100U
 
     return {
       timestamp: new Date(),
@@ -213,7 +213,7 @@ export class TradingSignalService {
   private async saveTrade(signal: TradingSignal, price: number, prediction: PredictionResult, klineCloseTime: number): Promise<boolean> {
     // 根据信号确定交易类型：BUY信号对应做多(LONG)，SELL信号对应做空(SHORT)
     const tradeType = signal.signal === 'BUY' ? 'LONG' : 'SHORT';
-    const investmentAmount = 10; // 固定买入金额10U
+    const investmentAmount = 100; // 固定买入金额100U
 
     const tradeData: Partial<ITrade> = {
       symbol: signal.symbol,

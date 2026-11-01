@@ -737,7 +737,7 @@
               <div className="flex items-center justify-between text-xs text-slate-400 mb-2">
                 <span className="tracking-wider">02_NET_PROFIT</span>
                 <span className="text-[10px] px-2 py-0.5 rounded bg-cyan-500/15 text-cyan-300 border border-cyan-500/30 font-bold">
-                  [10U/UNIT]
+                  [100U/UNIT]
                 </span>
               </div>
               <div className="flex items-baseline gap-1">
@@ -767,8 +767,8 @@
                 <span className="text-xs text-slate-400 font-semibold">WIN/LOSS RATIO</span>
               </div>
               <div className="mt-3 text-xs text-slate-400 pt-2 border-t border-slate-800/80 flex justify-between">
-                <span>PAYOUT: +8.0U</span>
-                <span>CUT: -10.0U</span>
+                <span>PAYOUT: +80.0U</span>
+                <span>CUT: -100.0U</span>
               </div>
             </div>
 
@@ -1152,7 +1152,7 @@
               };
             }
             stats[date].tradeCount++;
-            stats[date].totalInvestment += trade.investmentAmount || 5;
+            stats[date].totalInvestment += trade.investmentAmount || 100;
             if (trade.isCorrect) {
               stats[date].winCount++;
             } else {
@@ -1724,8 +1724,8 @@
       const [stats, setStats] = useState(null);
       const [recentTrades, setRecentTrades] = useState([]);
       const [allTrades, setAllTrades] = useState([]); // 所有交易数据，用于日历统计
-      const [currentBalance, setCurrentBalance] = useState(500); // 初始资金500U
-      const initialBalance = 500; // 初始资金常量
+      const [currentBalance, setCurrentBalance] = useState(1000); // 初始资金1000U
+      const initialBalance = 1000; // 初始资金常量
       const [balanceHistory, setBalanceHistory] = useState([]);
       const [isConnected, setIsConnected] = useState(false);
       const [socketInstance, setSocketInstance] = useState(null);
@@ -2053,7 +2053,7 @@
           _id: mockId,
           timestamp: new Date().toISOString(),
           price: 68350.5,
-          investmentAmount: 10,
+          investmentAmount: 100,
           tradeType: 'LONG',
           reasoning: ['BTC 5m 实时触发：EMA50 > EMA200 平行趋势入场'],
           priceSpread: 0
@@ -2253,7 +2253,7 @@
               // 如果历史为空，创建初始资金点
               newHistory = [{
                 time: new Date(Date.now() - 10 * 60 * 1000).toISOString(), // 10分钟前作为起点
-                balance: 500
+                balance: 1000
               }];
             } else {
               // 直接使用prev，保留所有历史数据
@@ -2309,7 +2309,7 @@
                   confidence: t.confidence || 80,
                   reasoning: Array.isArray(t.reasoning) ? t.reasoning : [t.reasoning],
                   recommendedAction: t.recommendedAction || (t.signal === 'BUY' ? '建议开仓做多 - 均线反包' : '建议开仓做空 - 均线反包'),
-                  investmentAmount: t.investmentAmount || 10
+                  investmentAmount: t.investmentAmount || 100
                 }));
             });
           }
@@ -2388,12 +2388,12 @@
                 // 确保资金历史包含初始资金点
                 let history = statsData.balanceHistory;
                 // 检查是否包含初始资金点
-                const hasInitialPoint = history.some(point => point.balance === 500);
+                const hasInitialPoint = history.some(point => point.balance === 1000);
                 if (!hasInitialPoint) {
                   // 添加初始资金点
                   history = [{
                     time: new Date(Date.now() - 10 * 60 * 1000).toISOString(), // 10分钟前作为起点
-                    balance: 500
+                    balance: 1000
                   }, ...history];
                 }
                 setBalanceHistory(history);
@@ -2402,7 +2402,7 @@
                 // 如果没有历史数据，至少显示当前点和初始资金点
                 setBalanceHistory([{
                   time: new Date(Date.now() - 10 * 60 * 1000).toISOString(), // 10分钟前作为起点
-                  balance: 500
+                  balance: 1000
                 }, {
                   time: new Date().toISOString(),
                   balance: statsData.currentBalance
@@ -2445,7 +2445,7 @@
                     confidence: t.confidence || 80,
                     reasoning: Array.isArray(t.reasoning) ? t.reasoning : [t.reasoning],
                     recommendedAction: t.recommendedAction || (t.signal === 'BUY' ? '建议开仓做多 - 均线反包' : '建议开仓做空 - 均线反包'),
-                    investmentAmount: t.investmentAmount || 10
+                    investmentAmount: t.investmentAmount || 100
                   }));
               });
             }
@@ -2683,7 +2683,7 @@
                     <div className="flex items-baseline justify-between gap-4 my-2">
                       <div>
                         <div className="text-2xl sm:text-3xl font-black text-emerald-400 terminal-glow-green">
-                          +{settlementEvent.trade.profitLoss ? formatAmountU(settlementEvent.trade.profitLoss) : '8.00 U'}
+                          +{settlementEvent.trade.profitLoss ? formatAmountU(settlementEvent.trade.profitLoss) : '80.00 U'}
                         </div>
                         <div className="text-[11px] text-emerald-300/80 mt-0.5">
                           {settlementEvent.trade.profitLossPercent !== undefined ? `净收益率: +${settlementEvent.trade.profitLossPercent}%` : '命中目标点位 · 胜率提升'}

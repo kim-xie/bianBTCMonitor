@@ -2843,7 +2843,7 @@
             <>
               {activeView === 'dashboard' ? (
                 <>
-                  {/* BTC 5分钟周期K线图实时走势卡片 (EMA50/EMA200, K线倒计时, 成交量, RSI) */}
+                  {/* BTC 5分钟周期K线图实时走势卡片 (EMA50/EMA200, K线倒计时, 成交量) */}
                   <BtcRealtimeKlineCard socket={socketInstance} />
 
                   <div className="main-grid">
@@ -3397,18 +3397,15 @@
 
     /**
      * BTC 5分钟周期K线图实时走势卡片
-     * 包含：5分钟K线、EMA50、EMA200、K线倒计时、成交量柱状图、RSI(14)副图
+     * 包含：5分钟K线、EMA50、EMA200、K线倒计时、成交量柱状图
      */
     const BtcRealtimeKlineCard = ({ socket }) => {
       const mainContainerRef = React.useRef(null);
-      const rsiContainerRef = React.useRef(null);
       const chartRef = React.useRef(null);
-      const rsiChartRef = React.useRef(null);
       const candleSeriesRef = React.useRef(null);
       const ema50SeriesRef = React.useRef(null);
       const ema200SeriesRef = React.useRef(null);
       const volumeSeriesRef = React.useRef(null);
-      const rsiSeriesRef = React.useRef(null);
       const candlesRef = React.useRef([]);
       const isInitialScrollRef = React.useRef(true);
       const prevPriceRef = React.useRef(null);
@@ -3419,7 +3416,6 @@
       const [countdown, setCountdown] = useState('--:--');
       const [latestEma50, setLatestEma50] = useState(null);
       const [latestEma200, setLatestEma200] = useState(null);
-      const [latestRsi, setLatestRsi] = useState(null);
       const [latestVol, setLatestVol] = useState(null);
       const [trendStatus, setTrendStatus] = useState('CALCULATING...');
       const [hoverData, setHoverData] = useState(null);
@@ -3432,9 +3428,6 @@
           if (!force && isUserScrolledAwayRef.current) return;
           if (chartRef.current) {
             chartRef.current.timeScale().scrollToPosition(0, false);
-          }
-          if (rsiChartRef.current) {
-            rsiChartRef.current.timeScale().scrollToPosition(0, false);
           }
         } catch (e) {
           // ignore
@@ -3461,36 +3454,6 @@
         for (let i = period; i < closes.length; i++) {
           prev = closes[i] * k + prev * (1 - k);
           out.push({ time: candles[i].time, value: +prev.toFixed(2) });
-        }
-        return out;
-      };
-
-      // 计算RSI(14)序列 (Wilder 平滑)
-      const calculateRSI = (candles, period = 14) => {
-        if (candles.length <= period) return [];
-        const closes = candles.map(c => c.close);
-        let gains = 0;
-        let losses = 0;
-        for (let i = 1; i <= period; i++) {
-          const diff = closes[i] - closes[i - 1];
-          if (diff >= 0) gains += diff;
-          else losses -= diff;
-        }
-        let avgGain = gains / period;
-        let avgLoss = losses / period;
-
-        const out = [];
-        const firstRsi = avgLoss === 0 ? 100 : 100 - (100 / (1 + avgGain / avgLoss));
-        out.push({ time: candles[period].time, value: +firstRsi.toFixed(2) });
-
-        for (let i = period + 1; i < candles.length; i++) {
-          const diff = closes[i] - closes[i - 1];
-          const gain = diff > 0 ? diff : 0;
-          const loss = diff < 0 ? -diff : 0;
-          avgGain = (avgGain * (period - 1) + gain) / period;
-          avgLoss = (avgLoss * (period - 1) + loss) / period;
-          const rsi = avgLoss === 0 ? 100 : 100 - (100 / (1 + avgGain / avgLoss));
-          out.push({ time: candles[i].time, value: +rsi.toFixed(2) });
         }
         return out;
       };
@@ -3537,7 +3500,6 @@
           // 计算指标
           const ema50Data = calculateEMA(uniqueCandles, 50);
           const ema200Data = calculateEMA(uniqueCandles, 200);
-          const rsiData = calculateRSI(uniqueCandles, 14);
 
           const volumeData = uniqueCandles.map(c => ({
             time: c.time,
@@ -3555,9 +3517,6 @@
           }
           if (ema200Data.length > 0) {
             setLatestEma200(ema200Data[ema200Data.length - 1].value);
-          }
-          if (rsiData.length > 0) {
-            setLatestRsi(rsiData[rsiData.length - 1].value);
           }
 
           // 判定趋势状态（EMA50/EMA200 平行趋势判定）
@@ -3590,7 +3549,6 @@
           if (ema50SeriesRef.current) ema50SeriesRef.current.setData(ema50Data);
           if (ema200SeriesRef.current) ema200SeriesRef.current.setData(ema200Data);
           if (volumeSeriesRef.current) volumeSeriesRef.current.setData(volumeData);
-          if (rsiSeriesRef.current) rsiSeriesRef.current.setData(rsiData);
 
           // 首次加载或重绘时，锁定最新K线停靠在右侧（按固定的 6 根K线黄金间距对齐右边距）
           if (isInitialScrollRef.current) {
@@ -3611,10 +3569,10 @@
         }
       };
 
-      // 初始化主图与RSI副图
+      // 初始化主K线图表
       useEffect(() => {
         let disposed = false;
-        if (!mainContainerRef.current || !rsiContainerRef.current) return;
+        if (!mainContainerRef.current) return;
         if (typeof LightweightCharts === 'undefined') {
           setError('图表组件初始化中，请稍候...');
           return;
@@ -3625,7 +3583,7 @@
         // 1. 主K线图表（含K线、EMA50、EMA200、成交量柱状图）
         const chart = LightweightCharts.createChart(mainContainerRef.current, {
           width,
-          height: 380,
+          height: 420,
           layout: {
             background: { type: 'solid', color: '#05080c' },
             textColor: '#94a3b8'
@@ -3704,94 +3662,16 @@
           },
         });
 
-        // 2. RSI(14) 副图
-        const rsiChart = LightweightCharts.createChart(rsiContainerRef.current, {
-          width,
-          height: 110,
-          layout: {
-            background: { type: 'solid', color: '#05080c' },
-            textColor: '#94a3b8'
-          },
-          grid: {
-            vertLines: { color: 'rgba(30, 41, 59, 0.25)' },
-            horzLines: { color: 'rgba(30, 41, 59, 0.25)' }
-          },
-          crosshair: {
-            mode: LightweightCharts.CrosshairMode.Normal,
-            vertLine: { color: 'rgba(6, 182, 212, 0.35)', width: 1, style: LightweightCharts.LineStyle.Dashed },
-            horzLine: { color: 'rgba(6, 182, 212, 0.35)', width: 1, style: LightweightCharts.LineStyle.Dashed }
-          },
-          timeScale: {
-            visible: false, // 隐藏时间刻度以保持与主图严格对齐
-            rightOffset: 6,
-            barSpacing: 8,
-            minBarSpacing: 3,
-            shiftVisibleRangeOnNewBar: true,
-            lockVisibleTimeRangeOnResize: true
-          },
-          rightPriceScale: {
-            borderColor: '#1e293b',
-            scaleMargins: {
-              top: 0.1,
-              bottom: 0.1
-            }
-          }
-        });
-
-        const rsiSeries = rsiChart.addLineSeries({
-          color: '#06b6d4',
-          lineWidth: 1.5,
-          priceLineVisible: false,
-          lastValueVisible: true,
-          title: 'RSI(14)'
-        });
-
-        // RSI 70/30参考线
-        rsiSeries.createPriceLine({
-          price: 70,
-          color: 'rgba(244, 63, 94, 0.6)',
-          lineWidth: 1,
-          lineStyle: LightweightCharts.LineStyle.Dashed,
-          axisLabelVisible: true,
-          title: '超买 70'
-        });
-        rsiSeries.createPriceLine({
-          price: 30,
-          color: 'rgba(16, 185, 129, 0.6)',
-          lineWidth: 1,
-          lineStyle: LightweightCharts.LineStyle.Dashed,
-          axisLabelVisible: true,
-          title: '超卖 30'
-        });
-        rsiSeries.createPriceLine({
-          price: 50,
-          color: 'rgba(148, 163, 184, 0.3)',
-          lineWidth: 1,
-          lineStyle: LightweightCharts.LineStyle.Dotted,
-          axisLabelVisible: false
-        });
-
-        // 3. 联动同步两张图表的时间轴与用户拖动锁定检测
-        let isSyncing = false;
+        // 2. 监听时间轴拖动锁定检测
         chart.timeScale().subscribeVisibleLogicalRangeChange(range => {
           if (!range) return;
           if (candlesRef.current && candlesRef.current.length > 0) {
             const totalBars = candlesRef.current.length;
             isUserScrolledAwayRef.current = (range.to < totalBars - 1);
           }
-          if (isSyncing || !rsiChart) return;
-          isSyncing = true;
-          rsiChart.timeScale().setVisibleLogicalRange(range);
-          isSyncing = false;
-        });
-        rsiChart.timeScale().subscribeVisibleLogicalRangeChange(range => {
-          if (isSyncing || !range || !chart) return;
-          isSyncing = true;
-          chart.timeScale().setVisibleLogicalRange(range);
-          isSyncing = false;
         });
 
-        // 4. 十字准星移动悬停数据提取
+        // 3. 十字准星移动悬停数据提取
         chart.subscribeCrosshairMove(param => {
           if (!param || !param.time || !param.seriesData) {
             setHoverData(null);
@@ -3814,20 +3694,15 @@
         });
 
         chartRef.current = chart;
-        rsiChartRef.current = rsiChart;
         candleSeriesRef.current = candleSeries;
         ema50SeriesRef.current = ema50Series;
         ema200SeriesRef.current = ema200Series;
         volumeSeriesRef.current = volumeSeries;
-        rsiSeriesRef.current = rsiSeries;
 
         // 响应窗口尺寸变化
         const handleResize = () => {
           if (chart && mainContainerRef.current) {
             chart.applyOptions({ width: mainContainerRef.current.clientWidth });
-          }
-          if (rsiChart && rsiContainerRef.current) {
-            rsiChart.applyOptions({ width: rsiContainerRef.current.clientWidth });
           }
           fixScrollToRight();
         };
@@ -3840,7 +3715,6 @@
           disposed = true;
           window.removeEventListener('resize', handleResize);
           chart.remove();
-          rsiChart.remove();
         };
       }, []);
 
@@ -4038,7 +3912,6 @@
       const displayEma50 = hoverData?.ema50 ?? latestEma50;
       const displayEma200 = hoverData?.ema200 ?? latestEma200;
       const displayVol = hoverData?.volume ?? latestVol;
-      const displayRsi = latestRsi;
 
       return (
         <div className="p-4 rounded-xl bg-[#080d14] border border-cyan-500/35 shadow-2xl shadow-black/80 font-mono relative overflow-hidden mb-6">
@@ -4117,7 +3990,7 @@
             </div>
           </div>
 
-          {/* 指标数据状态栏 (OHLC + EMA50 + EMA200 + VOL + RSI) */}
+          {/* 指标数据状态栏 (OHLC + EMA50 + EMA200 + VOL) */}
           <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 py-2 text-xs border-b border-slate-800/60 bg-[#05080c]/60 -mx-4 px-4">
             {displayOpen != null && (
               <div className="flex items-center gap-1 text-[11px] text-slate-400">
@@ -4138,18 +4011,6 @@
               <span className="w-2 h-2 rounded-full bg-purple-400"></span>
               <span className="text-purple-400 font-bold">EMA200:</span>
               <span className="text-purple-200 font-mono font-bold">${formatNumber(displayEma200, 2)}</span>
-            </div>
-
-            <div className="flex items-center gap-1.5 text-[11px]">
-              <span className="w-2 h-2 rounded-full bg-cyan-400"></span>
-              <span className="text-cyan-400 font-bold">RSI(14):</span>
-              <span className={`font-mono font-bold ${
-                (displayRsi || 0) >= 70 ? 'text-rose-400' :
-                (displayRsi || 0) <= 30 ? 'text-emerald-400' : 'text-cyan-200'
-              }`}>
-                {displayRsi != null ? displayRsi : '--'}
-                {(displayRsi || 0) >= 70 ? ' [超买]' : (displayRsi || 0) <= 30 ? ' [超卖]' : ''}
-              </span>
             </div>
 
             {displayVol != null && (
@@ -4178,22 +4039,7 @@
             )}
 
             {/* 主K线 + EMA50/200 + 成交量图表 */}
-            <div ref={mainContainerRef} className="w-full" style={{ minHeight: '380px' }}></div>
-
-            {/* RSI(14) 副图标签条 */}
-            <div className="flex items-center justify-between text-[10px] text-slate-400 font-mono py-1 px-2 border-t border-slate-800/80 bg-[#05080c]/80 mt-1">
-              <span className="flex items-center gap-2">
-                <span className="w-2 h-0.5 bg-cyan-400"></span>
-                <span className="text-cyan-300 font-bold">RSI (14) 强弱动能指标</span>
-                <span className="text-slate-400">[超买线: 70 ｜ 超卖线: 30]</span>
-              </span>
-              <span className="text-cyan-300">
-                当前: <span className="font-bold text-cyan-200">{displayRsi != null ? displayRsi : '--'}</span>
-              </span>
-            </div>
-
-            {/* RSI(14) 图表容器 */}
-            <div ref={rsiContainerRef} className="w-full" style={{ minHeight: '110px' }}></div>
+            <div ref={mainContainerRef} className="w-full" style={{ minHeight: '420px' }}></div>
           </div>
         </div>
       );

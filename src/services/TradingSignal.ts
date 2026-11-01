@@ -18,7 +18,7 @@ export interface TradingSignal {
 
 export class TradingSignalService {
   private technicalAnalysis: TechnicalAnalysisService;
-  private readonly CONFIDENCE_THRESHOLD = 70;
+  private readonly CONFIDENCE_THRESHOLD = 80;
   private readonly FEISHU_WEBHOOK_URL = process.env.FEISHU_WEBHOOK_URL || '';
 
   // 防止重复使用同一根5分钟K线的全局记录
@@ -97,9 +97,15 @@ export class TradingSignalService {
       // 进行技术分析和预测
       const prediction = await this.technicalAnalysis.predictDirection(sortedHistory, fiveMinuteKlines);
 
-      // 判断是否生成交易信号（已去掉置信度与振幅过滤，只要检测到6连涨/6连跌形态即直接触发信号）
+      // 判断是否检测到有效形态
       if (!prediction || prediction.reasoning.length === 0) {
-        console.log('未检测到6连涨/6连跌形态，不生成交易信号');
+        console.log('未检测到符合条件的交易形态，不生成交易信号');
+        return null;
+      }
+
+      // 置信度小于80不操作
+      if (prediction.confidence < this.CONFIDENCE_THRESHOLD) {
+        console.log(`⚠️ 预测置信度(${prediction.confidence}%)低于阈值(${this.CONFIDENCE_THRESHOLD}%)，不执行开仓操作`);
         return null;
       }
 
@@ -297,6 +303,7 @@ export class TradingSignalService {
             `预测方向: ${signal.prediction === 'UP' ? '上涨' : '下跌'}\n` +
             `买入金额: ${signal.investmentAmount}\n` +
             `当前价格: ${currentPrice.toFixed(2)} USDT\n` +
+            `置信度: ${signal.confidence}%\n` +
             `K线时间: ${new Date(klineCloseTime).toLocaleString()}\n` +
             `推荐操作: ${signal.recommendedAction}\n\n` +
             `分析依据:\n${signal.reasoning.map(reason => `- ${reason}`).join('\n')}\n\n` +

@@ -223,7 +223,19 @@ export class TechnicalAnalysisService {
           }
 
           score = confidence;
-          reasoning.push(`趋势策略: EMA多头回踩反包做多｜${maTag}｜置信度${confidence}%`);
+          let maTagReason = maTag;
+
+          // 检查是否遭遇前高阻力
+          const resistanceCheck = this.checkResistanceForLong(fiveMinuteKlines, currKline, prevKline, ema50);
+          if (resistanceCheck.isResisted) {
+            const oldConf = confidence;
+            // 遭遇前高阻力降低置信度（扣减20%且上限截断在75%，确保低于80%阈值不操作）
+            confidence = Math.min(Math.max(50, confidence - 20), 75);
+            maTagReason += `｜${resistanceCheck.reason}｜置信度由${oldConf}%调降至${confidence}%(低于80%不操作)`;
+            score = confidence;
+          }
+
+          reasoning.push(`趋势策略: EMA多头回踩反包做多｜${maTagReason}｜置信度${confidence}%`);
         }
       }
     }
@@ -303,7 +315,19 @@ export class TechnicalAnalysisService {
           }
 
           score = -confidence;
-          reasoning.push(`趋势策略: EMA空头反弹反包做空｜${maTag}｜置信度${confidence}%`);
+          let maTagReason = maTag;
+
+          // 检查是否遭遇前低支撑
+          const supportCheck = this.checkSupportForShort(fiveMinuteKlines, currKline, prevKline, ema50);
+          if (supportCheck.isSupported) {
+            const oldConf = confidence;
+            // 遭遇前低支撑降低置信度（扣减20%且上限截断在75%，确保低于80%阈值不操作）
+            confidence = Math.min(Math.max(50, confidence - 20), 75);
+            maTagReason += `｜${supportCheck.reason}｜置信度由${oldConf}%调降至${confidence}%(低于80%不操作)`;
+            score = -confidence;
+          }
+
+          reasoning.push(`趋势策略: EMA空头反弹反包做空｜${maTagReason}｜置信度${confidence}%`);
         }
       }
     }
@@ -318,6 +342,196 @@ export class TechnicalAnalysisService {
       reasoning,
       indicators
     };
+  }
+
+  /**
+   * 检查做多时是否遭遇前高阻力
+   * 上涨趋势中，如果反包阳线向上冲入前期波段高点/阻力位，但未能有效突破收在阻力位之上，
+   * 属于遇前高阻力受阻（高风险追多），应降低置信度。
+   */
+  private checkResistanceForLong(
+    fiveMinuteKlines: any[],
+    currKline: any,
+    prevKline: any,
+    ema50: number
+  ): { isResisted: boolean; resistanceLevel: number; reason: string } {
+    if (!fiveMinuteKlines || fiveMinuteKlines.length < 5) {
+      return { isResisted: false, resistanceLevel: 0, reason: '' };
+    }
+
+    const currOpen = +currKline.open;
+    const currClose = +currKline.close;
+    const currHigh = +currKline.high;
+    const currLow = +currKline.low;
+    const pullbackLow = Math.min(+prevKline.low, currLow);
+
+    // 回看最近 5~50 根K线（在当前回调反包之前的高点）
+    const startIndex = Math.max(0, fiveMinuteKlines.length - 50);
+    const endIndex = fiveMinuteKlines.length - 2; // 排除当前K线和前一根回调K线
+    const lookback = fiveMinuteKlines.slice(startIndex, endIndex);
+
+    if (lookback.length < 3) {
+      return { isResisted: false, resistanceLevel: 0, reason: '' };
+    }
+
+    // 收集前高阻力候选位：
+    // 1. 最高收盘价（实体阻力位，如用户图示水平蓝线）
+    // 2. 最高最高价（影线极值阻力位）
+    // 3. 明显的局部波段高点（Pivot Highs）
+    const candidateLevels: number[] = [];
+
+    const maxHigh = Math.max(...lookback.map(k => +k.high));
+    const maxClose = Math.max(...lookback.map(k => +k.close));
+    candidateLevels.push(maxHigh, maxClose);
+
+    // 寻找显著的局部波段高点（比左右各1根都高，且位于EMA50上方）
+    for (let i = 1; i < lookback.length - 1; i++) {
+      const h = +lookback[i].high;
+      const prevH = +lookback[i - 1].high;
+      const nextH = +lookback[i + 1].high;
+      if (h >= prevH && h >= nextH && h > ema50) {
+        candidateLevels.push(h);
+        candidateLevels.push(+lookback[i].close);
+      }
+    }
+
+    // 去重并过滤出高于当前回调低点且高于当前开盘价的有效阻力位
+    const uniqueLevels = Array.from(new Set(candidateLevels));
+    const validLevels = uniqueLevels.filter(lvl =>
+      lvl > pullbackLow + (currClose * 0.001) && lvl >= currOpen
+    );
+
+    if (validLevels.length === 0) {
+      return { isResisted: false, resistanceLevel: 0, reason: '' };
+    }
+
+    // 检查是否有阻力位对当前阳线构成压制：
+    // 条件：当前最高价触及或逼近阻力位（进入阻力位0.2%区间内，或刺破阻力位），
+    // 且收盘未能强势站稳在阻力位上方（收在阻力位下方或平价附近，形成冲高遇阻）
+    let matchedLevel: number | null = null;
+    let minDiff = Infinity;
+
+    for (const lvl of validLevels) {
+      const reachedResistance = currHigh >= lvl * 0.998;
+      const failedToBreakout = currClose <= lvl * 1.0008;
+
+      if (reachedResistance && failedToBreakout) {
+        const diff = Math.abs(currHigh - lvl);
+        if (diff < minDiff) {
+          minDiff = diff;
+          matchedLevel = lvl;
+        }
+      }
+    }
+
+    if (matchedLevel !== null) {
+      const upperShadow = currHigh - Math.max(currOpen, currClose);
+      const candleRange = Math.max(1, currHigh - currLow);
+      const upperShadowPct = (upperShadow / candleRange) * 100;
+
+      return {
+        isResisted: true,
+        resistanceLevel: matchedLevel,
+        reason: `遭遇前高阻力位(${matchedLevel.toFixed(0)})打压(最高${currHigh.toFixed(0)}触碰阻力，收盘${currClose.toFixed(0)}受阻${upperShadowPct > 15 ? `｜上影${upperShadowPct.toFixed(0)}%` : ''})`
+      };
+    }
+
+    return { isResisted: false, resistanceLevel: 0, reason: '' };
+  }
+
+  /**
+   * 检查做空时是否遭遇前低支撑
+   * 下跌趋势中，如果反包阴线向下砸入前期波段低点/支撑位，但未能有效跌破收在支撑位之下，
+   * 属于遇前低支撑受阻（高风险追空），应降低置信度。
+   */
+  private checkSupportForShort(
+    fiveMinuteKlines: any[],
+    currKline: any,
+    prevKline: any,
+    ema50: number
+  ): { isSupported: boolean; supportLevel: number; reason: string } {
+    if (!fiveMinuteKlines || fiveMinuteKlines.length < 5) {
+      return { isSupported: false, supportLevel: 0, reason: '' };
+    }
+
+    const currOpen = +currKline.open;
+    const currClose = +currKline.close;
+    const currHigh = +currKline.high;
+    const currLow = +currKline.low;
+    const bounceHigh = Math.max(+prevKline.high, currHigh);
+
+    // 回看最近 5~50 根K线（在当前反弹反包之前的低点）
+    const startIndex = Math.max(0, fiveMinuteKlines.length - 50);
+    const endIndex = fiveMinuteKlines.length - 2;
+    const lookback = fiveMinuteKlines.slice(startIndex, endIndex);
+
+    if (lookback.length < 3) {
+      return { isSupported: false, supportLevel: 0, reason: '' };
+    }
+
+    // 收集前低支撑候选位：
+    // 1. 最低收盘价（实体支撑位）
+    // 2. 最低最低价（影线极值支撑位）
+    // 3. 明显的局部波段低点（Pivot Lows）
+    const candidateLevels: number[] = [];
+
+    const minLow = Math.min(...lookback.map(k => +k.low));
+    const minClose = Math.min(...lookback.map(k => +k.close));
+    candidateLevels.push(minLow, minClose);
+
+    // 寻找显著的局部波段低点（比左右各1根都低，且位于EMA50下方）
+    for (let i = 1; i < lookback.length - 1; i++) {
+      const l = +lookback[i].low;
+      const prevL = +lookback[i - 1].low;
+      const nextL = +lookback[i + 1].low;
+      if (l <= prevL && l <= nextL && l < ema50) {
+        candidateLevels.push(l);
+        candidateLevels.push(+lookback[i].close);
+      }
+    }
+
+    // 去重并过滤出低于当前反弹高点且低于当前开盘价的有效支撑位
+    const uniqueLevels = Array.from(new Set(candidateLevels));
+    const validLevels = uniqueLevels.filter(lvl =>
+      lvl < bounceHigh - (currClose * 0.001) && lvl <= currOpen
+    );
+
+    if (validLevels.length === 0) {
+      return { isSupported: false, supportLevel: 0, reason: '' };
+    }
+
+    // 检查是否有支撑位对当前阴线构成支撑：
+    // 条件：当前最低价触及或逼近支撑位（进入支撑位0.2%区间内，或下刺支撑位），
+    // 且收盘未能强势跌破支撑位（收在支撑位上方或平价附近，形成下探遇阻）
+    let matchedLevel: number | null = null;
+    let minDiff = Infinity;
+
+    for (const lvl of validLevels) {
+      const reachedSupport = currLow <= lvl * 1.002;
+      const failedToBreakdown = currClose >= lvl * 0.9992;
+
+      if (reachedSupport && failedToBreakdown) {
+        const diff = Math.abs(currLow - lvl);
+        if (diff < minDiff) {
+          minDiff = diff;
+          matchedLevel = lvl;
+        }
+      }
+    }
+
+    if (matchedLevel !== null) {
+      const lowerShadow = Math.min(currOpen, currClose) - currLow;
+      const candleRange = Math.max(1, currHigh - currLow);
+      const lowerShadowPct = (lowerShadow / candleRange) * 100;
+
+      return {
+        isSupported: true,
+        supportLevel: matchedLevel,
+        reason: `遭遇前低支撑位(${matchedLevel.toFixed(0)})支撑(最低${currLow.toFixed(0)}触碰支撑，收盘${currClose.toFixed(0)}企稳${lowerShadowPct > 15 ? `｜下影${lowerShadowPct.toFixed(0)}%` : ''})`
+      };
+    }
+
+    return { isSupported: false, supportLevel: 0, reason: '' };
   }
 
   private determineTrend(ema50: number, ema150: number): 'BULLISH' | 'BEARISH' | 'NEUTRAL' {

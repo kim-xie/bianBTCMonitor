@@ -99,6 +99,11 @@ async function runBacktest(priceHistory: IPriceData[], fiveMinuteKlines: any[]):
             // 预测方向
             const prediction = await taService.predictDirection(currentPriceHistory, currentKlines);
 
+            // 置信度小于80不操作，且必须有分析依据
+            if (!prediction || prediction.reasoning.length === 0 || prediction.confidence < 80) {
+                continue;
+            }
+
             // 获取下一根K线的实际方向
             const nextKline = fiveMinuteKlines[i + 1];
             const actualDirection = nextKline.close > currentKlines[i].close ? 'UP' : 'DOWN';

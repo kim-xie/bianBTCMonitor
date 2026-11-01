@@ -164,7 +164,7 @@
             type: 'trend',
             name: 'EMA多头 回踩反包做多',
             direction: 'BUY',
-            desc: 'EMA50>EMA200上涨趋势中，阴线回调后关键阳线反包做多，越靠近均线置信度越高',
+            desc: 'EMA50>EMA200上涨趋势中，阴线回调后关键阳线反包做多，越靠近均线置信度越高；遇前高阻力降低置信度，<80%不操作',
             status: 'active',
             statusLabel: '核心趋势',
             keyword: '反包'
@@ -177,7 +177,7 @@
             type: 'trend',
             name: 'EMA空头 反弹反包做空',
             direction: 'SELL',
-            desc: 'EMA50<EMA200下跌趋势中，阳线反弹后关键阴线反包做空，越靠近均线置信度越高',
+            desc: 'EMA50<EMA200下跌趋势中，阳线反弹后关键阴线反包做空，越靠近均线置信度越高；遇前低支撑降低置信度，<80%不操作',
             status: 'active',
             statusLabel: '核心趋势',
             keyword: '反包'
@@ -859,7 +859,7 @@
               <div className="p-3 rounded bg-[#05080c] border border-slate-800">
                 <div className="text-amber-400 font-bold mb-1">[CONF.03] EMA50_200_DUAL_ENGULFING</div>
                 <p className="text-slate-400 leading-relaxed text-[11px]">
-                  EMA50&gt;200多头回踩反包做多，EMA50&lt;200空头反弹反包做空，越贴近均线置信度越高（最高95%）。
+                  EMA50&gt;200多头回踩反包做多，EMA50&lt;200空头反弹反包做空，越贴近均线置信度越高（最高95%）；遇前高阻力/前低支撑降低置信度，置信度&lt;80%不操作。
                 </p>
               </div>
 

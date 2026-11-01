@@ -271,9 +271,13 @@ app.get('/api/stats', async (req: AuthRequest, res) => {
   }
 });
 
-app.get('/api/recent-trades', async (_req, res) => {
+app.get('/api/recent-trades', async (req, res) => {
   try {
-    const trades = await statisticsService.getRecentTrades(20);
+    // 监控面板流水明细：默认只查询今日数据（以北京时间0点为基准）
+    const todayOnly = req.query.all !== 'true';
+    const since = todayOnly ? getBeijingTodayStart() : undefined;
+    const limit = req.query.limit ? parseInt(req.query.limit as string) : 100;
+    const trades = await statisticsService.getRecentTrades(limit, since);
     res.json(trades);
   } catch (error) {
     res.status(500).json({ error: '获取交易记录失败' });
@@ -600,7 +604,7 @@ const updateStatistics = async () => {
     const [stats, todayStats, trades, balance] = await Promise.all([
       statisticsService.calculateWinRate(),
       statisticsService.calculateWinRate({ start: today, end: new Date() }),
-      statisticsService.getRecentTrades(20),
+      statisticsService.getRecentTrades(100, today),
       calculateCurrentBalance()
     ]);
 

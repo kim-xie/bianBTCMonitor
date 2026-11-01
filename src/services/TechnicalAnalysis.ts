@@ -94,6 +94,11 @@ export class TechnicalAnalysisService {
     const lastFiveKline = fiveMinuteKlines[fiveMinuteKlines.length - 1];
     this.lastFiveMinuteClosePrice = +lastFiveKline.close;
 
+    // 提取5分钟收盘价并计算EMA50和EMA200序列，用于精确判定趋势斜率与平行度
+    const fiveMinutePrices = fiveMinuteKlines?.map(p => +p.close) || [];
+    const ema50Values = this.calculateEma(fiveMinutePrices, this.EMA50_PERIOD);
+    const ema200Values = this.calculateEma(fiveMinutePrices, this.EMA200_PERIOD);
+
     // 获取当前K线的收盘时间（确保是number类型）
     const currentCloseTime = typeof lastFiveKline.closeTime === 'number'
       ? lastFiveKline.closeTime
@@ -141,10 +146,15 @@ export class TechnicalAnalysisService {
         reasoning.push(`反转策略: 6连跌做多｜价差${priceRange.toFixed(0)}点`);
       }
 
-      // 6连涨：直接做空
+      // 6连涨：直接做空（若处于标准EMA多头平行上升趋势中，禁止摸顶做空避免逆势遭强轧空）
       if (is6ConsecutiveUp) {
-        score = -100;
-        reasoning.push(`反转策略: 6连涨做空｜价差${priceRange.toFixed(0)}点`);
+        const isStrongUptrend = this.isParallelEmaTrend(ema50Values, ema200Values, 'UP');
+        if (isStrongUptrend) {
+          console.log('⚠️ 处于标准EMA多头平行上升趋势(EMA50>EMA200且斜率同向上行)中，规避6连涨逆势摸顶做空');
+        } else {
+          score = -100;
+          reasoning.push(`反转策略: 6连涨做空｜价差${priceRange.toFixed(0)}点`);
+        }
       }
     }
 
@@ -153,7 +163,7 @@ export class TechnicalAnalysisService {
      * 对应红框反转形态：摸高/探底受阻后，弱势整理未能创新极值，随后关键实体K线二次反包确认反转
      */
     if (!this.isFiveMinuteUsed && score === 0 && fiveMinuteKlines.length >= 5) {
-      const secondaryReversal = this.detectSecondaryEngulfingReversal(fiveMinuteKlines, indicators);
+      const secondaryReversal = this.detectSecondaryEngulfingReversal(fiveMinuteKlines, indicators, ema50Values, ema200Values);
       if (secondaryReversal) {
         score = secondaryReversal.direction === 'UP' ? secondaryReversal.confidence : -secondaryReversal.confidence;
         reasoning.push(secondaryReversal.reason);
@@ -162,12 +172,12 @@ export class TechnicalAnalysisService {
 
     /**
      * 2. 趋势做多策略（红框K线形态）：
-     * - 上涨趋势：EMA50 > EMA200
+     * - 上涨趋势：用户严格定义为 EMA50 > EMA200，且两条均线均向上倾斜、斜率差不多一样（平行上升轨道）
      * - 形态识别：阴线回调后收出关键反包阳线（阳线收盘反包阴线开盘价，或实体强反转刺透）
      * - 置信度规则：越靠近均线（EMA50或EMA200），置信度越高
      */
     if (!this.isFiveMinuteUsed && score === 0 && fiveMinuteKlines.length >= 2) {
-      const isUptrend = indicators.ema50 > indicators.ema200;
+      const isUptrend = this.isParallelEmaTrend(ema50Values, ema200Values, 'UP');
       if (isUptrend) {
         const prevKline = fiveMinuteKlines[fiveMinuteKlines.length - 2];
         const currKline = fiveMinuteKlines[fiveMinuteKlines.length - 1];
@@ -275,12 +285,12 @@ export class TechnicalAnalysisService {
 
     /**
      * 3. 趋势做空策略（下跌趋势镜像）：
-     * - 下跌趋势：EMA50 < EMA200
+     * - 下跌趋势：严格定义为 EMA50 < EMA200，且两条均线均向下倾斜、斜率差不多一样（平行下降轨道）
      * - 形态识别：阳线反弹后收出关键反包阴线（阴线收盘跌破阳线开盘价，或实体强反转刺透）
      * - 置信度规则：越靠近均线（EMA50或EMA200），置信度越高
      */
     if (!this.isFiveMinuteUsed && score === 0 && fiveMinuteKlines.length >= 2) {
-      const isDowntrend = indicators.ema50 < indicators.ema200;
+      const isDowntrend = this.isParallelEmaTrend(ema50Values, ema200Values, 'DOWN');
       if (isDowntrend) {
         const prevKline = fiveMinuteKlines[fiveMinuteKlines.length - 2];
         const currKline = fiveMinuteKlines[fiveMinuteKlines.length - 1];
@@ -599,7 +609,9 @@ export class TechnicalAnalysisService {
    */
   private detectSecondaryEngulfingReversal(
     fiveMinuteKlines: any[],
-    indicators: any
+    indicators: any,
+    ema50Values?: number[],
+    ema200Values?: number[]
   ): { direction: 'UP' | 'DOWN'; confidence: number; reason: string } | null {
     if (!fiveMinuteKlines || fiveMinuteKlines.length < 5) {
       return null;
@@ -638,11 +650,13 @@ export class TechnicalAnalysisService {
       const peakCandle = lookbackCandles.find(k => +k.high === peakHigh);
       const peakIndex = lookbackCandles.findIndex(k => +k.high === peakHigh);
 
-      // 上涨趋势背景判定：EMA50 >= EMA200，或者波段高点处于EMA50上方
-      const isUptrendContext = indicators.ema50 >= indicators.ema200 || peakHigh >= indicators.ema50;
+      // 上涨趋势背景判定：严格定义为 EMA50 > EMA200 且斜率差不多一样平行向上
+      const isUptrendContext = (ema50Values && ema200Values)
+        ? this.isParallelEmaTrend(ema50Values, ema200Values, 'UP')
+        : (indicators.ema50 > indicators.ema200);
 
-      // 条件1：当前处于波段冲高之后（最高峰值至少比当前收盘高出0.10%）
-      const hasElevatedPeak = isUptrendContext && (peakHigh >= currClose * 1.0010);
+      // 条件1：当前处于波段冲高之后（最高峰值至少比当前收盘高出0.20%以上）
+      const hasElevatedPeak = isUptrendContext && (peakHigh >= currClose * 1.0020);
 
       // 条件2：摸高后有初次受阻表现（摸高K线留有上影线>=20%或长上影>=15点，或者摸高后收过阴线回调）
       let hadFirstRejection = false;
@@ -714,11 +728,13 @@ export class TechnicalAnalysisService {
       const troughCandle = lookbackCandles.find(k => +k.low === troughLow);
       const troughIndex = lookbackCandles.findIndex(k => +k.low === troughLow);
 
-      // 下跌趋势背景判定：EMA50 <= EMA200，或者波段低点处于EMA50下方
-      const isDowntrendContext = indicators.ema50 <= indicators.ema200 || troughLow <= indicators.ema50;
+      // 下跌趋势背景判定：严格定义为 EMA50 < EMA200 且斜率差不多一样平行向下
+      const isDowntrendContext = (ema50Values && ema200Values)
+        ? this.isParallelEmaTrend(ema50Values, ema200Values, 'DOWN')
+        : (indicators.ema50 < indicators.ema200);
 
-      // 条件1：当前处于波段探底之后（最低谷值至少比当前收盘低出0.10%）
-      const hasDepressedTrough = isDowntrendContext && (troughLow <= currClose * 0.9990);
+      // 条件1：当前处于波段探底之后（最低谷值至少比当前收盘低出0.20%以上）
+      const hasDepressedTrough = isDowntrendContext && (troughLow <= currClose * 0.9980);
 
       // 条件2：探底后有初次企稳表现（探底K线留有下影线>=20%或长下影>=15点，或者探底后收过阳线反弹）
       let hadFirstStabilization = false;
@@ -880,34 +896,52 @@ export class TechnicalAnalysisService {
 
   /**
    * 判断EMA50与EMA200是否处于平行趋势
-   * 上升趋势：ema50 > ema200，且两条均线都向上、走势平行（间距稳定）
-   * 下降趋势：ema50 < ema200，且两条均线都向下、走势平行（间距稳定）
+   * 用户定义：
+   * 上涨趋势：EMA50 > EMA200，且两条均线都向上、斜率差不多一样（走势平行，间距相对稳定）
+   * 下降趋势：EMA50 < EMA200，且两条均线都向下、斜率差不多一样（走势平行，间距相对稳定）
    */
-  private isParallelEmaTrend(ema50Values: number[], ema200Values: number[], direction: 'UP' | 'DOWN'): boolean {
-    const lookback = Math.min(20, ema200Values.length - 1);
+  public isParallelEmaTrend(ema50Values: number[], ema200Values: number[], direction: 'UP' | 'DOWN'): boolean {
+    if (!ema50Values || !ema200Values) return false;
+    // 回看12根5分钟K线（即最近1小时）
+    const lookback = Math.min(12, ema200Values.length - 1);
     if (lookback < 5) return false;
 
     const ema50Recent = ema50Values.slice(-(lookback + 1));
     const ema200Recent = ema200Values.slice(-(lookback + 1));
 
-    // 趋势方向确认：近端相对于远端
+    const curEma50 = ema50Recent[ema50Recent.length - 1];
+    const curEma200 = ema200Recent[ema200Recent.length - 1];
+
+    // 计算1小时相对起点百分比斜率
+    const slope50 = (curEma50 - ema50Recent[0]) / ema50Recent[0];
+    const slope200 = (curEma200 - ema200Recent[0]) / ema200Recent[0];
+
+    // 最小倾斜度门槛（1小时内至少变动 0.02%，过滤无序微动横盘）
+    const minSlope = 0.0002;
+
     if (direction === 'UP') {
-      // 两条均线都需上行
-      if (ema50Recent[ema50Recent.length - 1] <= ema50Recent[0]) return false;
-      if (ema200Recent[ema200Recent.length - 1] <= ema200Recent[0]) return false;
+      // 1. 均线高低关系：EMA50 > EMA200
+      if (curEma50 <= curEma200) return false;
+      // 2. 两条均线都向上倾斜
+      if (slope50 < minSlope || slope200 <= 0) return false;
     } else {
-      // 两条均线都需下行
-      if (ema50Recent[ema50Recent.length - 1] >= ema50Recent[0]) return false;
-      if (ema200Recent[ema200Recent.length - 1] >= ema200Recent[0]) return false;
+      // 1. 均线高低关系：EMA50 < EMA200
+      if (curEma50 >= curEma200) return false;
+      // 2. 两条均线都向下倾斜
+      if (slope50 > -minSlope || slope200 >= 0) return false;
     }
 
-    // 走势平行：EMA50与EMA200的间距保持稳定
+    // 3. 斜率差不多一样：
+    // a) 斜率比例：slope50 与 slope200 比值在合理范围（0.5 ~ 2.0 倍），不能一个陡峭一个走平
+    const ratio = slope200 !== 0 ? Math.abs(slope50 / slope200) : 1;
+    if (ratio < 0.5 || ratio > 2.0) return false;
+
+    // b) 走势平行：间距保持稳定，间距波动不超过均值的 20%
     const spreads = ema50Recent.map((v, i) => Math.abs(v - ema200Recent[i]));
     const avgSpread = spreads.reduce((a, b) => a + b, 0) / spreads.length;
     if (avgSpread <= 0) return false;
 
-    // 间距波动不超过均值的20%
-    return spreads.every(spread => Math.abs(spread - avgSpread) / avgSpread <= 0.2);
+    return spreads.every(spread => Math.abs(spread - avgSpread) / avgSpread <= 0.20);
   }
 
   /**

@@ -161,11 +161,19 @@ export class StatisticsService {
   }
 
   /**
-   * 获取最近交易记录
+   * 获取最近交易记录（支持按起始时间过滤，如今日起始）
    */
-  async getRecentTrades(limit: number = 20): Promise<ITrade[]> {
+  async getRecentTrades(limit: number = 100, since?: Date): Promise<ITrade[]> {
+    const query = since
+      ? {
+          $or: [
+            { timestamp: { $gte: since } },
+            { closeTime: { $gte: since } }
+          ]
+        }
+      : {};
     return await TradeModel
-      .find()
+      .find(query)
       .sort({ timestamp: -1 })
       .limit(limit)
       .lean();

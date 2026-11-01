@@ -46,14 +46,12 @@
       font-family: 'JetBrains Mono', 'Share Tech Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
     }
 
-    @keyframes termBlink {
-      0%, 100% { opacity: 1; }
-      50% { opacity: 0; }
-    }
-
     .terminal-cursor {
-      display: inline-block;
-      animation: termBlink 1s step-start infinite;
+      display: none !important;
+      visibility: hidden !important;
+      opacity: 0 !important;
+      width: 0 !important;
+      height: 0 !important;
     }
 
     .terminal-glow-green {
@@ -93,6 +91,119 @@
       background: #080d14;
       border: 1px solid rgba(16, 185, 129, 0.25);
       box-shadow: 0 4px 20px rgba(0, 0, 0, 0.7), inset 0 0 30px rgba(6, 182, 212, 0.02);
+    }
+
+    /* 数据追加插入动效 */
+    @keyframes rowInsertSlideIn {
+      0% {
+        opacity: 0;
+        transform: translateY(-16px);
+        background-color: rgba(16, 185, 129, 0.45);
+        box-shadow: inset 0 0 25px rgba(16, 185, 129, 0.6), 0 0 15px rgba(16, 185, 129, 0.4);
+      }
+      35% {
+        opacity: 1;
+        transform: translateY(0);
+        background-color: rgba(6, 182, 212, 0.35);
+        box-shadow: inset 0 0 15px rgba(6, 182, 212, 0.5);
+      }
+      75% {
+        background-color: rgba(16, 185, 129, 0.18);
+      }
+      100% {
+        opacity: 1;
+        transform: translateY(0);
+        background-color: transparent;
+        box-shadow: none;
+      }
+    }
+    .row-insert-active {
+      animation: rowInsertSlideIn 3.5s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+      border-left: 3px solid #10b981 !important;
+    }
+
+    /* 结算盈利高亮动效 */
+    @keyframes rowProfitSettle {
+      0% {
+        background-color: rgba(16, 185, 129, 0.6);
+        box-shadow: inset 0 0 30px rgba(16, 185, 129, 0.85);
+      }
+      100% {
+        background-color: transparent;
+        box-shadow: none;
+      }
+    }
+    .row-profit-active {
+      animation: rowProfitSettle 3.5s ease-out forwards;
+      border-left: 3px solid #34d399 !important;
+    }
+
+    /* 结算亏损高亮动效 */
+    @keyframes rowLossSettle {
+      0% {
+        background-color: rgba(244, 63, 94, 0.6);
+        box-shadow: inset 0 0 30px rgba(244, 63, 94, 0.85);
+      }
+      100% {
+        background-color: transparent;
+        box-shadow: none;
+      }
+    }
+    .row-loss-active {
+      animation: rowLossSettle 3.5s ease-out forwards;
+      border-left: 3px solid #f43f5e !important;
+    }
+
+    /* 全屏亏损防守脉冲 */
+    @keyframes screenLossPulse {
+      0% { opacity: 0; }
+      20% { opacity: 0.85; }
+      40% { opacity: 0.3; }
+      60% { opacity: 0.65; }
+      100% { opacity: 0; }
+    }
+    .screen-loss-vignette {
+      position: fixed;
+      inset: 0;
+      pointer-events: none;
+      z-index: 99998;
+      box-shadow: inset 0 0 120px 40px rgba(244, 63, 94, 0.55);
+      animation: screenLossPulse 1.8s ease-out forwards;
+    }
+
+    /* 弹窗动效 */
+    @keyframes celebrationPop {
+      0% {
+        opacity: 0;
+        transform: translate(-50%, -60%) scale(0.85);
+      }
+      60% {
+        opacity: 1;
+        transform: translate(-50%, -48%) scale(1.03);
+      }
+      100% {
+        opacity: 1;
+        transform: translate(-50%, -50%) scale(1);
+      }
+    }
+    .animate-celebration-pop {
+      animation: celebrationPop 0.45s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+    }
+
+    @keyframes shakeLoss {
+      0%, 100% { transform: translate(-50%, -50%) rotate(0deg); }
+      20% { transform: translate(-52%, -50%) rotate(-1deg); }
+      40% { transform: translate(-48%, -50%) rotate(1deg); }
+      60% { transform: translate(-51%, -50%) rotate(-0.5deg); }
+      80% { transform: translate(-49%, -50%) rotate(0.5deg); }
+    }
+    .animate-loss-shake {
+      animation: celebrationPop 0.35s cubic-bezier(0.16, 1, 0.3, 1) forwards, shakeLoss 0.6s 0.25s ease-in-out;
+    }
+
+    @keyframes shrink {
+      from { width: 100%; }
+      to { width: 0%; }
     }
 
     /* 全局 Terminal 控件样式 */
@@ -552,7 +663,6 @@
                   <span className="text-emerald-400 font-bold text-lg font-mono">&gt;</span>
                   <h2 className="text-lg md:text-2xl font-bold tracking-wider text-slate-100 uppercase font-mono">
                     STRATEGY_TELEMETRY <span className="text-xs text-emerald-400/80 font-normal">[实盘量化胜率与净利矩阵]</span>
-                    <span className="terminal-cursor text-emerald-400 ml-1">_</span>
                   </h2>
                 </div>
                 <div className="text-[11px] text-slate-400 mt-1 flex flex-wrap items-center gap-x-4 gap-y-1 font-mono">
@@ -1152,7 +1262,6 @@
                   <span className="text-emerald-400 font-bold text-lg font-mono">&gt;</span>
                   <h2 className="text-lg md:text-2xl font-bold tracking-wider text-slate-100 uppercase font-mono">
                     PROFIT_CALENDAR <span className="text-xs text-emerald-400/80 font-normal">[实盘日历与周期盈亏透视]</span>
-                    <span className="terminal-cursor text-emerald-400 ml-1">_</span>
                   </h2>
                 </div>
                 <div className="text-[11px] text-slate-400 mt-1 flex flex-wrap items-center gap-x-4 gap-y-1 font-mono">
@@ -1523,7 +1632,6 @@
                 <span className="text-cyan-400 font-bold text-lg">&gt;</span>
                 <h2 className="text-xl font-bold tracking-wider text-slate-100 uppercase m-0">
                   {mode === 'login' ? 'TERMINAL_LOGIN' : 'REGISTER_ACCOUNT'}
-                  <span className="terminal-cursor text-cyan-400 ml-1">_</span>
                 </h2>
               </div>
               <p className="text-slate-400 text-xs mt-1.5">
@@ -1620,6 +1728,7 @@
       const initialBalance = 500; // 初始资金常量
       const [balanceHistory, setBalanceHistory] = useState([]);
       const [isConnected, setIsConnected] = useState(false);
+      const [socketInstance, setSocketInstance] = useState(null);
       const [activeView, setActiveView] = useState(() => {
         if (typeof window !== 'undefined' && (window.location.pathname.includes('strategies') || window.location.hash === '#strategies')) {
           return 'strategies';
@@ -1635,7 +1744,373 @@
       const [showAuthModal, setShowAuthModal] = useState(false);
       const [authMode, setAuthMode] = useState('login');
       const confettiTriggeredTradesRef = React.useRef(new Set()); // 使用useRef存储已触发散花的交易ID，避免组件重渲染时丢失
+
+      // 监控面板实盘流水明细：只展示今日数据（按北京时间判定）
+      const todayRecentTrades = React.useMemo(() => {
+        if (!Array.isArray(recentTrades)) return [];
+        const now = new Date();
+        const nowUtc = now.getTime() + now.getTimezoneOffset() * 60000;
+        const beijingToday = new Date(nowUtc + 8 * 3600000);
+        const beijingTodayStr = `${beijingToday.getFullYear()}-${String(beijingToday.getMonth() + 1).padStart(2, '0')}-${String(beijingToday.getDate()).padStart(2, '0')}`;
+
+        return recentTrades.filter(trade => {
+          const checkDate = (dateVal) => {
+            if (!dateVal) return false;
+            const d = new Date(dateVal);
+            if (isNaN(d.getTime())) return false;
+            const dUtc = d.getTime() + d.getTimezoneOffset() * 60000;
+            const dB = new Date(dUtc + 8 * 3600000);
+            const dStr = `${dB.getFullYear()}-${String(dB.getMonth() + 1).padStart(2, '0')}-${String(dB.getDate()).padStart(2, '0')}`;
+            return dStr === beijingTodayStr;
+          };
+          return checkDate(trade.closeTime) || checkDate(trade.timestamp);
+        });
+      }, [recentTrades]);
+
+      // 监控面板流水当前页排序状态（针对价差和盈亏）
+      const [dashboardSortConfig, setDashboardSortConfig] = useState({ field: null, direction: null });
+
+      const handleDashboardSort = (field) => {
+        setDashboardSortConfig(prev => {
+          if (prev.field !== field) {
+            return { field, direction: 'desc' };
+          }
+          if (prev.direction === 'desc') {
+            return { field, direction: 'asc' };
+          }
+          return { field: null, direction: null };
+        });
+      };
+
+      const sortedTodayTrades = React.useMemo(() => {
+        const items = [...todayRecentTrades];
+        if (!dashboardSortConfig.field || !dashboardSortConfig.direction) {
+          return items;
+        }
+        return items.sort((a, b) => {
+          let valA = 0;
+          let valB = 0;
+          if (dashboardSortConfig.field === 'spread') {
+            valA = a.closePrice != null ? (a.closePrice - a.price) : 0;
+            valB = b.closePrice != null ? (b.closePrice - b.price) : 0;
+          } else if (dashboardSortConfig.field === 'profitLoss') {
+            valA = a.profitLoss != null ? a.profitLoss : 0;
+            valB = b.profitLoss != null ? b.profitLoss : 0;
+          }
+          return dashboardSortConfig.direction === 'asc' ? valA - valB : valB - valA;
+        });
+      }, [todayRecentTrades, dashboardSortConfig]);
       const pageLoadTimeRef = React.useRef(Date.now()); // 记录页面加载时刻，仅对加载后结算的交易触发散花
+
+      // 动效控制状态
+      const initialLoadedRef = React.useRef(false);
+      const knownTradeIdsRef = React.useRef(new Set());
+      const closedTradeIdsRef = React.useRef(new Set());
+      const [newlyInsertedTradeIds, setNewlyInsertedTradeIds] = useState(new Set());
+      const [recentlySettledTradeIds, setRecentlySettledTradeIds] = useState(new Map()); // id -> 'WIN' | 'LOSS'
+      const [settlementEvent, setSettlementEvent] = useState(null); // { type: 'WIN' | 'LOSS', trade: object, key: number }
+      const [showScreenLossFlash, setShowScreenLossFlash] = useState(false);
+
+      // 动效：全屏礼花与彩色纸屑喷发
+      const launchCelebrationCanvas = () => {
+        let canvas = document.getElementById('celebration-canvas');
+        if (!canvas) {
+          canvas = document.createElement('canvas');
+          canvas.id = 'celebration-canvas';
+          canvas.style.position = 'fixed';
+          canvas.style.top = '0';
+          canvas.style.left = '0';
+          canvas.style.width = '100vw';
+          canvas.style.height = '100vh';
+          canvas.style.pointerEvents = 'none';
+          canvas.style.zIndex = '99998';
+          document.body.appendChild(canvas);
+        }
+
+        const ctx = canvas.getContext('2d');
+        canvas.width = window.innerWidth;
+        canvas.height = window.innerHeight;
+
+        const particles = [];
+        const colors = ['#10b981', '#34d399', '#f59e0b', '#fbbf24', '#06b6d4', '#38bdf8', '#ec4899', '#a855f7', '#ffffff'];
+
+        for (let i = 0; i < 150; i++) {
+          particles.push({
+            x: canvas.width * 0.5 + (Math.random() - 0.5) * 180,
+            y: canvas.height * 0.45 + (Math.random() - 0.5) * 80,
+            vx: (Math.random() - 0.5) * 18,
+            vy: -Math.random() * 15 - 5,
+            size: Math.random() * 8 + 4,
+            color: colors[Math.floor(Math.random() * colors.length)],
+            rotation: Math.random() * 360,
+            rotationSpeed: (Math.random() - 0.5) * 12,
+            opacity: 1,
+            gravity: 0.35,
+            friction: 0.98,
+            shape: Math.random() > 0.4 ? 'rect' : 'circle'
+          });
+        }
+
+        const startTime = Date.now();
+        const render = () => {
+          const elapsed = Date.now() - startTime;
+          if (elapsed > 4500) {
+            if (canvas && canvas.parentNode) {
+              canvas.parentNode.removeChild(canvas);
+            }
+            return;
+          }
+
+          ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+          particles.forEach(p => {
+            p.x += p.vx;
+            p.y += p.vy;
+            p.vy += p.gravity;
+            p.vx *= p.friction;
+            p.rotation += p.rotationSpeed;
+            if (elapsed > 3000) {
+              p.opacity = Math.max(0, 1 - (elapsed - 3000) / 1500);
+            }
+
+            ctx.save();
+            ctx.translate(p.x, p.y);
+            ctx.rotate((p.rotation * Math.PI) / 180);
+            ctx.globalAlpha = p.opacity;
+            ctx.fillStyle = p.color;
+
+            if (p.shape === 'rect') {
+              ctx.fillRect(-p.size / 2, -p.size / 2, p.size, p.size * 0.6);
+            } else {
+              ctx.beginPath();
+              ctx.arc(0, 0, p.size / 2, 0, Math.PI * 2);
+              ctx.fill();
+            }
+            ctx.restore();
+          });
+
+          requestAnimationFrame(render);
+        };
+
+        requestAnimationFrame(render);
+      };
+
+      // 音效合成函数（基于 Web Audio API 零外部依赖）
+      const playSoundEffect = (type) => {
+        try {
+          const AudioContext = window.AudioContext || window.webkitAudioContext;
+          if (!AudioContext) return;
+          const ctx = new AudioContext();
+          if (ctx.state === 'suspended') {
+            ctx.resume();
+          }
+          if (type === 'victory') {
+            // 胜利和弦上升琶音 C5 -> E5 -> G5 -> C6
+            const notes = [523.25, 659.25, 783.99, 1046.50];
+            notes.forEach((freq, idx) => {
+              const osc = ctx.createOscillator();
+              const gain = ctx.createGain();
+              osc.type = 'triangle';
+              osc.frequency.setValueAtTime(freq, ctx.currentTime + idx * 0.09);
+              gain.gain.setValueAtTime(0, ctx.currentTime + idx * 0.09);
+              gain.gain.linearRampToValueAtTime(0.2, ctx.currentTime + idx * 0.09 + 0.02);
+              gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + idx * 0.09 + 0.32);
+              osc.connect(gain);
+              gain.connect(ctx.destination);
+              osc.start(ctx.currentTime + idx * 0.09);
+              osc.stop(ctx.currentTime + idx * 0.09 + 0.35);
+            });
+          } else if (type === 'loss') {
+            // 止损告警低频递降双音 370Hz -> 277Hz
+            const notes = [369.99, 277.18];
+            notes.forEach((freq, idx) => {
+              const osc = ctx.createOscillator();
+              const gain = ctx.createGain();
+              osc.type = 'sawtooth';
+              osc.frequency.setValueAtTime(freq, ctx.currentTime + idx * 0.15);
+              gain.gain.setValueAtTime(0, ctx.currentTime + idx * 0.15);
+              gain.gain.linearRampToValueAtTime(0.14, ctx.currentTime + idx * 0.15 + 0.02);
+              gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + idx * 0.15 + 0.28);
+              osc.connect(gain);
+              gain.connect(ctx.destination);
+              osc.start(ctx.currentTime + idx * 0.15);
+              osc.stop(ctx.currentTime + idx * 0.15 + 0.3);
+            });
+          } else if (type === 'insert') {
+            // 新订单录入短促音
+            const osc = ctx.createOscillator();
+            const gain = ctx.createGain();
+            osc.type = 'sine';
+            osc.frequency.setValueAtTime(880, ctx.currentTime);
+            gain.gain.setValueAtTime(0.07, ctx.currentTime);
+            gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.1);
+            osc.connect(gain);
+            gain.connect(ctx.destination);
+            osc.start(ctx.currentTime);
+            osc.stop(ctx.currentTime + 0.12);
+          }
+        } catch (e) {
+          // 忽略静音或未交互策略
+        }
+      };
+
+      // 触发胜利动效（全屏火花纸屑 + HUD弹窗 + 音效）
+      const triggerVictoryEffect = (trade) => {
+        launchCelebrationCanvas();
+        playSoundEffect('victory');
+        setSettlementEvent({
+          type: 'WIN',
+          trade: trade || {
+            _id: 'mock-win-' + Date.now(),
+            price: 68250,
+            closePrice: 68680,
+            tradeType: 'LONG',
+            profitLoss: 8,
+            profitLossPercent: 80,
+            reasoning: ['BTC 5m 均线双金叉放量，顺势多头反包']
+          },
+          key: Date.now()
+        });
+      };
+
+      // 触发亏损/止损动效（屏幕暗红边缘脉冲 + HUD弹窗 + 告警音效）
+      const triggerLossEffect = (trade) => {
+        setShowScreenLossFlash(true);
+        setTimeout(() => setShowScreenLossFlash(false), 2000);
+        playSoundEffect('loss');
+        setSettlementEvent({
+          type: 'LOSS',
+          trade: trade || {
+            _id: 'mock-loss-' + Date.now(),
+            price: 68600,
+            closePrice: 68420,
+            tradeType: 'SHORT',
+            profitLoss: -10,
+            profitLossPercent: -100,
+            reasoning: ['多空反转波动力度触发防守止损阈值']
+          },
+          key: Date.now()
+        });
+      };
+
+      // 触发测试新订单插入动效
+      const triggerInsertEffect = () => {
+        const mockId = 'mock-insert-' + Date.now();
+        const mockTrade = {
+          _id: mockId,
+          timestamp: new Date().toISOString(),
+          price: 68350.5,
+          investmentAmount: 10,
+          tradeType: 'LONG',
+          reasoning: ['BTC 5m 实时触发：EMA50 > EMA200 平行趋势入场'],
+          priceSpread: 0
+        };
+        knownTradeIdsRef.current.add(mockId);
+        setNewlyInsertedTradeIds(prev => new Set(prev).add(mockId));
+        setRecentTrades(prev => [mockTrade, ...prev]);
+        playSoundEffect('insert');
+        setTimeout(() => {
+          setNewlyInsertedTradeIds(prev => {
+            const next = new Set(prev);
+            next.delete(mockId);
+            return next;
+          });
+        }, 4000);
+      };
+
+      // 挂载到全局方便控制台或调试
+      useEffect(() => {
+        window.triggerVictoryAnim = triggerVictoryEffect;
+        window.triggerLossAnim = triggerLossEffect;
+        window.triggerInsertAnim = triggerInsertEffect;
+      }, []);
+
+      // 弹窗自动关闭定时器
+      useEffect(() => {
+        if (!settlementEvent) return;
+        const timer = setTimeout(() => {
+          setSettlementEvent(null);
+        }, 5000);
+        return () => clearTimeout(timer);
+      }, [settlementEvent]);
+
+      const processTradesUpdates = (newTrades) => {
+        if (!Array.isArray(newTrades)) return;
+
+        // 如果是首次加载页面，记录已有交易状态，不触发全量追加和弹窗
+        if (!initialLoadedRef.current) {
+          initialLoadedRef.current = true;
+          newTrades.forEach(t => {
+            knownTradeIdsRef.current.add(t._id);
+            if (t.closeTime) {
+              closedTradeIdsRef.current.add(t._id);
+            }
+          });
+          setRecentTrades(newTrades);
+          return;
+        }
+
+        // 1. 检查是否有新增插入的订单
+        const insertedIds = [];
+        newTrades.forEach(t => {
+          if (!knownTradeIdsRef.current.has(t._id)) {
+            insertedIds.push(t._id);
+            knownTradeIdsRef.current.add(t._id);
+          }
+        });
+
+        if (insertedIds.length > 0) {
+          setNewlyInsertedTradeIds(prev => {
+            const updated = new Set(prev);
+            insertedIds.forEach(id => updated.add(id));
+            return updated;
+          });
+          playSoundEffect('insert');
+          setTimeout(() => {
+            setNewlyInsertedTradeIds(prev => {
+              const next = new Set(prev);
+              insertedIds.forEach(id => next.delete(id));
+              return next;
+            });
+          }, 4000);
+        }
+
+        // 2. 检查是否有新结算的订单
+        let latestWinTrade = null;
+        let latestLossTrade = null;
+
+        newTrades.forEach(t => {
+          if (t.closeTime && !closedTradeIdsRef.current.has(t._id)) {
+            closedTradeIdsRef.current.add(t._id);
+            const isWin = (t.profitLoss !== undefined && t.profitLoss > 0) || t.isCorrect === true;
+            const isLoss = (t.profitLoss !== undefined && t.profitLoss < 0) || t.isCorrect === false;
+
+            if (isWin) {
+              latestWinTrade = t;
+              setRecentlySettledTradeIds(prev => new Map(prev).set(t._id, 'WIN'));
+            } else if (isLoss) {
+              latestLossTrade = t;
+              setRecentlySettledTradeIds(prev => new Map(prev).set(t._id, 'LOSS'));
+            }
+
+            setTimeout(() => {
+              setRecentlySettledTradeIds(prev => {
+                const next = new Map(prev);
+                next.delete(t._id);
+                return next;
+              });
+            }, 4000);
+          }
+        });
+
+        if (latestWinTrade) {
+          triggerVictoryEffect(latestWinTrade);
+        } else if (latestLossTrade) {
+          triggerLossEffect(latestLossTrade);
+        }
+
+        setRecentTrades(newTrades);
+      };
       useEffect(() => {
         // 检查用户登录状态
         const token = localStorage.getItem('token');
@@ -1652,6 +2127,7 @@
         const socket = io({
           auth: { token }
         });
+        setSocketInstance(socket);
 
         // 语音播报工具（浏览器原生 Web Speech API，零依赖）
         const speak = (text) => {
@@ -1772,7 +2248,7 @@
             console.log('已触发散花效果的交易ID:', Array.from(confettiTriggeredTradesRef.current));
           }
 
-          setRecentTrades(trades);
+          processTradesUpdates(trades);
           // 若最近信号队列为空，使用历史交易前3条进行初始化展示
           if (Array.isArray(trades) && trades.length > 0) {
             setRecentSignals(prev => {
@@ -1909,7 +2385,7 @@
 
           if (tradesRes.ok) {
             const tradesData = await tradesRes.json();
-            setRecentTrades(tradesData);
+            processTradesUpdates(tradesData);
             if (Array.isArray(tradesData) && tradesData.length > 0) {
               setRecentSignals(prev => {
                 if (prev.length > 0) return prev;
@@ -2135,6 +2611,132 @@
                 }
               `}</style>
 
+          {/* 全屏亏损防守脉冲暗红光晕 */}
+          {showScreenLossFlash && <div className="screen-loss-vignette" />}
+
+          {/* 结算盈利 / 亏损 赛博HUD动效卡片 */}
+          {settlementEvent && (
+            <div className="fixed top-6 left-1/2 -translate-x-1/2 z-[99999] max-w-lg w-[92%] sm:w-[500px]">
+              {settlementEvent.type === 'WIN' ? (
+                <div className="p-[1.5px] rounded-2xl bg-gradient-to-r from-emerald-500 via-amber-400 to-emerald-500 shadow-2xl shadow-emerald-500/50 animate-celebration-pop font-mono">
+                  <div className="p-4 sm:p-5 rounded-2xl bg-[#060b11] relative overflow-hidden">
+                    <div className="flex items-center justify-between gap-2 mb-2 pb-2 border-b border-emerald-500/30">
+                      <div className="flex items-center gap-2">
+                        <span className="text-xl">🏆</span>
+                        <span className="text-xs font-bold text-emerald-400 uppercase tracking-wider">
+                          TRADE_SETTLEMENT_VICTORY :: 盈利达成
+                        </span>
+                      </div>
+                      <button
+                        onClick={() => setSettlementEvent(null)}
+                        className="text-slate-400 hover:text-slate-100 text-sm font-bold px-1.5 py-0.5 rounded hover:bg-slate-800/60"
+                      >
+                        ✕
+                      </button>
+                    </div>
+
+                    <div className="flex items-baseline justify-between gap-4 my-2">
+                      <div>
+                        <div className="text-2xl sm:text-3xl font-black text-emerald-400 terminal-glow-green">
+                          +{settlementEvent.trade.profitLoss ? formatAmountU(settlementEvent.trade.profitLoss) : '8.00 U'}
+                        </div>
+                        <div className="text-[11px] text-emerald-300/80 mt-0.5">
+                          {settlementEvent.trade.profitLossPercent !== undefined ? `净收益率: +${settlementEvent.trade.profitLossPercent}%` : '命中目标点位 · 胜率提升'}
+                        </div>
+                      </div>
+                      <div className="text-right">
+                        <span className={`px-2.5 py-1 rounded text-xs font-bold ${
+                          settlementEvent.trade.tradeType === 'LONG'
+                            ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40'
+                            : 'bg-rose-500/20 text-rose-300 border border-rose-500/40'
+                        }`}>
+                          {settlementEvent.trade.tradeType === 'LONG' ? '▲ 多 BUY' : '▼ 空 SELL'}
+                        </span>
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-2 mt-3 pt-2.5 border-t border-slate-800/80 text-[11px] bg-[#04080e]/60 p-2.5 rounded-lg">
+                      <div>
+                        <span className="text-slate-400">开仓点位: </span>
+                        <span className="text-slate-200 font-bold">{formatCurrency(settlementEvent.trade.price)}</span>
+                      </div>
+                      <div>
+                        <span className="text-slate-400">平仓点位: </span>
+                        <span className="text-emerald-400 font-bold">{formatCurrency(settlementEvent.trade.closePrice || settlementEvent.trade.price)}</span>
+                      </div>
+                      <div className="col-span-2 truncate">
+                        <span className="text-slate-400">入场策略: </span>
+                        <span className="text-slate-200">{settlementEvent.trade.reasoning?.[0] || '均线多头趋势量化反包'}</span>
+                      </div>
+                    </div>
+
+                    <div className="w-full bg-slate-800 h-1 rounded-full mt-3 overflow-hidden">
+                      <div className="bg-gradient-to-r from-emerald-400 to-amber-400 h-full animate-[shrink_4.5s_linear_forwards]"></div>
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                <div className="p-[1.5px] rounded-2xl bg-gradient-to-r from-rose-600 via-rose-500 to-amber-600 shadow-2xl shadow-rose-600/50 animate-loss-shake font-mono">
+                  <div className="p-4 sm:p-5 rounded-2xl bg-[#0b0507] relative overflow-hidden">
+                    <div className="flex items-center justify-between gap-2 mb-2 pb-2 border-b border-rose-500/30">
+                      <div className="flex items-center gap-2">
+                        <span className="text-xl">🛑</span>
+                        <span className="text-xs font-bold text-rose-400 uppercase tracking-wider">
+                          DEFENSIVE_STOP_EXECUTED :: 防守止损
+                        </span>
+                      </div>
+                      <button
+                        onClick={() => setSettlementEvent(null)}
+                        className="text-slate-400 hover:text-slate-100 text-sm font-bold px-1.5 py-0.5 rounded hover:bg-slate-800/60"
+                      >
+                        ✕
+                      </button>
+                    </div>
+
+                    <div className="flex items-baseline justify-between gap-4 my-2">
+                      <div>
+                        <div className="text-2xl sm:text-3xl font-black text-rose-400 terminal-glow-red">
+                          {settlementEvent.trade.profitLoss ? formatAmountU(settlementEvent.trade.profitLoss) : '-10.00 U'}
+                        </div>
+                        <div className="text-[11px] text-rose-300/80 mt-0.5">
+                          执行严格止损纪律 · 规避趋势持续回撤
+                        </div>
+                      </div>
+                      <div className="text-right">
+                        <span className={`px-2.5 py-1 rounded text-xs font-bold ${
+                          settlementEvent.trade.tradeType === 'LONG'
+                            ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40'
+                            : 'bg-rose-500/20 text-rose-300 border border-rose-500/40'
+                        }`}>
+                          {settlementEvent.trade.tradeType === 'LONG' ? '▲ 多 BUY' : '▼ 空 SELL'}
+                        </span>
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-2 mt-3 pt-2.5 border-t border-slate-800/80 text-[11px] bg-[#0e0406]/60 p-2.5 rounded-lg">
+                      <div>
+                        <span className="text-slate-400">开仓点位: </span>
+                        <span className="text-slate-200 font-bold">{formatCurrency(settlementEvent.trade.price)}</span>
+                      </div>
+                      <div>
+                        <span className="text-slate-400">平仓点位: </span>
+                        <span className="text-rose-400 font-bold">{formatCurrency(settlementEvent.trade.closePrice || settlementEvent.trade.price)}</span>
+                      </div>
+                      <div className="col-span-2 truncate">
+                        <span className="text-slate-400">出场状态: </span>
+                        <span className="text-slate-200">触及最大容忍止损线，已由风控模块平仓</span>
+                      </div>
+                    </div>
+
+                    <div className="w-full bg-slate-800 h-1 rounded-full mt-3 overflow-hidden">
+                      <div className="bg-gradient-to-r from-rose-500 to-amber-500 h-full animate-[shrink_4.5s_linear_forwards]"></div>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
           {/* Terminal 全局系统导航栏 */}
           <div className="p-3 sm:p-4 rounded-xl bg-[#080d14] border border-emerald-500/30 shadow-2xl shadow-black/80 font-terminal mb-6 relative overflow-hidden flex flex-col md:flex-row md:items-center justify-between gap-4">
             <div className="absolute top-0 left-0 right-0 h-[2px] bg-gradient-to-r from-emerald-500 via-cyan-400 to-emerald-500 opacity-80"></div>
@@ -2153,7 +2755,6 @@
                 <span className="text-emerald-400 font-bold text-lg md:text-xl font-mono">&gt;</span>
                 <h1 className="text-lg md:text-2xl font-bold tracking-wider text-slate-100 uppercase font-mono m-0 flex items-center">
                   BTC_ORACLE <span className="text-xs text-emerald-400/80 font-normal ml-2 hidden sm:inline">[QUANT_TERMINAL]</span>
-                  <span className="terminal-cursor text-emerald-400 ml-1">_</span>
                 </h1>
               </div>
             </div>
@@ -2166,10 +2767,12 @@
                     {user.username.charAt(0).toUpperCase()}
                   </span>
                   <span className="text-slate-200 font-bold">{user.username}</span>
+                  {/* 先隐藏订阅剩余时间展示
                   <span className="text-slate-600">|</span>
                   <span className={`text-[10px] font-semibold ${subscription && !subscription.isExpired ? 'text-emerald-400' : 'text-amber-400'}`}>
                     {subscription ? (subscription.isExpired ? '[过期 EXPIRED]' : `[剩余 ${subscription.timeLeft || 1}天]`) : '[未订阅 TRIAL]'}
                   </span>
+                  */}
                   <button
                     onClick={() => {
                       localStorage.removeItem('token');
@@ -2238,128 +2841,8 @@
             <>
               {activeView === 'dashboard' ? (
                 <>
-                  {/* 实时信号监控卡片 (固定动态展示最近3个信号流 · 监控风格) */}
-                  <div className="p-4 rounded-xl bg-[#080d14] border border-cyan-500/35 shadow-2xl shadow-black/80 font-mono relative overflow-hidden mb-6">
-                    <div className="absolute top-0 left-0 right-0 h-[2px] bg-gradient-to-r from-cyan-500 via-emerald-400 to-purple-500 opacity-90"></div>
-                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-slate-800">
-                      <div>
-                        <div className="flex items-center gap-2 text-xs text-cyan-400 font-mono mb-1">
-                          <span className="w-2 h-2 rounded-full bg-cyan-400 animate-pulse shadow-sm shadow-cyan-400"></span>
-                          <span>REALTIME_SIGNAL_TELEMETRY :: 5-MIN KLINE STREAM</span>
-                        </div>
-                        <div className="flex items-center gap-2">
-                          <span className="text-cyan-400 font-bold">&gt;</span>
-                          <h2 className="text-lg md:text-xl font-bold tracking-wider text-slate-100 uppercase m-0 flex items-center">
-                            实时信号监控
-                            <span className="ml-2 text-xs text-slate-400 font-normal font-mono">[动态队列 · 最近3笔信号]</span>
-                          </h2>
-                        </div>
-                      </div>
-
-                      <div className="flex items-center gap-2 self-start sm:self-auto">
-                        <span className="text-[11px] px-2.5 py-1 rounded bg-cyan-500/10 text-cyan-300 border border-cyan-500/30 font-bold tracking-wider flex items-center gap-1.5">
-                          <span className="w-1.5 h-1.5 rounded-full bg-emerald-400"></span>
-                          QUEUE: {recentSignals.length}/3 SIGNALS
-                        </span>
-                      </div>
-                    </div>
-
-                    {/* 信号列表展示（最多显示最近3个） */}
-                    {recentSignals && recentSignals.length > 0 ? (
-                      <div className="mt-3.5 space-y-3">
-                        {recentSignals.slice(0, 3).map((sig, idx) => {
-                          const isBuy = sig.signal === 'BUY';
-                          const isLatest = idx === 0;
-                          const isCurrentActive = currentSignal && sig.timestamp && currentSignal.timestamp && new Date(sig.timestamp).getTime() === new Date(currentSignal.timestamp).getTime();
-                          const timeStr = sig.timestamp ? new Date(sig.timestamp).toLocaleTimeString('zh-CN', { hour12: false }) : '--:--:--';
-                          const dateStr = sig.timestamp ? new Date(sig.timestamp).toLocaleDateString('zh-CN', { month: '2-digit', day: '2-digit' }) : '';
-                          const conf = sig.confidence || 80;
-
-                          return (
-                            <div
-                              key={sig.timestamp || idx}
-                              className={`p-3 rounded-lg border transition-all ${
-                                isLatest
-                                  ? isBuy
-                                    ? 'bg-[#060f14] border-emerald-500/40 shadow-lg shadow-emerald-500/10'
-                                    : 'bg-[#12080c] border-rose-500/40 shadow-lg shadow-rose-500/10'
-                                  : 'bg-[#05080c] border-slate-800/90 opacity-85 hover:opacity-100'
-                              }`}
-                            >
-                              <div className="flex flex-wrap items-center justify-between gap-2 mb-2 pb-2 border-b border-slate-800/60">
-                                <div className="flex items-center gap-2">
-                                  <span className={`text-[10px] px-2 py-0.5 rounded font-extrabold tracking-wider ${
-                                    isLatest
-                                      ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-400'
-                                      : 'bg-slate-800 text-slate-400 border border-slate-700'
-                                  }`}>
-                                    #{String(idx + 1).padStart(2, '0')} {isLatest ? '[最新 NEW]' : ''}
-                                  </span>
-
-                                  {isCurrentActive && (
-                                    <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-300 border border-amber-400 animate-pulse font-bold">
-                                      [持仓中 ACTIVE]
-                                    </span>
-                                  )}
-
-                                  <span className={`px-2.5 py-0.5 rounded text-xs font-black tracking-wider flex items-center gap-1 ${
-                                    isBuy
-                                      ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-400/80 terminal-glow-green'
-                                      : 'bg-rose-500/20 text-rose-300 border border-rose-400/80'
-                                  }`}>
-                                    {isBuy ? '▲ 做多 BUY' : '▼ 做空 SELL'}
-                                  </span>
-
-                                  <span className="text-slate-100 font-bold text-sm">
-                                    {formatCurrency(sig.currentPrice)}
-                                  </span>
-                                </div>
-
-                                <div className="flex items-center gap-3">
-                                  <div className="flex items-center gap-1.5 text-xs">
-                                    <span className="text-[10px] text-slate-400 uppercase tracking-widest">CONFIDENCE:</span>
-                                    <span className={`font-black text-sm ${
-                                      conf >= 85 ? 'text-emerald-400 terminal-glow-green' :
-                                      conf >= 80 ? 'text-cyan-400 terminal-glow-cyan' : 'text-amber-400'
-                                    }`}>
-                                      <FlipNumber value={`${conf}%`} />
-                                    </span>
-                                  </div>
-
-                                  <div className="text-[11px] text-slate-400 font-mono">
-                                    {dateStr} {timeStr}
-                                  </div>
-                                </div>
-                              </div>
-
-                              <div className="space-y-1 text-xs">
-                                {sig.recommendedAction && (
-                                  <div className="flex items-start gap-1.5 text-[11px]">
-                                    <span className="text-cyan-400 font-bold tracking-wider">ACTION:</span>
-                                    <span className="text-cyan-200 font-semibold">{sig.recommendedAction}</span>
-                                  </div>
-                                )}
-
-                                {sig.reasoning && sig.reasoning.length > 0 && (
-                                  <div className="flex items-start gap-1.5 text-[11px] leading-relaxed text-slate-300">
-                                    <span className="text-emerald-400 font-bold tracking-wider">REASON:</span>
-                                    <span className="text-slate-300">{Array.isArray(sig.reasoning) ? sig.reasoning.join(' ｜ ') : sig.reasoning}</span>
-                                  </div>
-                                )}
-                              </div>
-                            </div>
-                          );
-                        })}
-                      </div>
-                    ) : (
-                      <div className="mt-3.5 p-6 rounded-lg bg-[#05080c] border border-dashed border-slate-800 text-center">
-                        <div className="text-cyan-400 font-mono text-xs mb-1">&gt; LISTENING_FOR_SIGNALS...</div>
-                        <div className="text-slate-400 text-xs font-mono">
-                          正在持续监听5分钟K线实时信号流，新信号触发后将动态加入本卡片（队列自动保留最新3笔）
-                        </div>
-                      </div>
-                    )}
-                  </div>
+                  {/* BTC 5分钟周期K线图实时走势卡片 (EMA50/EMA200, K线倒计时, 成交量, RSI) */}
+                  <BtcRealtimeKlineCard socket={socketInstance} />
 
                   <div className="main-grid">
                     {/* 资金走势卡片 */}
@@ -2664,15 +3147,57 @@
                       <div className="flex items-center gap-2">
                         <span className="text-emerald-400 font-bold text-base">&gt;</span>
                         <h3 className="text-base font-bold text-slate-100 uppercase tracking-wider m-0">
-                          RECENT_TRANSACTIONS_LOG <span className="text-xs text-emerald-400/80 font-normal">[实盘流水明细]</span>
+                          RECENT_TRANSACTIONS_LOG <span className="text-xs text-emerald-400/80 font-normal">[今日实盘流水明细]</span>
                         </h3>
+                        <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-500/10 text-emerald-400 border border-emerald-500/30">
+                          今日数据 (共 {todayRecentTrades.length} 笔)
+                        </span>
+                        {dashboardSortConfig.field && (
+                          <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-cyan-500/10 text-cyan-300 border border-cyan-500/30 text-[10px]">
+                            <span>排序: {dashboardSortConfig.field === 'spread' ? '价差' : '盈亏'} ({dashboardSortConfig.direction === 'asc' ? '▲' : '▼'})</span>
+                            <button
+                              onClick={() => setDashboardSortConfig({ field: null, direction: null })}
+                              className="text-cyan-400 hover:text-cyan-100 font-bold"
+                              title="恢复默认顺序"
+                            >
+                              ×
+                            </button>
+                          </span>
+                        )}
                       </div>
-                      <button
-                        onClick={() => { setTradesQueryRange(null); setSelectedStrategyKeyword(''); setTradesFilterParams(null); setActiveView('trades'); }}
-                        className="px-3 py-1.5 rounded bg-emerald-500/10 hover:bg-emerald-500/25 text-emerald-400 hover:text-emerald-300 border border-emerald-500/40 text-xs font-bold tracking-wider transition-all self-start sm:self-auto shadow-sm shadow-emerald-500/10"
-                      >
-                        [ 完整交易检索 &gt; ]
-                      </button>
+                      <div className="flex flex-wrap items-center gap-2">
+                        {/* 动效演示操作组 */}
+                        <div className="flex items-center gap-1 bg-[#04080e] p-1 rounded-lg border border-slate-700/60">
+                          <span className="text-[10px] text-slate-400 font-bold px-1.5 hidden lg:inline">动效演示:</span>
+                          <button
+                            onClick={() => triggerInsertEffect()}
+                            title="测试新订单实时追加动效"
+                            className="px-2 py-0.5 rounded bg-cyan-500/10 hover:bg-cyan-500/25 text-cyan-400 border border-cyan-500/30 text-[10px] font-bold tracking-wider transition-all"
+                          >
+                            [ 模拟追加 ]
+                          </button>
+                          <button
+                            onClick={() => triggerVictoryEffect()}
+                            title="测试结算盈利胜利动效"
+                            className="px-2 py-0.5 rounded bg-emerald-500/10 hover:bg-emerald-500/25 text-emerald-400 border border-emerald-500/30 text-[10px] font-bold tracking-wider transition-all"
+                          >
+                            [ 模拟盈利 ]
+                          </button>
+                          <button
+                            onClick={() => triggerLossEffect()}
+                            title="测试结算亏损防守动效"
+                            className="px-2 py-0.5 rounded bg-rose-500/10 hover:bg-rose-500/25 text-rose-400 border border-rose-500/30 text-[10px] font-bold tracking-wider transition-all"
+                          >
+                            [ 模拟亏损 ]
+                          </button>
+                        </div>
+                        <button
+                          onClick={() => { setTradesQueryRange(null); setSelectedStrategyKeyword(''); setTradesFilterParams(null); setActiveView('trades'); }}
+                          className="px-3 py-1.5 rounded bg-emerald-500/10 hover:bg-emerald-500/25 text-emerald-400 hover:text-emerald-300 border border-emerald-500/40 text-xs font-bold tracking-wider transition-all self-start sm:self-auto shadow-sm shadow-emerald-500/10"
+                        >
+                          [ 完整历史交易检索 &gt; ]
+                        </button>
+                      </div>
                     </div>
                     <div className="overflow-x-auto">
                       <table className="w-full text-left text-xs border-collapse font-mono">
@@ -2684,25 +3209,81 @@
                             <th className="py-2.5 px-3">方向</th>
                             <th className="py-2.5 px-3">入场原因</th>
                             <th className="py-2.5 px-3">平仓价</th>
-                            <th className="py-2.5 px-3">价差</th>
+                            <th
+                              onClick={() => handleDashboardSort('spread')}
+                              className="py-2.5 px-3 cursor-pointer select-none hover:text-cyan-300 transition-colors group"
+                              title="点击按价差排序 (降序/升序/恢复默认)"
+                            >
+                              <div className="inline-flex items-center gap-1">
+                                <span>价差</span>
+                                <span className={`text-[10px] font-mono transition-colors ${dashboardSortConfig.field === 'spread' ? 'text-cyan-400 font-bold' : 'text-slate-600 group-hover:text-slate-400'}`}>
+                                  {dashboardSortConfig.field === 'spread' ? (dashboardSortConfig.direction === 'asc' ? '▲' : '▼') : '↕'}
+                                </span>
+                              </div>
+                            </th>
                             <th className="py-2.5 px-3">平仓时间</th>
-                            <th className="py-2.5 px-3 text-right">盈亏</th>
+                            <th
+                              onClick={() => handleDashboardSort('profitLoss')}
+                              className="py-2.5 px-3 text-right cursor-pointer select-none hover:text-emerald-300 transition-colors group"
+                              title="点击按盈亏排序 (降序/升序/恢复默认)"
+                            >
+                              <div className="inline-flex items-center justify-end gap-1 w-full">
+                                <span>盈亏</span>
+                                <span className={`text-[10px] font-mono transition-colors ${dashboardSortConfig.field === 'profitLoss' ? 'text-emerald-400 font-bold' : 'text-slate-600 group-hover:text-slate-400'}`}>
+                                  {dashboardSortConfig.field === 'profitLoss' ? (dashboardSortConfig.direction === 'asc' ? '▲' : '▼') : '↕'}
+                                </span>
+                              </div>
+                            </th>
                             <th className="py-2.5 px-3 text-center">动作</th>
                           </tr>
                         </thead>
                         <tbody className="divide-y divide-slate-800/60">
-                          {recentTrades.map((trade) => {
-                            const isToday = trade.closeTime ?
-                              new Date(trade.closeTime).toDateString() === new Date().toDateString() :
-                              new Date(trade.timestamp).toDateString() === new Date().toDateString();
-                            const isProfit = trade.profitLoss != null && trade.profitLoss >= 0;
-                            return (
-                              <tr
-                                key={trade._id}
-                                className={`hover:bg-slate-800/30 transition-colors ${isToday ? 'bg-[#05080c]/40' : ''}`}
-                              >
+                          {sortedTodayTrades.length === 0 ? (
+                            <tr>
+                              <td colSpan="10" className="py-10 text-center text-slate-400 text-xs font-mono">
+                                <div className="flex flex-col items-center justify-center gap-2">
+                                  <span className="text-slate-400 text-sm">[ ! ] 今日暂无实盘交易流水记录</span>
+                                  <span className="text-slate-500 text-[11px]">如需查阅历史交易，请点击右上角「完整历史交易检索」</span>
+                                </div>
+                              </td>
+                            </tr>
+                          ) : (
+                            sortedTodayTrades.map((trade) => {
+                              const isNew = newlyInsertedTradeIds.has(trade._id);
+                              const settleType = recentlySettledTradeIds.get(trade._id);
+                              const isProfit = trade.profitLoss != null && trade.profitLoss >= 0;
+                              const rowAnimClass = isNew
+                                ? 'row-insert-active hover:bg-slate-800/30 transition-colors'
+                                : settleType === 'WIN'
+                                ? 'row-profit-active hover:bg-slate-800/30 transition-colors'
+                                : settleType === 'LOSS'
+                                ? 'row-loss-active hover:bg-slate-800/30 transition-colors'
+                                : 'hover:bg-slate-800/30 transition-colors bg-[#05080c]/40';
+
+                              return (
+                                <tr
+                                  key={trade._id}
+                                  className={rowAnimClass}
+                                >
                                 <td className="py-2.5 px-3 text-slate-300 whitespace-nowrap">
-                                  {new Date(trade.timestamp).toLocaleString('zh-CN')}
+                                  <div className="flex items-center gap-1">
+                                    {isNew && (
+                                      <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 animate-pulse">
+                                        NEW
+                                      </span>
+                                    )}
+                                    {settleType === 'WIN' && (
+                                      <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-bold bg-amber-500/20 text-amber-300 border border-amber-500/40 animate-bounce">
+                                        VICTORY
+                                      </span>
+                                    )}
+                                    {settleType === 'LOSS' && (
+                                      <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-bold bg-rose-500/20 text-rose-300 border border-rose-500/40 animate-pulse">
+                                        STOP
+                                      </span>
+                                    )}
+                                    <span>{new Date(trade.timestamp).toLocaleString('zh-CN')}</span>
+                                  </div>
                                 </td>
                                 <td className="py-2.5 px-3 text-slate-100 font-bold whitespace-nowrap">
                                   {formatCurrency(trade.price)}
@@ -2808,6 +3389,618 @@
           {chartTrade && (
             <TradeChartModal trade={chartTrade} onClose={() => setChartTrade(null)} />
           )}
+        </div>
+      );
+    };
+
+    /**
+     * BTC 5分钟周期K线图实时走势卡片
+     * 包含：5分钟K线、EMA50、EMA200、K线倒计时、成交量柱状图、RSI(14)副图
+     */
+    const BtcRealtimeKlineCard = ({ socket }) => {
+      const mainContainerRef = React.useRef(null);
+      const rsiContainerRef = React.useRef(null);
+      const chartRef = React.useRef(null);
+      const rsiChartRef = React.useRef(null);
+      const candleSeriesRef = React.useRef(null);
+      const ema50SeriesRef = React.useRef(null);
+      const ema200SeriesRef = React.useRef(null);
+      const volumeSeriesRef = React.useRef(null);
+      const rsiSeriesRef = React.useRef(null);
+      const candlesRef = React.useRef([]);
+
+      const [currentPrice, setCurrentPrice] = useState(null);
+      const [countdown, setCountdown] = useState('--:--');
+      const [latestEma50, setLatestEma50] = useState(null);
+      const [latestEma200, setLatestEma200] = useState(null);
+      const [latestRsi, setLatestRsi] = useState(null);
+      const [latestVol, setLatestVol] = useState(null);
+      const [trendStatus, setTrendStatus] = useState('CALCULATING...');
+      const [hoverData, setHoverData] = useState(null);
+      const [loading, setLoading] = useState(true);
+      const [error, setError] = useState('');
+
+      const formatNumber = (num, digits = 2) => {
+        if (num == null || isNaN(num)) return '--';
+        return Number(num).toLocaleString('zh-CN', {
+          minimumFractionDigits: digits,
+          maximumFractionDigits: digits
+        });
+      };
+
+      // 计算EMA序列
+      const calculateEMA = (candles, period) => {
+        const closes = candles.map(c => c.close);
+        if (closes.length < period) return [];
+        const k = 2 / (period + 1);
+        let sum = 0;
+        for (let i = 0; i < period; i++) sum += closes[i];
+        let prev = sum / period;
+        const out = [{ time: candles[period - 1].time, value: +prev.toFixed(2) }];
+        for (let i = period; i < closes.length; i++) {
+          prev = closes[i] * k + prev * (1 - k);
+          out.push({ time: candles[i].time, value: +prev.toFixed(2) });
+        }
+        return out;
+      };
+
+      // 计算RSI(14)序列 (Wilder 平滑)
+      const calculateRSI = (candles, period = 14) => {
+        if (candles.length <= period) return [];
+        const closes = candles.map(c => c.close);
+        let gains = 0;
+        let losses = 0;
+        for (let i = 1; i <= period; i++) {
+          const diff = closes[i] - closes[i - 1];
+          if (diff >= 0) gains += diff;
+          else losses -= diff;
+        }
+        let avgGain = gains / period;
+        let avgLoss = losses / period;
+
+        const out = [];
+        const firstRsi = avgLoss === 0 ? 100 : 100 - (100 / (1 + avgGain / avgLoss));
+        out.push({ time: candles[period].time, value: +firstRsi.toFixed(2) });
+
+        for (let i = period + 1; i < candles.length; i++) {
+          const diff = closes[i] - closes[i - 1];
+          const gain = diff > 0 ? diff : 0;
+          const loss = diff < 0 ? -diff : 0;
+          avgGain = (avgGain * (period - 1) + gain) / period;
+          avgLoss = (avgLoss * (period - 1) + loss) / period;
+          const rsi = avgLoss === 0 ? 100 : 100 - (100 / (1 + avgGain / avgLoss));
+          out.push({ time: candles[i].time, value: +rsi.toFixed(2) });
+        }
+        return out;
+      };
+
+      // 获取5分钟K线数据
+      const fetchKlines = async () => {
+        try {
+          if (typeof LightweightCharts === 'undefined') {
+            setError('图表库正在加载，请稍候...');
+            return;
+          }
+          const res = await fetch('/api/klines?interval=5m&limit=250');
+          if (!res.ok) throw new Error('网络请求异常');
+          const data = await res.json();
+          if (!data.klines || data.klines.length === 0) {
+            setError('暂无K线数据');
+            setLoading(false);
+            return;
+          }
+
+          const rawCandles = data.klines.map(k => ({
+            time: Math.floor(k.openTime / 1000),
+            open: parseFloat(k.open),
+            high: parseFloat(k.high),
+            low: parseFloat(k.low),
+            close: parseFloat(k.close),
+            volume: parseFloat(k.volume)
+          }));
+
+          // 去重并按时间升序
+          rawCandles.sort((a, b) => a.time - b.time);
+          const uniqueCandles = [];
+          const seenTimes = new Set();
+          for (const c of rawCandles) {
+            if (!seenTimes.has(c.time)) {
+              seenTimes.add(c.time);
+              uniqueCandles.push(c);
+            }
+          }
+
+          candlesRef.current = uniqueCandles;
+          const lastCandle = uniqueCandles[uniqueCandles.length - 1];
+
+          // 计算指标
+          const ema50Data = calculateEMA(uniqueCandles, 50);
+          const ema200Data = calculateEMA(uniqueCandles, 200);
+          const rsiData = calculateRSI(uniqueCandles, 14);
+
+          const volumeData = uniqueCandles.map(c => ({
+            time: c.time,
+            value: c.volume,
+            color: c.close >= c.open ? 'rgba(16, 185, 129, 0.45)' : 'rgba(244, 63, 94, 0.45)'
+          }));
+
+          // 更新状态
+          if (lastCandle) {
+            setCurrentPrice(lastCandle.close);
+            setLatestVol(lastCandle.volume.toFixed(2));
+          }
+          if (ema50Data.length > 0) {
+            setLatestEma50(ema50Data[ema50Data.length - 1].value);
+          }
+          if (ema200Data.length > 0) {
+            setLatestEma200(ema200Data[ema200Data.length - 1].value);
+          }
+          if (rsiData.length > 0) {
+            setLatestRsi(rsiData[rsiData.length - 1].value);
+          }
+
+          // 判定趋势状态（EMA50/EMA200 平行趋势判定）
+          if (ema50Data.length >= 12 && ema200Data.length >= 12) {
+            const e50Recent = ema50Data.slice(-12);
+            const e200Recent = ema200Data.slice(-12);
+            const curE50 = e50Recent[e50Recent.length - 1].value;
+            const curE200 = e200Recent[e200Recent.length - 1].value;
+            const slope50 = (curE50 - e50Recent[0].value) / e50Recent[0].value;
+            const slope200 = (curE200 - e200Recent[0].value) / e200Recent[0].value;
+            const spreads = e50Recent.map((v, i) => Math.abs(v.value - e200Recent[i].value));
+            const avgSpread = spreads.reduce((a, b) => a + b, 0) / spreads.length;
+            const isParallel = avgSpread > 0 && spreads.every(s => Math.abs(s - avgSpread) / avgSpread <= 0.25);
+
+            if (curE50 > curE200 && slope50 > 0.0002 && slope200 > 0 && isParallel) {
+              setTrendStatus('PARALLEL_UPTREND 上涨平行趋势');
+            } else if (curE50 < curE200 && slope50 < -0.0002 && slope200 < 0 && isParallel) {
+              setTrendStatus('PARALLEL_DOWNTREND 下跌平行趋势');
+            } else if (curE50 > curE200) {
+              setTrendStatus('EMA50 > EMA200 多头排列(非平行)');
+            } else if (curE50 < curE200) {
+              setTrendStatus('EMA50 < EMA200 空头排列(非平行)');
+            } else {
+              setTrendStatus('CHOPPY 均线纠缠震荡');
+            }
+          }
+
+          // 注入数据到图表
+          if (candleSeriesRef.current) candleSeriesRef.current.setData(uniqueCandles);
+          if (ema50SeriesRef.current) ema50SeriesRef.current.setData(ema50Data);
+          if (ema200SeriesRef.current) ema200SeriesRef.current.setData(ema200Data);
+          if (volumeSeriesRef.current) volumeSeriesRef.current.setData(volumeData);
+          if (rsiSeriesRef.current) rsiSeriesRef.current.setData(rsiData);
+
+          setLoading(false);
+          setError('');
+        } catch (err) {
+          console.error('加载5m K线失败:', err);
+          setError('K线数据更新中...');
+          setLoading(false);
+        }
+      };
+
+      // 初始化主图与RSI副图
+      useEffect(() => {
+        let disposed = false;
+        if (!mainContainerRef.current || !rsiContainerRef.current) return;
+        if (typeof LightweightCharts === 'undefined') {
+          setError('图表组件初始化中，请稍候...');
+          return;
+        }
+
+        const width = mainContainerRef.current.clientWidth;
+
+        // 1. 主K线图表（含K线、EMA50、EMA200、成交量柱状图）
+        const chart = LightweightCharts.createChart(mainContainerRef.current, {
+          width,
+          height: 380,
+          layout: {
+            background: { type: 'solid', color: '#05080c' },
+            textColor: '#94a3b8'
+          },
+          grid: {
+            vertLines: { color: 'rgba(30, 41, 59, 0.4)' },
+            horzLines: { color: 'rgba(30, 41, 59, 0.4)' }
+          },
+          crosshair: {
+            mode: LightweightCharts.CrosshairMode.Normal,
+            vertLine: { color: 'rgba(6, 182, 212, 0.45)', width: 1, style: LightweightCharts.LineStyle.Dashed },
+            horzLine: { color: 'rgba(6, 182, 212, 0.45)', width: 1, style: LightweightCharts.LineStyle.Dashed }
+          },
+          localization: {
+            timeFormatter: (t) => {
+              const d = new Date((t + 8 * 3600) * 1000);
+              return d.toISOString().slice(5, 16).replace('T', ' ');
+            }
+          },
+          timeScale: {
+            timeVisible: true,
+            secondsVisible: false,
+            borderColor: '#1e293b',
+            tickMarkFormatter: (t) => {
+              const d = new Date((t + 8 * 3600) * 1000);
+              const iso = d.toISOString();
+              const hm = iso.slice(11, 16);
+              return hm === '00:00' ? iso.slice(5, 10).replace('-', '/') : hm;
+            }
+          },
+          rightPriceScale: {
+            borderColor: '#1e293b',
+            autoScale: true
+          }
+        });
+
+        const candleSeries = chart.addCandlestickSeries({
+          upColor: '#10b981',
+          downColor: '#f43f5e',
+          borderVisible: false,
+          wickUpColor: '#10b981',
+          wickDownColor: '#f43f5e',
+          priceLineVisible: true,
+          lastValueVisible: true
+        });
+
+        const ema50Series = chart.addLineSeries({
+          color: '#f59e0b',
+          lineWidth: 2,
+          priceLineVisible: false,
+          lastValueVisible: true,
+          title: 'EMA50'
+        });
+
+        const ema200Series = chart.addLineSeries({
+          color: '#a855f7',
+          lineWidth: 2,
+          priceLineVisible: false,
+          lastValueVisible: true,
+          title: 'EMA200'
+        });
+
+        const volumeSeries = chart.addHistogramSeries({
+          priceFormat: { type: 'volume' },
+          priceScaleId: '', // 叠加在主图底部
+        });
+        volumeSeries.priceScale().applyOptions({
+          scaleMargins: {
+            top: 0.82, // 成交量最高占主图底部18%高度
+            bottom: 0,
+          },
+        });
+
+        // 2. RSI(14) 副图
+        const rsiChart = LightweightCharts.createChart(rsiContainerRef.current, {
+          width,
+          height: 110,
+          layout: {
+            background: { type: 'solid', color: '#05080c' },
+            textColor: '#94a3b8'
+          },
+          grid: {
+            vertLines: { color: 'rgba(30, 41, 59, 0.25)' },
+            horzLines: { color: 'rgba(30, 41, 59, 0.25)' }
+          },
+          crosshair: {
+            mode: LightweightCharts.CrosshairMode.Normal,
+            vertLine: { color: 'rgba(6, 182, 212, 0.35)', width: 1, style: LightweightCharts.LineStyle.Dashed },
+            horzLine: { color: 'rgba(6, 182, 212, 0.35)', width: 1, style: LightweightCharts.LineStyle.Dashed }
+          },
+          timeScale: {
+            visible: false // 隐藏时间刻度以保持与主图严格对齐
+          },
+          rightPriceScale: {
+            borderColor: '#1e293b',
+            scaleMargins: {
+              top: 0.1,
+              bottom: 0.1
+            }
+          }
+        });
+
+        const rsiSeries = rsiChart.addLineSeries({
+          color: '#06b6d4',
+          lineWidth: 1.5,
+          priceLineVisible: false,
+          lastValueVisible: true,
+          title: 'RSI(14)'
+        });
+
+        // RSI 70/30参考线
+        rsiSeries.createPriceLine({
+          price: 70,
+          color: 'rgba(244, 63, 94, 0.6)',
+          lineWidth: 1,
+          lineStyle: LightweightCharts.LineStyle.Dashed,
+          axisLabelVisible: true,
+          title: '超买 70'
+        });
+        rsiSeries.createPriceLine({
+          price: 30,
+          color: 'rgba(16, 185, 129, 0.6)',
+          lineWidth: 1,
+          lineStyle: LightweightCharts.LineStyle.Dashed,
+          axisLabelVisible: true,
+          title: '超卖 30'
+        });
+        rsiSeries.createPriceLine({
+          price: 50,
+          color: 'rgba(148, 163, 184, 0.3)',
+          lineWidth: 1,
+          lineStyle: LightweightCharts.LineStyle.Dotted,
+          axisLabelVisible: false
+        });
+
+        // 3. 联动同步两张图表的时间轴
+        let isSyncing = false;
+        chart.timeScale().subscribeVisibleLogicalRangeChange(range => {
+          if (isSyncing || !range || !rsiChart) return;
+          isSyncing = true;
+          rsiChart.timeScale().setVisibleLogicalRange(range);
+          isSyncing = false;
+        });
+        rsiChart.timeScale().subscribeVisibleLogicalRangeChange(range => {
+          if (isSyncing || !range || !chart) return;
+          isSyncing = true;
+          chart.timeScale().setVisibleLogicalRange(range);
+          isSyncing = false;
+        });
+
+        // 4. 十字准星移动悬停数据提取
+        chart.subscribeCrosshairMove(param => {
+          if (!param || !param.time || !param.seriesData) {
+            setHoverData(null);
+            return;
+          }
+          const c = param.seriesData.get(candleSeries);
+          const e50 = param.seriesData.get(ema50Series);
+          const e200 = param.seriesData.get(ema200Series);
+          const v = param.seriesData.get(volumeSeries);
+          setHoverData({
+            time: param.time,
+            open: c ? c.open : null,
+            high: c ? c.high : null,
+            low: c ? c.low : null,
+            close: c ? c.close : null,
+            ema50: e50 ? e50.value : null,
+            ema200: e200 ? e200.value : null,
+            volume: v ? v.value : null
+          });
+        });
+
+        chartRef.current = chart;
+        rsiChartRef.current = rsiChart;
+        candleSeriesRef.current = candleSeries;
+        ema50SeriesRef.current = ema50Series;
+        ema200SeriesRef.current = ema200Series;
+        volumeSeriesRef.current = volumeSeries;
+        rsiSeriesRef.current = rsiSeries;
+
+        // 响应窗口尺寸变化
+        const handleResize = () => {
+          if (chart && mainContainerRef.current) {
+            chart.applyOptions({ width: mainContainerRef.current.clientWidth });
+          }
+          if (rsiChart && rsiContainerRef.current) {
+            rsiChart.applyOptions({ width: rsiContainerRef.current.clientWidth });
+          }
+        };
+        window.addEventListener('resize', handleResize);
+
+        // 立即拉取K线数据
+        fetchKlines();
+
+        return () => {
+          disposed = true;
+          window.removeEventListener('resize', handleResize);
+          chart.remove();
+          rsiChart.remove();
+        };
+      }, []);
+
+      // 5分钟K线实时倒计时定时器
+      useEffect(() => {
+        const updateCountdown = () => {
+          const now = Date.now();
+          const candleIntervalMs = 5 * 60 * 1000;
+          const remainingMs = candleIntervalMs - (now % candleIntervalMs);
+          const remainingSec = Math.floor(remainingMs / 1000);
+          const m = String(Math.floor(remainingSec / 60)).padStart(2, '0');
+          const s = String(remainingSec % 60).padStart(2, '0');
+          setCountdown(`${m}:${s}`);
+
+          // 当新一根5分钟K线生成时（倒计时299秒或0秒瞬时），自动重新请求最新收盘数据
+          if (remainingSec === 299 || remainingSec === 0) {
+            fetchKlines();
+          }
+        };
+
+        updateCountdown();
+        const countdownTimer = setInterval(updateCountdown, 1000);
+        // 定期15秒自动拉取最新价格柱状刷新
+        const pollTimer = setInterval(fetchKlines, 15000);
+
+        return () => {
+          clearInterval(countdownTimer);
+          clearInterval(pollTimer);
+        };
+      }, []);
+
+      // 监听WebSocket实时价格更新
+      useEffect(() => {
+        if (!socket) return;
+        const handlePrice = (data) => {
+          if (!data || !data.price) return;
+          const p = parseFloat(data.price);
+          setCurrentPrice(p);
+
+          // 实时更新最后一根K线
+          if (candleSeriesRef.current && candlesRef.current.length > 0) {
+            const last = candlesRef.current[candlesRef.current.length - 1];
+            const nowSec = Math.floor(Date.now() / 1000);
+            if (nowSec - last.time < 300) {
+              const updated = {
+                ...last,
+                high: Math.max(last.high, p),
+                low: Math.min(last.low, p),
+                close: p
+              };
+              candleSeriesRef.current.update(updated);
+            }
+          }
+        };
+        socket.on('priceUpdate', handlePrice);
+        return () => socket.off('priceUpdate', handlePrice);
+      }, [socket]);
+
+      // 显示数据：优先取十字准星悬停数据，无悬停时显示最新数据
+      const displayPrice = hoverData?.close ?? currentPrice;
+      const displayOpen = hoverData?.open;
+      const displayHigh = hoverData?.high;
+      const displayLow = hoverData?.low;
+      const displayEma50 = hoverData?.ema50 ?? latestEma50;
+      const displayEma200 = hoverData?.ema200 ?? latestEma200;
+      const displayVol = hoverData?.volume ?? latestVol;
+      const displayRsi = latestRsi;
+
+      return (
+        <div className="p-4 rounded-xl bg-[#080d14] border border-cyan-500/35 shadow-2xl shadow-black/80 font-mono relative overflow-hidden mb-6">
+          <div className="absolute top-0 left-0 right-0 h-[2px] bg-gradient-to-r from-amber-500 via-cyan-400 to-purple-500 opacity-90"></div>
+
+          {/* 顶栏信息与指标看板 */}
+          <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3 pb-3 border-b border-slate-800">
+            <div>
+              <div className="flex items-center gap-2 text-xs text-cyan-400 font-mono mb-1">
+                <span className="w-2 h-2 rounded-full bg-cyan-400 animate-pulse shadow-sm shadow-cyan-400"></span>
+                <span>BTCUSDT :: 5-MIN CANDLESTICK REALTIME STREAM</span>
+              </div>
+              <div className="flex flex-wrap items-center gap-3">
+                <div className="flex items-center gap-2">
+                  <span className="text-cyan-400 font-bold">&gt;</span>
+                  <h2 className="text-lg md:text-xl font-bold tracking-wider text-slate-100 uppercase m-0 flex items-center">
+                    BTC 5分钟周期K线图实时走势
+                  </h2>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <span className="text-xl md:text-2xl font-black text-slate-100 tracking-wider">
+                    ${formatNumber(displayPrice, 2)}
+                  </span>
+                  <span className={`text-[10px] px-2 py-0.5 rounded font-bold border ${
+                    trendStatus.includes('UPTREND')
+                      ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40'
+                      : trendStatus.includes('DOWNTREND')
+                      ? 'bg-rose-500/20 text-rose-300 border-rose-500/40'
+                      : 'bg-slate-800 text-slate-300 border-slate-700'
+                  }`}>
+                    {trendStatus}
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            {/* 右侧：5分钟K线倒计时与实时同步标牌 */}
+            <div className="flex flex-wrap items-center gap-3">
+              <div className="flex items-center gap-2.5 px-3 py-1.5 rounded-lg bg-cyan-950/40 border border-cyan-500/40 shadow-inner">
+                <div className="flex flex-col">
+                  <span className="text-[9px] text-cyan-400 uppercase tracking-widest font-bold flex items-center gap-1">
+                    <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-ping"></span>
+                    5M K线倒计时
+                  </span>
+                  <span className="text-lg md:text-xl font-black tracking-widest text-cyan-200">
+                    {countdown}
+                  </span>
+                </div>
+              </div>
+
+              <button
+                onClick={fetchKlines}
+                className="px-2.5 py-2 rounded bg-slate-800/80 hover:bg-slate-700 text-slate-300 hover:text-cyan-300 border border-slate-700 text-xs transition-colors flex items-center gap-1.5"
+                title="手动刷新K线"
+              >
+                <span>↻</span>
+                <span className="hidden sm:inline">刷新</span>
+              </button>
+            </div>
+          </div>
+
+          {/* 指标数据状态栏 (OHLC + EMA50 + EMA200 + VOL + RSI) */}
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 py-2 text-xs border-b border-slate-800/60 bg-[#05080c]/60 -mx-4 px-4">
+            {displayOpen != null && (
+              <div className="flex items-center gap-1 text-[11px] text-slate-400">
+                <span>O: <span className="text-slate-200 font-semibold">{formatNumber(displayOpen)}</span></span>
+                <span>H: <span className="text-slate-200 font-semibold">{formatNumber(displayHigh)}</span></span>
+                <span>L: <span className="text-slate-200 font-semibold">{formatNumber(displayLow)}</span></span>
+                <span>C: <span className="text-slate-200 font-semibold">{formatNumber(displayPrice)}</span></span>
+              </div>
+            )}
+
+            <div className="flex items-center gap-1.5 text-[11px]">
+              <span className="w-2 h-2 rounded-full bg-amber-400"></span>
+              <span className="text-amber-400 font-bold">EMA50:</span>
+              <span className="text-amber-200 font-mono font-bold">${formatNumber(displayEma50, 2)}</span>
+            </div>
+
+            <div className="flex items-center gap-1.5 text-[11px]">
+              <span className="w-2 h-2 rounded-full bg-purple-400"></span>
+              <span className="text-purple-400 font-bold">EMA200:</span>
+              <span className="text-purple-200 font-mono font-bold">${formatNumber(displayEma200, 2)}</span>
+            </div>
+
+            <div className="flex items-center gap-1.5 text-[11px]">
+              <span className="w-2 h-2 rounded-full bg-cyan-400"></span>
+              <span className="text-cyan-400 font-bold">RSI(14):</span>
+              <span className={`font-mono font-bold ${
+                (displayRsi || 0) >= 70 ? 'text-rose-400' :
+                (displayRsi || 0) <= 30 ? 'text-emerald-400' : 'text-cyan-200'
+              }`}>
+                {displayRsi != null ? displayRsi : '--'}
+                {(displayRsi || 0) >= 70 ? ' [超买]' : (displayRsi || 0) <= 30 ? ' [超卖]' : ''}
+              </span>
+            </div>
+
+            {displayVol != null && (
+              <div className="flex items-center gap-1 text-[11px] text-slate-400">
+                <span className="text-slate-400 font-bold">VOL:</span>
+                <span className="text-slate-300 font-mono font-semibold">{displayVol} BTC</span>
+              </div>
+            )}
+          </div>
+
+          {/* 图表主区域 */}
+          <div className="relative mt-2">
+            {loading && (
+              <div className="absolute inset-0 bg-[#05080c]/80 flex items-center justify-center z-10">
+                <div className="text-cyan-400 font-mono text-sm flex items-center gap-2">
+                  <span className="w-2 h-2 rounded-full bg-cyan-400 animate-ping"></span>
+                  正在加载5分钟K线图表与指标...
+                </div>
+              </div>
+            )}
+
+            {error && !loading && (
+              <div className="p-3 my-2 rounded bg-rose-500/10 border border-rose-500/30 text-rose-300 text-xs">
+                ⚠️ {error}
+              </div>
+            )}
+
+            {/* 主K线 + EMA50/200 + 成交量图表 */}
+            <div ref={mainContainerRef} className="w-full" style={{ minHeight: '380px' }}></div>
+
+            {/* RSI(14) 副图标签条 */}
+            <div className="flex items-center justify-between text-[10px] text-slate-400 font-mono py-1 px-2 border-t border-slate-800/80 bg-[#05080c]/80 mt-1">
+              <span className="flex items-center gap-2">
+                <span className="w-2 h-0.5 bg-cyan-400"></span>
+                <span className="text-cyan-300 font-bold">RSI (14) 强弱动能指标</span>
+                <span className="text-slate-400">[超买线: 70 ｜ 超卖线: 30]</span>
+              </span>
+              <span className="text-cyan-300">
+                当前: <span className="font-bold text-cyan-200">{displayRsi != null ? displayRsi : '--'}</span>
+              </span>
+            </div>
+
+            {/* RSI(14) 图表容器 */}
+            <div ref={rsiContainerRef} className="w-full" style={{ minHeight: '110px' }}></div>
+          </div>
         </div>
       );
     };
@@ -3032,6 +4225,9 @@
       const [trades, setTrades] = useState([]);
       const [allTrades, setAllTrades] = useState(propTrades || []); // 存储所有交易数据
       const [loading, setLoading] = useState(false);
+      const [currentPage, setCurrentPage] = useState(1);
+      const pageSize = 50;
+      const [sortConfig, setSortConfig] = useState({ field: null, direction: null });
 
       // 构建初始过滤条件对象
       const buildInitialFilters = () => ({
@@ -3145,6 +4341,7 @@
 
           filteredTrades.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
           setTrades(filteredTrades);
+          setCurrentPage(1);
         } catch (error) {
           console.error('筛选交易记录失败:', error);
         } finally {
@@ -3181,6 +4378,7 @@
           result: ''
         };
         setFilters(empty);
+        setCurrentPage(1);
         fetchTrades(empty);
       };
 
@@ -3190,6 +4388,61 @@
           minimumFractionDigits: 2,
           maximumFractionDigits: 2
         }).format(amount);
+      };
+
+      // 分页计算 (每页50条)
+      const totalPages = Math.ceil(trades.length / pageSize) || 1;
+      const validCurrentPage = Math.min(Math.max(1, currentPage), totalPages);
+      const startIndex = (validCurrentPage - 1) * pageSize;
+      const endIndex = startIndex + pageSize;
+      const rawPageTrades = trades.slice(startIndex, endIndex);
+
+      const handleSort = (field) => {
+        setSortConfig(prev => {
+          if (prev.field !== field) {
+            return { field, direction: 'desc' };
+          }
+          if (prev.direction === 'desc') {
+            return { field, direction: 'asc' };
+          }
+          return { field: null, direction: null };
+        });
+      };
+
+      // 针对当前页进行价差和盈亏排序
+      const paginatedTrades = React.useMemo(() => {
+        const items = [...rawPageTrades];
+        if (!sortConfig.field || !sortConfig.direction) {
+          return items;
+        }
+
+        return items.sort((a, b) => {
+          let valA = 0;
+          let valB = 0;
+          if (sortConfig.field === 'spread') {
+            valA = a.closePrice != null ? (a.closePrice - a.price) : 0;
+            valB = b.closePrice != null ? (b.closePrice - b.price) : 0;
+          } else if (sortConfig.field === 'profitLoss') {
+            valA = a.profitLoss != null ? a.profitLoss : 0;
+            valB = b.profitLoss != null ? b.profitLoss : 0;
+          }
+
+          return sortConfig.direction === 'asc' ? valA - valB : valB - valA;
+        });
+      }, [rawPageTrades, sortConfig]);
+
+      const getPageNumbers = () => {
+        const pages = [];
+        const maxButtons = 5;
+        let start = Math.max(1, validCurrentPage - 2);
+        let end = Math.min(totalPages, start + maxButtons - 1);
+        if (end - start + 1 < maxButtons) {
+          start = Math.max(1, end - maxButtons + 1);
+        }
+        for (let i = start; i <= end; i++) {
+          pages.push(i);
+        }
+        return pages;
       };
 
       return (
@@ -3327,28 +4580,50 @@
           </div>
 
           {/* 查询统计结果信息条 */}
-          <div className="p-2.5 px-3 rounded-lg bg-[#05080c] border border-slate-800 text-xs font-mono text-slate-400 flex flex-wrap items-center gap-2">
-            <span className="text-emerald-400 font-bold">SYS.QUERY ::</span>
-            <span>MATCHED <span className="text-slate-100 font-bold">{trades.length}</span> RECORDS</span>
-            {(() => {
-              const activeFilters = [];
-              if (filters.reasoningKeyword) activeFilters.push(`KEYWORD: "${filters.reasoningKeyword}"`);
-              if (filters.strategy) activeFilters.push(`STRATEGY: ${filters.strategy}`);
-              if (filters.signal) activeFilters.push(`SIGNAL: ${filters.signal}`);
-              if (filters.confidenceMin) activeFilters.push(`CONF≥${filters.confidenceMin}%`);
-              if (filters.confidenceMax) activeFilters.push(`CONF≤${filters.confidenceMax}%`);
-              if (filters.startDate) activeFilters.push(`FROM: ${filters.startDate}`);
-              if (filters.endDate) activeFilters.push(`TO: ${filters.endDate}`);
-              if (filters.tradeType) activeFilters.push(`DIR: ${filters.tradeType}`);
-              if (filters.result) activeFilters.push(`RES: ${filters.result}`);
-              if (!activeFilters.length) return null;
-              return (
-                <>
-                  <span className="text-slate-600">|</span>
-                  <span className="text-cyan-400">{activeFilters.join(' | ')}</span>
-                </>
-              );
-            })()}
+          <div className="p-2.5 px-3 rounded-lg bg-[#05080c] border border-slate-800 text-xs font-mono text-slate-400 flex flex-wrap items-center justify-between gap-2">
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="text-emerald-400 font-bold">SYS.QUERY ::</span>
+              <span>MATCHED <span className="text-slate-100 font-bold">{trades.length}</span> RECORDS</span>
+              <span className="text-slate-600">|</span>
+              <span className="text-cyan-400">PAGE <span className="text-slate-100 font-bold">{validCurrentPage}</span>/{totalPages} (50/PAGE)</span>
+              {(() => {
+                const activeFilters = [];
+                if (filters.reasoningKeyword) activeFilters.push(`KEYWORD: "${filters.reasoningKeyword}"`);
+                if (filters.strategy) activeFilters.push(`STRATEGY: ${filters.strategy}`);
+                if (filters.signal) activeFilters.push(`SIGNAL: ${filters.signal}`);
+                if (filters.confidenceMin) activeFilters.push(`CONF≥${filters.confidenceMin}%`);
+                if (filters.confidenceMax) activeFilters.push(`CONF≤${filters.confidenceMax}%`);
+                if (filters.startDate) activeFilters.push(`FROM: ${filters.startDate}`);
+                if (filters.endDate) activeFilters.push(`TO: ${filters.endDate}`);
+                if (filters.tradeType) activeFilters.push(`DIR: ${filters.tradeType}`);
+                if (filters.result) activeFilters.push(`RES: ${filters.result}`);
+                if (!activeFilters.length) return null;
+                return (
+                  <>
+                    <span className="text-slate-600">|</span>
+                    <span className="text-cyan-400">{activeFilters.join(' | ')}</span>
+                  </>
+                );
+              })()}
+              {sortConfig.field && (
+                <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded bg-cyan-500/10 text-cyan-300 border border-cyan-500/30 text-[10px] font-mono">
+                  <span>当前页排序: {sortConfig.field === 'spread' ? '价差' : '盈亏'} ({sortConfig.direction === 'asc' ? '升序 ▲' : '降序 ▼'})</span>
+                  <button
+                    onClick={() => setSortConfig({ field: null, direction: null })}
+                    className="text-cyan-400 hover:text-cyan-100 font-bold ml-0.5"
+                    title="恢复当前页默认顺序"
+                  >
+                    ×
+                  </button>
+                </span>
+              )}
+            </div>
+
+            {trades.length > 0 && (
+              <div className="text-[11px] text-slate-500 font-mono">
+                当前显示第 {startIndex + 1} - {Math.min(endIndex, trades.length)} 条
+              </div>
+            )}
           </div>
 
           {/* 交易记录表格 */}
@@ -3363,14 +4638,36 @@
                     <th className="py-2.5 px-3">方向</th>
                     <th className="py-2.5 px-3">入场原因</th>
                     <th className="py-2.5 px-3">平仓价</th>
-                    <th className="py-2.5 px-3">价差</th>
+                    <th
+                      onClick={() => handleSort('spread')}
+                      className="py-2.5 px-3 cursor-pointer select-none hover:text-cyan-300 transition-colors group"
+                      title="点击按当前页价差排序 (降序/升序/恢复默认)"
+                    >
+                      <div className="inline-flex items-center gap-1">
+                        <span>价差</span>
+                        <span className={`text-[10px] font-mono transition-colors ${sortConfig.field === 'spread' ? 'text-cyan-400 font-bold' : 'text-slate-600 group-hover:text-slate-400'}`}>
+                          {sortConfig.field === 'spread' ? (sortConfig.direction === 'asc' ? '▲' : '▼') : '↕'}
+                        </span>
+                      </div>
+                    </th>
                     <th className="py-2.5 px-3">平仓时间</th>
-                    <th className="py-2.5 px-3 text-right">盈亏</th>
+                    <th
+                      onClick={() => handleSort('profitLoss')}
+                      className="py-2.5 px-3 text-right cursor-pointer select-none hover:text-emerald-300 transition-colors group"
+                      title="点击按当前页盈亏排序 (降序/升序/恢复默认)"
+                    >
+                      <div className="inline-flex items-center justify-end gap-1 w-full">
+                        <span>盈亏</span>
+                        <span className={`text-[10px] font-mono transition-colors ${sortConfig.field === 'profitLoss' ? 'text-emerald-400 font-bold' : 'text-slate-600 group-hover:text-slate-400'}`}>
+                          {sortConfig.field === 'profitLoss' ? (sortConfig.direction === 'asc' ? '▲' : '▼') : '↕'}
+                        </span>
+                      </div>
+                    </th>
                     <th className="py-2.5 px-3 text-center">动作</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-800/60">
-                  {trades.map((trade) => {
+                  {paginatedTrades.map((trade) => {
                     const isProfit = trade.profitLoss != null && trade.profitLoss >= 0;
                     return (
                       <tr
@@ -3443,6 +4740,63 @@
                 </tbody>
               </table>
             </div>
+
+            {/* 分页控制栏 (每页50条) */}
+            {trades.length > 0 && (
+              <div className="flex flex-col sm:flex-row items-center justify-between gap-3 pt-4 mt-4 border-t border-slate-800 text-xs font-mono">
+                <div className="text-slate-400">
+                  显示第 <span className="text-slate-100 font-bold">{startIndex + 1}</span> - <span className="text-slate-100 font-bold">{Math.min(endIndex, trades.length)}</span> 条，
+                  共 <span className="text-cyan-400 font-bold">{trades.length}</span> 条数据
+                  <span className="text-slate-500 ml-1.5">[每页 50 条 ｜ 第 {validCurrentPage} / {totalPages} 页]</span>
+                </div>
+
+                <div className="flex flex-wrap items-center gap-1.5">
+                  <button
+                    onClick={() => setCurrentPage(1)}
+                    disabled={validCurrentPage === 1}
+                    className="px-2.5 py-1 rounded bg-[#05080c] hover:bg-slate-800 disabled:opacity-30 disabled:hover:bg-[#05080c] border border-slate-700 text-slate-300 text-xs transition-colors"
+                  >
+                    &laquo; 首页
+                  </button>
+                  <button
+                    onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
+                    disabled={validCurrentPage === 1}
+                    className="px-2.5 py-1 rounded bg-[#05080c] hover:bg-slate-800 disabled:opacity-30 disabled:hover:bg-[#05080c] border border-slate-700 text-slate-300 text-xs transition-colors"
+                  >
+                    &lsaquo; 上一页
+                  </button>
+
+                  {getPageNumbers().map(p => (
+                    <button
+                      key={p}
+                      onClick={() => setCurrentPage(p)}
+                      className={`min-w-[30px] h-7 px-2 rounded text-xs font-bold transition-all ${
+                        validCurrentPage === p
+                          ? 'bg-emerald-500/25 text-emerald-300 border border-emerald-400 shadow-sm shadow-emerald-500/30'
+                          : 'bg-[#05080c] hover:bg-slate-800 border border-slate-700 text-slate-400 hover:text-slate-200'
+                      }`}
+                    >
+                      {p}
+                    </button>
+                  ))}
+
+                  <button
+                    onClick={() => setCurrentPage(prev => Math.min(totalPages, prev + 1))}
+                    disabled={validCurrentPage === totalPages}
+                    className="px-2.5 py-1 rounded bg-[#05080c] hover:bg-slate-800 disabled:opacity-30 disabled:hover:bg-[#05080c] border border-slate-700 text-slate-300 text-xs transition-colors"
+                  >
+                    下一页 &rsaquo;
+                  </button>
+                  <button
+                    onClick={() => setCurrentPage(totalPages)}
+                    disabled={validCurrentPage === totalPages}
+                    className="px-2.5 py-1 rounded bg-[#05080c] hover:bg-slate-800 disabled:opacity-30 disabled:hover:bg-[#05080c] border border-slate-700 text-slate-300 text-xs transition-colors"
+                  >
+                    末页 &raquo;
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
         </div>
       );

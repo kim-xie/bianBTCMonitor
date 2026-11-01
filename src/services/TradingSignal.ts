@@ -97,9 +97,9 @@ export class TradingSignalService {
       // 进行技术分析和预测
       const prediction = await this.technicalAnalysis.predictDirection(sortedHistory, fiveMinuteKlines);
 
-      // 判断是否生成交易信号
-      if (prediction.confidence < this.CONFIDENCE_THRESHOLD) {
-        console.log(`置信度(${prediction.confidence}%)低于阈值(${this.CONFIDENCE_THRESHOLD}%)，不生成信号`);
+      // 判断是否生成交易信号（已去掉置信度与振幅过滤，只要检测到6连涨/6连跌形态即直接触发信号）
+      if (!prediction || prediction.reasoning.length === 0) {
+        console.log('未检测到6连涨/6连跌形态，不生成交易信号');
         return null;
       }
 
@@ -177,25 +177,20 @@ export class TradingSignalService {
   /**
    * 生成推荐操作
    */
-  private generateRecommendedAction(prediction: PredictionResult, currentPrice: number): string {
-    const { confidence, direction } = prediction;
+  private generateRecommendedAction(prediction: PredictionResult, _currentPrice: number): string {
+    const { direction, confidence, reasoning } = prediction;
+    const isTrend = reasoning.some(r => r.includes('趋势策略'));
 
     if (direction === 'UP') {
-      if (confidence >= 85) {
-        return `强烈建议开仓做多 - 高置信度(${confidence}%)看涨信号`;
-      } else if (confidence >= 75) {
-        return `建议开仓做多 - 中等置信度(${confidence}%)看涨信号`;
-      } else {
-        return `谨慎开仓做多 - 较低置信度(${confidence}%)看涨信号`;
+      if (isTrend) {
+        return `建议开仓做多 - EMA多头回踩反包阳线 (置信度: ${confidence}%)`;
       }
+      return '建议开仓做多 - 5分钟6连跌超跌反弹信号';
     } else {
-      if (confidence >= 85) {
-        return `强烈建议开仓做空 - 高置信度(${confidence}%)看跌信号`;
-      } else if (confidence >= 75) {
-        return `建议开仓做空 - 中等置信度(${confidence}%)看跌信号`;
-      } else {
-        return `谨慎开仓做空 - 较低置信度(${confidence}%)看跌信号`;
+      if (isTrend) {
+        return `建议开仓做空 - EMA空头反弹反包阴线 (置信度: ${confidence}%)`;
       }
+      return '建议开仓做空 - 5分钟6连涨超买回落信号';
     }
   }
 
@@ -302,7 +297,6 @@ export class TradingSignalService {
             `预测方向: ${signal.prediction === 'UP' ? '上涨' : '下跌'}\n` +
             `买入金额: ${signal.investmentAmount}\n` +
             `当前价格: ${currentPrice.toFixed(2)} USDT\n` +
-            `置信度: ${signal.confidence}%\n` +
             `K线时间: ${new Date(klineCloseTime).toLocaleString()}\n` +
             `推荐操作: ${signal.recommendedAction}\n\n` +
             `分析依据:\n${signal.reasoning.map(reason => `- ${reason}`).join('\n')}\n\n` +

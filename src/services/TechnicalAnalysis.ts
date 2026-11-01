@@ -119,161 +119,198 @@ export class TechnicalAnalysisService {
     let score = 0;
     const reasoning: string[] = [];
 
-    // 判断5分钟K线主要趋势方向
-    const isBullishTrend = indicators.ema50 > indicators.ema150;
-    const isBearishTrend = indicators.ema50 < indicators.ema150;
-
-    // 寻找回调入场机会（动态EMA50缓冲区，BTC在80,000点附近时约为35-50点，适配波动率）
-    const ema50Range = Math.max(30, this.lastFiveMinuteClosePrice * 0.0005);
-
-    console.log('isBullishTrend:', isBullishTrend);
-    console.log('ema50:', indicators.ema50);
-    console.log('ema150:', indicators.ema150);
-    console.log('ema50Range:', ema50Range);
-
     /**
-     * 策略体系（基于89笔实盘验证优化）：
-     * 1. EMA50回踩/反弹顺势（胜率76.9%）—— 仅EMA50，已下线EMA150（胜率33%）
-     * 2. 5连跌超跌反弹做多（胜率68.4%，价差≥120）—— 已下线5连涨猜顶（胜率36.7%）
-     * 3. 偏离EMA50超1.2%均值回归（胜率100%）
-     * 4. 同向10分钟持仓互斥（TradingSignal.ts），防连续吃损
+     * 1. 反转策略：5分钟周期 6连涨做空、6连跌做多（无振幅过滤）
      */
-    if (isBullishTrend) {
-      if (!this.isFiveMinuteUsed) {
-        // 上涨趋势中寻找EMA50回调做多机会
-        // 条件：收盘价在EMA50上方指定范围内且没有长上影线
-        if (this.lastFiveMinuteClosePrice >= indicators.ema50 &&
-          this.lastFiveMinuteClosePrice <= indicators.ema50 + ema50Range &&
-          !this.isUpperShadowTooLarge(lastFiveKline)) {
-          score += 80;
-          reasoning.push(`趋势策略: 多头回踩EMA50做多｜收盘${this.lastFiveMinuteClosePrice.toFixed(0)} ≈ EMA50 ${indicators.ema50.toFixed(0)}`);
-        }
-        // 注意：EMA150深幅回调在实盘表现为破位下跌（胜率仅33%），已下线
-      }
-    } else if (isBearishTrend) {
-      if (!this.isFiveMinuteUsed) {
-        // 下跌趋势中寻找EMA50反弹做空机会
-        // 条件：收盘价在EMA50下方指定范围内且没有长下影线
-        if (this.lastFiveMinuteClosePrice >= indicators.ema50 - ema50Range &&
-          this.lastFiveMinuteClosePrice <= indicators.ema50 &&
-          !this.isLowerShadowTooLarge(lastFiveKline)) {
-          score -= 80;
-          reasoning.push(`趋势策略: 空头反弹EMA50做空｜收盘${this.lastFiveMinuteClosePrice.toFixed(0)} ≈ EMA50 ${indicators.ema50.toFixed(0)}`);
-        }
-        // 注意：EMA150反弹在实盘表现为多头突破（胜率仅33%），已下线
-      }
-    }
+    if (!this.isFiveMinuteUsed && fiveMinuteKlines.length >= 6) {
+      const recentSixCandles = fiveMinuteKlines.slice(-6); // 最近6根K线
 
-    // 趋势策略：EMA50/EMA200平行趋势 - 仅保留上升趋势平行回踩（下降平行回踩在实盘3笔全损，已停用）
-    if (!this.isFiveMinuteUsed) {
-      const emaTrendStrategy = this.detectEma200TrendPullbackStrategy(fiveMinuteKlines);
-      if (emaTrendStrategy && emaTrendStrategy.direction === 'UP') {
-        score += 80;
-        reasoning.push(emaTrendStrategy.reasoning);
-      }
-    }
-
-    // 5连跌超跌反弹策略（实盘表现优异）
-    if (!this.isFiveMinuteUsed && fiveMinuteKlines.length >= 5) {
-      const recentFiveCandles = fiveMinuteKlines.slice(-5); // 最近5根K线
-
-      // 计算最近5根K线中的最高价和最低价
-      const highestHigh = Math.max(...recentFiveCandles.map(k => k.high));
-      const lowestLow = Math.min(...recentFiveCandles.map(k => k.low));
+      // 计算最近6根K线中的最高价和最低价
+      const highestHigh = Math.max(...recentSixCandles.map(k => k.high));
+      const lowestLow = Math.min(...recentSixCandles.map(k => k.low));
       const priceRange = highestHigh - lowestLow;
 
-      console.log(`最近5根K线: 最高价=${highestHigh.toFixed(2)}, 最低价=${lowestLow.toFixed(2)}, 价差=${priceRange.toFixed(2)}`);
+      console.log(`最近6根K线: 最高价=${highestHigh.toFixed(2)}, 最低价=${lowestLow.toFixed(2)}, 价差=${priceRange.toFixed(2)}`);
 
-      const is5ConsecutiveDown = this.checkConsecutiveTrend(recentFiveCandles, 'DOWN');
+      const is6ConsecutiveDown = this.checkConsecutiveTrend(recentSixCandles, 'DOWN', 6);
+      const is6ConsecutiveUp = this.checkConsecutiveTrend(recentSixCandles, 'UP', 6);
 
-      // 5连跌且价差达到有效阈值（至少120点，防止窄幅震荡误触）时进场做多
-      if (is5ConsecutiveDown && priceRange >= 120) {
-        score += 80;
-        reasoning.push(`反转策略: 5连跌超跌反弹做多｜价差${priceRange.toFixed(0)}点`);
+      // 6连跌：直接做多
+      if (is6ConsecutiveDown) {
+        score = 100;
+        reasoning.push(`反转策略: 6连跌做多｜价差${priceRange.toFixed(0)}点`);
       }
-      // 5连涨做空已下线：BTC上涨常伴随空头挤压（Short Squeeze），逆势摸顶亏损严重
-    }
 
-    // 长下影阳线吞没前一根阴线
-    if (!this.isFiveMinuteUsed && fiveMinuteKlines.length >= 2) {
-      const currentKline = fiveMinuteKlines[fiveMinuteKlines.length - 1];
-      const previousKline = fiveMinuteKlines[fiveMinuteKlines.length - 2];
-
-      // 判断当前K线是否为阳线
-      const isCurrentBullish = currentKline.close > currentKline.open;
-      // 判断前一根K线是否为阴线
-      const isPreviousBearish = previousKline.close < previousKline.open;
-
-      // 计算当前K线的下影线长度
-      const currentLowerShadow = currentKline.open - currentKline.low;
-
-      // 计算当前K线的实体长度
-      const currentBodyLength = Math.abs(currentKline.close - currentKline.open);
-
-      // 判断是否为长下影线（下影线长度大于实体长度）
-      const isLongLowerShadow = currentLowerShadow > currentBodyLength;
-
-      // 前一根必须是阴线，且当前K线的收盘价高于前一根阴线的最高价，开盘价低于前一根阴线的收盘价
-      const isEngulfing = isPreviousBearish && currentKline.close >= previousKline.high;
-
-      if (isCurrentBullish && isPreviousBearish && isLongLowerShadow && isEngulfing) {
-        score += 80;
-        reasoning.push(`反转策略: 长下影阳线吞没做多`);
+      // 6连涨：直接做空
+      if (is6ConsecutiveUp) {
+        score = -100;
+        reasoning.push(`反转策略: 6连涨做空｜价差${priceRange.toFixed(0)}点`);
       }
     }
 
-    // 长上影阴线吞没前一根阳线
-    if (!this.isFiveMinuteUsed && fiveMinuteKlines.length >= 2) {
-      const currentKline = fiveMinuteKlines[fiveMinuteKlines.length - 1];
-      const previousKline = fiveMinuteKlines[fiveMinuteKlines.length - 2];
+    /**
+     * 2. 趋势做多策略（红框K线形态）：
+     * - 上涨趋势：EMA50 > EMA200
+     * - 形态识别：阴线回调后收出关键反包阳线（阳线收盘反包阴线开盘价，或实体强反转刺透）
+     * - 置信度规则：越靠近均线（EMA50或EMA200），置信度越高
+     */
+    if (!this.isFiveMinuteUsed && score === 0 && fiveMinuteKlines.length >= 2) {
+      const isUptrend = indicators.ema50 > indicators.ema200;
+      if (isUptrend) {
+        const prevKline = fiveMinuteKlines[fiveMinuteKlines.length - 2];
+        const currKline = fiveMinuteKlines[fiveMinuteKlines.length - 1];
 
-      // 判断当前K线是否为阴线
-      const isCurrentBearish = currentKline.close < currentKline.open;
-      // 判断前一根K线是否为阳线
-      const isPreviousBullish = previousKline.close > previousKline.open;
+        const prevOpen = +prevKline.open;
+        const prevClose = +prevKline.close;
+        const currOpen = +currKline.open;
+        const currClose = +currKline.close;
+        const currLow = +currKline.low;
+        const currHigh = +currKline.high;
+        const prevLow = +prevKline.low;
+        const prevHigh = +prevKline.high;
 
-      // 计算当前K线的上影线长度
-      const currentUpperShadow = currentKline.high - currentKline.open;
+        const isPrevBearish = prevClose < prevOpen;
+        const isCurrBullish = currClose > currOpen;
 
-      // 计算当前K线的实体长度
-      const currentBodyLength = Math.abs(currentKline.close - currentKline.open);
+        const prevBody = Math.abs(prevOpen - prevClose);
+        const currBody = Math.abs(currClose - currOpen);
 
-      // 判断是否为长上影线（上影线长度大于实体长度的1倍）
-      const isLongUpperShadow = currentUpperShadow > currentBodyLength;
+        // 形态判断：前阴后阳，且阳线收盘反包阴线开盘价，或实体覆盖前阴80%以上且收在前阴中点上方
+        const isEngulfing = currClose >= prevOpen;
+        const isStrongPiercing = currClose > (prevOpen + prevClose) / 2 && currBody >= prevBody * 0.8 && currClose > prevClose;
 
-      // 前一根必须是阳线，且当前K线的收盘价低于前一根K线的开盘价，开盘价高于前一根K线的收盘价
-      const isEngulfing = isPreviousBullish && currentKline.close <= previousKline.low;
+        if (isPrevBearish && isCurrBullish && (isEngulfing || isStrongPiercing)) {
+          const ema50 = indicators.ema50;
+          const ema200 = indicators.ema200;
 
-      if (isCurrentBearish && isPreviousBullish && isLongUpperShadow && isEngulfing) {
-        score -= 80;
-        reasoning.push(`反转策略: 长上影阴线吞没做空`);
+          // 检查这两根K线是否触碰或包含 EMA50 或 EMA200
+          const minLow = Math.min(prevLow, currLow);
+          const maxHigh = Math.max(prevHigh, currHigh);
+
+          const touchesEma50 = minLow <= ema50 && maxHigh >= ema50;
+          const touchesEma200 = minLow <= ema200 && maxHigh >= ema200;
+
+          let confidence = 70;
+          let maTag = '';
+
+          if (touchesEma50 || touchesEma200) {
+            // 直接踩在均线上，赋予最高置信度 95%
+            confidence = 95;
+            maTag = touchesEma50 ? '回踩EMA50(踩线)' : '回踩EMA200(踩线)';
+          } else {
+            // 未直接触线，计算距离 EMA50 或 EMA200 的最近距离百分比
+            const distEma50Pct = (Math.abs(currClose - ema50) / ema50) * 100;
+            const distEma200Pct = (Math.abs(currClose - ema200) / ema200) * 100;
+
+            const isNear50 = distEma50Pct <= distEma200Pct;
+            const minDistPct = isNear50 ? distEma50Pct : distEma200Pct;
+            const targetMa = isNear50 ? 'EMA50' : 'EMA200';
+
+            // 越靠近均线置信度越高（梯度：90% -> 85% -> 80% -> 75% -> 70%）
+            if (minDistPct <= 0.15) {
+              confidence = 90;
+            } else if (minDistPct <= 0.35) {
+              confidence = 85;
+            } else if (minDistPct <= 0.65) {
+              confidence = 80;
+            } else if (minDistPct <= 1.0) {
+              confidence = 75;
+            } else {
+              confidence = 70;
+            }
+
+            maTag = `距${targetMa} ${minDistPct.toFixed(2)}%`;
+          }
+
+          score = confidence;
+          reasoning.push(`趋势策略: EMA多头回踩反包做多｜${maTag}｜置信度${confidence}%`);
+        }
       }
     }
 
+    /**
+     * 3. 趋势做空策略（下跌趋势镜像）：
+     * - 下跌趋势：EMA50 < EMA200
+     * - 形态识别：阳线反弹后收出关键反包阴线（阴线收盘跌破阳线开盘价，或实体强反转刺透）
+     * - 置信度规则：越靠近均线（EMA50或EMA200），置信度越高
+     */
+    if (!this.isFiveMinuteUsed && score === 0 && fiveMinuteKlines.length >= 2) {
+      const isDowntrend = indicators.ema50 < indicators.ema200;
+      if (isDowntrend) {
+        const prevKline = fiveMinuteKlines[fiveMinuteKlines.length - 2];
+        const currKline = fiveMinuteKlines[fiveMinuteKlines.length - 1];
 
-    // 偏离均线策略
-    if (!this.isFiveMinuteUsed) {
-      // 计算当前5分钟K线收盘价偏离EMA50的涨幅
-      const deviation = this.lastFiveMinuteClosePrice - indicators.ema50;
-      const deviationPercent = (deviation / indicators.ema50) * 100;
+        const prevOpen = +prevKline.open;
+        const prevClose = +prevKline.close;
+        const currOpen = +currKline.open;
+        const currClose = +currKline.close;
+        const currLow = +currKline.low;
+        const currHigh = +currKline.high;
+        const prevLow = +prevKline.low;
+        const prevHigh = +prevKline.high;
 
-      console.log(`偏离EMA50: ${deviationPercent.toFixed(2)}% (${deviation.toFixed(0)}点)`);
+        const isPrevBullish = prevClose > prevOpen; // 前一根为阳线反弹
+        const isCurrBearish = currClose < currOpen; // 当前根为阴线下杀
 
-      // 5分钟K线收盘价偏离EMA50超过1.2%
-      if (deviationPercent > 1.2) {
-        score -= 80;
-        reasoning.push(`反转策略: 偏离EMA50做空｜${this.lastFiveMinuteClosePrice.toFixed(0)} vs ${indicators.ema50.toFixed(0)} (+${deviationPercent.toFixed(1)}%)`);
-      }
+        const prevBody = Math.abs(prevClose - prevOpen);
+        const currBody = Math.abs(currClose - currOpen);
 
-      if (deviationPercent < -1.2) {
-        score += 80;
-        reasoning.push(`反转策略: 偏离EMA50做多｜${this.lastFiveMinuteClosePrice.toFixed(0)} vs ${indicators.ema50.toFixed(0)} (${deviationPercent.toFixed(1)}%)`);
+        // 形态判断：前阳后阴，且阴线收盘跌破阳线开盘价，或实体覆盖前阳80%以上且收在前阳中点下方
+        const isEngulfing = currClose <= prevOpen;
+        const isStrongPiercing = currClose < (prevOpen + prevClose) / 2 && currBody >= prevBody * 0.8 && currClose < prevClose;
+
+        if (isPrevBullish && isCurrBearish && (isEngulfing || isStrongPiercing)) {
+          const ema50 = indicators.ema50;
+          const ema200 = indicators.ema200;
+
+          // 检查这两根K线是否触碰或包含 EMA50 或 EMA200
+          const minLow = Math.min(prevLow, currLow);
+          const maxHigh = Math.max(prevHigh, currHigh);
+
+          const touchesEma50 = minLow <= ema50 && maxHigh >= ema50;
+          const touchesEma200 = minLow <= ema200 && maxHigh >= ema200;
+
+          let confidence = 70;
+          let maTag = '';
+
+          if (touchesEma50 || touchesEma200) {
+            // 直接触碰或受阻于均线，赋予最高置信度 95%
+            confidence = 95;
+            maTag = touchesEma50 ? '反弹EMA50(碰线)' : '反弹EMA200(碰线)';
+          } else {
+            // 未直接触线，计算距离 EMA50 或 EMA200 的最近距离百分比
+            const distEma50Pct = (Math.abs(currClose - ema50) / ema50) * 100;
+            const distEma200Pct = (Math.abs(currClose - ema200) / ema200) * 100;
+
+            const isNear50 = distEma50Pct <= distEma200Pct;
+            const minDistPct = isNear50 ? distEma50Pct : distEma200Pct;
+            const targetMa = isNear50 ? 'EMA50' : 'EMA200';
+
+            // 越靠近均线置信度越高（梯度：90% -> 85% -> 80% -> 75% -> 70%）
+            if (minDistPct <= 0.15) {
+              confidence = 90;
+            } else if (minDistPct <= 0.35) {
+              confidence = 85;
+            } else if (minDistPct <= 0.65) {
+              confidence = 80;
+            } else if (minDistPct <= 1.0) {
+              confidence = 75;
+            } else {
+              confidence = 70;
+            }
+
+            maTag = `距${targetMa} ${minDistPct.toFixed(2)}%`;
+          }
+
+          score = -confidence;
+          reasoning.push(`趋势策略: EMA空头反弹反包做空｜${maTag}｜置信度${confidence}%`);
+        }
       }
     }
 
-    // 确定趋势方向
+    // 确定趋势方向与置信度
     const direction = score > 0 ? 'UP' : 'DOWN';
-    const confidence = Math.min(Math.abs(score), 100);
+    const confidence = Math.abs(score);
 
     return {
       direction,
@@ -305,11 +342,11 @@ export class TechnicalAnalysisService {
 
   /**
    * 检查是否是连续趋势
-   * 5连涨：必须是阳线（收盘价 > 开盘价）且收盘价连续上涨
-   * 5连跌：必须是阴线（收盘价 < 开盘价）且收盘价连续下跌
+   * 6连涨：必须是阳线（收盘价 > 开盘价）且收盘价连续上涨
+   * 6连跌：必须是阴线（收盘价 < 开盘价）且收盘价连续下跌
    */
-  private checkConsecutiveTrend(candles: IPriceData[], direction: 'UP' | 'DOWN'): boolean {
-    if (candles.length < 5) return false;
+  private checkConsecutiveTrend(candles: any[], direction: 'UP' | 'DOWN', targetCount: number = 6): boolean {
+    if (candles.length < targetCount) return false;
 
     for (let i = 0; i < candles.length; i++) {
       const currentCandle = candles[i];
@@ -317,7 +354,7 @@ export class TechnicalAnalysisService {
       const currentOpen = +currentCandle.open;
 
       if (direction === 'UP') {
-        // 5连涨：必须是阳线（收盘价 > 开盘价）
+        // 连涨：必须是阳线（收盘价 > 开盘价）
         if (currentClose <= currentOpen) {
           return false;
         }
@@ -330,7 +367,7 @@ export class TechnicalAnalysisService {
           }
         }
       } else {
-        // 5连跌：必须是阴线（收盘价 < 开盘价）
+        // 连跌：必须是阴线（收盘价 < 开盘价）
         if (currentClose >= currentOpen) {
           return false;
         }

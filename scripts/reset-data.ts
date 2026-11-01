@@ -22,7 +22,7 @@ async function resetData() {
 
     console.log('\n🎉 数据清空完成！现在可以重新开始了。');
     console.log('重置后状态：');
-    console.log('- 💰 资金重置为初始值: 100U');
+    console.log('- 💰 资金重置为初始值: 500U');
     console.log('- 📊 交易记录: 0');
     console.log('- 📈 统计数据: 全部清零');
     console.log('- 🔄 可以重新开始交易');

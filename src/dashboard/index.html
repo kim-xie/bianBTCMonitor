@@ -81,30 +81,71 @@
         const r = (trade.reasoning && trade.reasoning[0]) || '';
         const isLong = trade.signal === 'BUY';
 
+        if (r.includes('EMA多头回踩反包') || (r.includes('反包') && r.includes('做多'))) {
+          return {
+            id: 'trend_ema_engulfing',
+            category: '趋势策略',
+            type: 'trend',
+            name: 'EMA多头 回踩反包做多',
+            direction: 'BUY',
+            desc: 'EMA50>EMA200上涨趋势中，阴线回调后关键阳线反包做多，越靠近均线置信度越高',
+            status: 'active',
+            statusLabel: '核心趋势',
+            keyword: '反包'
+          };
+        }
+        if (r.includes('EMA空头反弹反包') || (r.includes('反包') && (r.includes('做空') || !isLong))) {
+          return {
+            id: 'trend_ema_engulfing_short',
+            category: '趋势策略',
+            type: 'trend',
+            name: 'EMA空头 反弹反包做空',
+            direction: 'SELL',
+            desc: 'EMA50<EMA200下跌趋势中，阳线反弹后关键阴线反包做空，越靠近均线置信度越高',
+            status: 'active',
+            statusLabel: '核心趋势',
+            keyword: '反包'
+          };
+        }
+        if (r.includes('6连跌') || r.includes('5连跌')) {
+          const is6 = r.includes('6连跌');
+          return {
+            id: is6 ? '6down_long' : '5down_long',
+            category: '反转策略',
+            type: 'reversal',
+            name: is6 ? '6连跌 做多' : '5连跌 超跌反弹做多 (已下线)',
+            direction: 'BUY',
+            desc: is6 ? '连续6根5分阴线直接做多（无振幅过滤）' : '历史5连阴策略（已下线停用）',
+            status: is6 ? 'active' : 'disabled',
+            statusLabel: is6 ? '主力王牌' : '已下线',
+            keyword: is6 ? '6连跌' : '5连跌'
+          };
+        }
+        if (r.includes('6连涨') || r.includes('5连涨')) {
+          const is6 = r.includes('6连涨');
+          return {
+            id: is6 ? '6up_short' : '5up_short',
+            category: '反转策略',
+            type: 'reversal',
+            name: is6 ? '6连涨 做空' : '5连涨 逆势猜顶做空 (已下线)',
+            direction: 'SELL',
+            desc: is6 ? '连续6根5分阳线直接做空（无振幅过滤）' : '历史5连阳策略（已下线停用）',
+            status: is6 ? 'active' : 'disabled',
+            statusLabel: is6 ? '主力做空' : '已下线',
+            keyword: is6 ? '6连涨' : '5连涨'
+          };
+        }
         if (r.includes('EMA50') && (r.includes('回踩') || r.includes('反弹') || r.includes('上涨趋势') || r.includes('下跌趋势')) && !r.includes('EMA200') && !r.includes('偏离')) {
           return {
             id: isLong ? 'ema50_long' : 'ema50_short',
             category: '趋势策略',
             type: 'trend',
-            name: isLong ? 'EMA50 回调顺势做多' : 'EMA50 反弹顺势做空',
+            name: isLong ? 'EMA50 回调顺势做多 (已下线)' : 'EMA50 反弹顺势做空 (已下线)',
             direction: isLong ? 'BUY' : 'SELL',
             desc: isLong ? '顺大级别多头回踩均线做多' : '顺大级别空头反弹均线做空',
-            status: 'active',
-            statusLabel: '核心主力',
+            status: 'disabled',
+            statusLabel: '已下线',
             keyword: 'EMA50'
-          };
-        }
-        if (r.includes('5连跌')) {
-          return {
-            id: '5down_long',
-            category: '反转策略',
-            type: 'reversal',
-            name: '5连跌 超跌反弹做多',
-            direction: 'BUY',
-            desc: '连续5根5分阴线放量超跌反弹',
-            status: 'active',
-            statusLabel: '主力王牌',
-            keyword: '5连跌'
           };
         }
         if (r.includes('偏离')) {
@@ -112,25 +153,12 @@
             id: isLong ? 'dev_long' : 'dev_short',
             category: '反转策略',
             type: 'reversal',
-            name: isLong ? 'EMA50 极值偏离做多' : 'EMA50 极值偏离做空',
+            name: isLong ? 'EMA50 极值偏离做多 (已下线)' : 'EMA50 极值偏离做空 (已下线)',
             direction: isLong ? 'BUY' : 'SELL',
             desc: '价格偏离EMA50超1.2%均值回归',
-            status: 'active',
-            statusLabel: '极端偏离',
-            keyword: '偏离'
-          };
-        }
-        if (r.includes('5连涨')) {
-          return {
-            id: '5up_short',
-            category: '反转策略',
-            type: 'reversal',
-            name: '5连涨 逆势猜顶做空',
-            direction: 'SELL',
-            desc: '连续5根阳线摸顶（易遭轧空已下线）',
             status: 'disabled',
-            statusLabel: '已下线止血',
-            keyword: '5连涨'
+            statusLabel: '已下线',
+            keyword: '偏离'
           };
         }
         if (r.includes('EMA200') || r.includes('平行')) {
@@ -138,11 +166,11 @@
             id: isLong ? 'ema200_long' : 'ema200_short',
             category: '趋势策略',
             type: 'trend',
-            name: isLong ? 'EMA50/200 平行上升做多' : 'EMA50/200 平行下降做空',
+            name: isLong ? 'EMA50/200 平行上升做多 (已下线)' : 'EMA50/200 平行下降做空 (已下线)',
             direction: isLong ? 'BUY' : 'SELL',
             desc: 'EMA50/EMA200大周期平行通道',
-            status: isLong ? 'active' : 'disabled',
-            statusLabel: isLong ? '运行中' : '已停用',
+            status: 'disabled',
+            statusLabel: '已下线',
             keyword: 'EMA200'
           };
         }
@@ -164,11 +192,11 @@
             id: isLong ? 'engulf_long' : 'engulf_short',
             category: '反转策略',
             type: 'reversal',
-            name: isLong ? '长下影阳线吞没做多' : '长上影阴线吞没做空',
+            name: isLong ? '长下影阳线吞没做多 (已下线)' : '长上影阴线吞没做空 (已下线)',
             direction: isLong ? 'BUY' : 'SELL',
             desc: '关键位置K线吞没反包形态',
-            status: 'testing',
-            statusLabel: '观察中',
+            status: 'disabled',
+            statusLabel: '已下线',
             keyword: '吞没'
           };
         }
@@ -474,7 +502,7 @@
                 </span>
               </div>
               <p className="text-xs text-slate-400 mb-4">
-                博弈短线动能衰竭与均值回归：重点基于 5连跌放量超跌与均线极值偏离
+                博弈短线动能衰竭与均值回归：仅运行 6连跌做多与 6连涨做空（5连涨/5连跌已全面下线）
               </p>
               <div className="grid grid-cols-3 gap-2 py-3 border-y border-slate-800 text-center">
                 <div>
@@ -699,30 +727,30 @@
             </div>
             <div className="grid grid-cols-1 md:grid-cols-4 gap-4 text-slate-300">
               <div className="p-3 rounded-xl bg-slate-800/40 border border-slate-700/40">
-                <div className="text-emerald-400 font-bold mb-1">✅ 聚焦 EMA50 黄金生命线</div>
+                <div className="text-emerald-400 font-bold mb-1">✅ 6连跌做多</div>
                 <p className="text-slate-400 leading-relaxed text-[11px]">
-                  仅在健康趋势回踩 EMA50 时顺势开仓（实盘胜率 76.9%）；下线了胜率仅 33% 的 EMA150 破位假支撑单。
+                  连续6根5分钟阴线且收盘价持续创新低，即直接进场做多（已移除振幅限制与置信度过滤门槛）。
                 </p>
               </div>
 
               <div className="p-3 rounded-xl bg-slate-800/40 border border-slate-700/40">
-                <div className="text-emerald-400 font-bold mb-1">✅ 5连跌超跌做多过滤</div>
+                <div className="text-cyan-400 font-bold mb-1">✅ 6连涨做空</div>
                 <p className="text-slate-400 leading-relaxed text-[11px]">
-                  5连跌超跌反弹是核心王牌（实盘胜率 68.4%），新增跌幅价差 ≥120 点过滤，杜绝窄幅横盘随机杂波。
+                  连续6根5分钟阳线且收盘价持续创新高，即直接进场做空（已移除振幅限制与置信度过滤门槛）。
                 </p>
               </div>
 
               <div className="p-3 rounded-xl bg-slate-800/40 border border-slate-700/40">
-                <div className="text-rose-400 font-bold mb-1">🛑 5连涨猜顶做空已下线</div>
+                <div className="text-amber-400 font-bold mb-1">✅ EMA双向顺势反包</div>
                 <p className="text-slate-400 leading-relaxed text-[11px]">
-                  历史实盘中 5 连涨做空产生 -102U 亏损（胜率仅 36.7%）。BTC 强单边多头极易轧空，已全面阻断以避免逆风送损。
+                  EMA50>200多头回踩反包做多，EMA50&lt;200空头反弹反包做空，越靠近均线置信度越高（最高95%）。
                 </p>
               </div>
 
               <div className="p-3 rounded-xl bg-slate-800/40 border border-slate-700/40">
                 <div className="text-cyan-400 font-bold mb-1">🔒 10分钟同向开仓互斥锁</div>
                 <p className="text-slate-400 leading-relaxed text-[11px]">
-                  已平仓结算前，10 分钟内禁止开出同方向新订单，杜绝单边逆势行情连续连开 4-5 单的马丁踩踏亏损。
+                  已平仓结算前，10 分钟内禁止开出同方向新订单，杜绝单边逆势行情连续连开的重复吃损。
                 </p>
               </div>
             </div>
@@ -1187,8 +1215,8 @@
       const [stats, setStats] = useState(null);
       const [recentTrades, setRecentTrades] = useState([]);
       const [allTrades, setAllTrades] = useState([]); // 所有交易数据，用于日历统计
-      const [currentBalance, setCurrentBalance] = useState(100); // 初始资金100U
-      const initialBalance = 100; // 初始资金常量
+      const [currentBalance, setCurrentBalance] = useState(500); // 初始资金500U
+      const initialBalance = 500; // 初始资金常量
       const [balanceHistory, setBalanceHistory] = useState([]);
       const [isConnected, setIsConnected] = useState(false);
       const [activeView, setActiveView] = useState(() => {
@@ -1293,7 +1321,7 @@
               // 如果历史为空，创建初始资金点
               newHistory = [{
                 time: new Date(Date.now() - 10 * 60 * 1000).toISOString(), // 10分钟前作为起点
-                balance: 100
+                balance: 500
               }];
             } else {
               // 直接使用prev，保留所有历史数据
@@ -1408,12 +1436,12 @@
                 // 确保资金历史包含初始资金点
                 let history = statsData.balanceHistory;
                 // 检查是否包含初始资金点
-                const hasInitialPoint = history.some(point => point.balance === 100);
+                const hasInitialPoint = history.some(point => point.balance === 500);
                 if (!hasInitialPoint) {
                   // 添加初始资金点
                   history = [{
                     time: new Date(Date.now() - 10 * 60 * 1000).toISOString(), // 10分钟前作为起点
-                    balance: 100
+                    balance: 500
                   }, ...history];
                 }
                 setBalanceHistory(history);
@@ -1422,7 +1450,7 @@
                 // 如果没有历史数据，至少显示当前点和初始资金点
                 setBalanceHistory([{
                   time: new Date(Date.now() - 10 * 60 * 1000).toISOString(), // 10分钟前作为起点
-                  balance: 100
+                  balance: 500
                 }, {
                   time: new Date().toISOString(),
                   balance: statsData.currentBalance

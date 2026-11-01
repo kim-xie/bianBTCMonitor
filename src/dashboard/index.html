@@ -1954,15 +1954,22 @@
         }
       };
 
-      // 语音播报工具（基于原生 Web Speech API，防 Chrome 静音与丢帧）
+      // 语音播报工具（基于原生 Web Speech API，防抖去重、防 Chrome 假死与自动唤醒）
+      const lastSpokenRef = React.useRef({ text: '', time: 0 });
+
       const speak = (text) => {
         try {
-          if (!('speechSynthesis' in window)) return;
-          // 确保合成器恢复运行状态
-          if (window.speechSynthesis.paused) {
-            window.speechSynthesis.resume();
+          if (!text || typeof window === 'undefined' || !('speechSynthesis' in window)) return;
+
+          // 防 2.5 秒内对相同文案重复播报（如 socket 与 polling 同时到达产生干扰）
+          const now = Date.now();
+          if (lastSpokenRef.current.text === text && (now - lastSpokenRef.current.time) < 2500) {
+            return;
           }
-          window.speechSynthesis.cancel();
+          lastSpokenRef.current = { text, time: now };
+
+          // 确保合成器处于唤醒运行状态
+          window.speechSynthesis.resume();
 
           const utter = new SpeechSynthesisUtterance(text);
           utter.lang = 'zh-CN';
@@ -1971,23 +1978,32 @@
           utter.volume = 1.0;
 
           // 优先匹配中文普通话声音
-          const voices = window.speechSynthesis.getVoices();
-          const zhVoice = voices.find(v => v.lang === 'zh-CN' || v.lang === 'zh_CN' || v.lang.startsWith('zh'));
+          const voices = window.speechSynthesis.getVoices() || [];
+          const zhVoice = voices.find(v => v.lang === 'zh-CN' || v.lang === 'zh_CN' || (v.lang && v.lang.startsWith('zh')));
           if (zhVoice) {
             utter.voice = zhVoice;
           }
 
-          // 保持引用防止被垃圾回收过早终止
+          utter.onstart = () => {
+            console.log('[BTC Voice] 开始语音播报:', text);
+          };
+          utter.onend = () => {
+            console.log('[BTC Voice] 语音播报完成:', text);
+          };
+          utter.onerror = (err) => {
+            console.warn('[BTC Voice] 语音播报异常:', err);
+            try { window.speechSynthesis.resume(); } catch (_) {}
+          };
+
+          // 保持全局引用防止垃圾回收过早终止
           window._lastUtterance = utter;
 
-          setTimeout(() => {
-            try {
-              window.speechSynthesis.resume();
-              window.speechSynthesis.speak(utter);
-            } catch (err) {
-              console.warn('speak execute error:', err);
-            }
-          }, 80);
+          // 若当前有滞留状态，进行安全重置后立即播报
+          if (window.speechSynthesis.speaking) {
+            window.speechSynthesis.cancel();
+          }
+          window.speechSynthesis.resume();
+          window.speechSynthesis.speak(utter);
         } catch (e) {
           console.warn('语音播报失败:', e);
         }
@@ -2002,7 +2018,7 @@
           price: 68250,
           closePrice: 68680,
           tradeType: 'LONG',
-          profitLoss: 8,
+          profitLoss: 80,
           profitLossPercent: 80,
           reasoning: ['BTC 5m 均线双金叉放量，顺势多头反包']
         };
@@ -2014,7 +2030,7 @@
 
         // 语音播报盈利结单
         const direction = resolvedTrade.tradeType === 'LONG' ? '做多' : resolvedTrade.tradeType === 'SHORT' ? '做空' : '';
-        const rawProfit = resolvedTrade.profitLoss !== undefined ? Math.abs(resolvedTrade.profitLoss) : 8;
+        const rawProfit = resolvedTrade.profitLoss !== undefined ? Math.abs(resolvedTrade.profitLoss) : 80;
         const amountStr = Number(rawProfit).toFixed(2);
         speak(`您的${direction}订单盈利达成，已结单到账 ${amountStr} U`);
       };
@@ -2029,7 +2045,7 @@
           price: 68600,
           closePrice: 68420,
           tradeType: 'SHORT',
-          profitLoss: -10,
+          profitLoss: -100,
           profitLossPercent: -100,
           reasoning: ['多空反转波动力度触发防守止损阈值']
         };
@@ -2041,7 +2057,7 @@
 
         // 语音播报止损结单
         const direction = resolvedTrade.tradeType === 'LONG' ? '做多' : resolvedTrade.tradeType === 'SHORT' ? '做空' : '';
-        const rawLoss = resolvedTrade.profitLoss !== undefined ? Math.abs(resolvedTrade.profitLoss) : 10;
+        const rawLoss = resolvedTrade.profitLoss !== undefined ? Math.abs(resolvedTrade.profitLoss) : 100;
         const amountStr = Number(rawLoss).toFixed(2);
         speak(`您的${direction}订单触及防守止损，已止损平仓 ${amountStr} U`);
       };
@@ -2062,6 +2078,7 @@
         setNewlyInsertedTradeIds(prev => new Set(prev).add(mockId));
         setRecentTrades(prev => [mockTrade, ...prev]);
         playSoundEffect('insert');
+        speak('您有新的做多订单');
         setTimeout(() => {
           setNewlyInsertedTradeIds(prev => {
             const next = new Set(prev);
@@ -2119,6 +2136,12 @@
             return updated;
           });
           playSoundEffect('insert');
+          // 获取最新开仓订单进行语音播报
+          const newestTrade = newTrades.find(t => t._id === insertedIds[0]);
+          if (newestTrade) {
+            const isBuy = newestTrade.tradeType === 'LONG' || newestTrade.signal === 'BUY';
+            speak(isBuy ? '您有新的做多订单' : '您有新的做空订单');
+          }
           setTimeout(() => {
             setNewlyInsertedTradeIds(prev => {
               const next = new Set(prev);
@@ -2182,23 +2205,36 @@
         });
         setSocketInstance(socket);
 
-        // 用户首次交互解锁音频与语音合成权限
+        // 用户首次交互解锁音频与语音合成权限（绝不调用空字符合成，避免挂起队列）
         const unlockAudio = () => {
           try {
-            if ('speechSynthesis' in window) {
+            if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
               window.speechSynthesis.resume();
-              const utter = new SpeechSynthesisUtterance(' ');
-              utter.volume = 0.01;
-              window.speechSynthesis.speak(utter);
+            }
+            const AudioContext = window.AudioContext || window.webkitAudioContext;
+            if (AudioContext) {
+              const ctx = new AudioContext();
+              ctx.resume();
             }
           } catch (e) { /* 忽略 */ }
-          ['click', 'touchstart', 'keydown'].forEach(ev => {
+          ['click', 'touchstart', 'keydown', 'pointerdown'].forEach(ev => {
             document.removeEventListener(ev, unlockAudio);
           });
         };
-        ['click', 'touchstart', 'keydown'].forEach(ev => {
+        ['click', 'touchstart', 'keydown', 'pointerdown'].forEach(ev => {
           document.addEventListener(ev, unlockAudio);
         });
+
+        // 定期保活语音合成引擎，防止 Chromium 15秒无声音后静默暂停
+        const ttsHeartbeat = setInterval(() => {
+          try {
+            if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
+              if (window.speechSynthesis.paused) {
+                window.speechSynthesis.resume();
+              }
+            }
+          } catch (_) {}
+        }, 6000);
 
         socket.on('connect', () => {
           setIsConnected(true);
@@ -2330,6 +2366,7 @@
         return () => {
           socket.disconnect();
           clearInterval(calendarUpdateInterval); // 清理定时器
+          clearInterval(ttsHeartbeat);
         };
       }, []); // 空依赖数组，只执行一次
 
@@ -2796,6 +2833,23 @@
                 </span>
                 <span className="text-slate-600">|</span>
                 <span className="text-slate-400 text-[11px]">SYS.NODE: btc-oracle-01</span>
+                <span className="text-slate-600">|</span>
+                <button
+                  onClick={() => {
+                    try {
+                      window.speechSynthesis.resume();
+                      playSoundEffect('victory');
+                      speak('BTC Oracle 语音播报运行正常');
+                    } catch (e) {
+                      console.warn(e);
+                    }
+                  }}
+                  className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded bg-cyan-500/10 hover:bg-cyan-500/25 text-cyan-300 border border-cyan-500/30 text-[11px] font-mono font-bold transition-all shadow-sm shadow-cyan-500/10"
+                  title="点击激活并测试浏览器语音播报"
+                >
+                  <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-pulse"></span>
+                  <span>🔊 语音测试</span>
+                </button>
               </div>
               <div className="flex items-center gap-2">
                 <span className="text-emerald-400 font-bold text-lg md:text-xl font-mono">&gt;</span>

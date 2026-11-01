@@ -97,6 +97,7 @@ const emitTradeClosed = (trade: any) => {
   if (announcedClosedTradeIds.has(id)) return;
   announcedClosedTradeIds.add(id);
   io.emit('tradeClosed', {
+    _id: trade._id,
     profitLoss: trade.profitLoss,
     isCorrect: trade.isCorrect,
     tradeType: trade.tradeType,

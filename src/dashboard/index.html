@@ -1954,43 +1954,96 @@
         }
       };
 
-      // 触发胜利动效（全屏火花纸屑 + HUD弹窗 + 音效）
+      // 语音播报工具（基于原生 Web Speech API，防 Chrome 静音与丢帧）
+      const speak = (text) => {
+        try {
+          if (!('speechSynthesis' in window)) return;
+          // 确保合成器恢复运行状态
+          if (window.speechSynthesis.paused) {
+            window.speechSynthesis.resume();
+          }
+          window.speechSynthesis.cancel();
+
+          const utter = new SpeechSynthesisUtterance(text);
+          utter.lang = 'zh-CN';
+          utter.rate = 1.05;
+          utter.pitch = 1.0;
+          utter.volume = 1.0;
+
+          // 优先匹配中文普通话声音
+          const voices = window.speechSynthesis.getVoices();
+          const zhVoice = voices.find(v => v.lang === 'zh-CN' || v.lang === 'zh_CN' || v.lang.startsWith('zh'));
+          if (zhVoice) {
+            utter.voice = zhVoice;
+          }
+
+          // 保持引用防止被垃圾回收过早终止
+          window._lastUtterance = utter;
+
+          setTimeout(() => {
+            try {
+              window.speechSynthesis.resume();
+              window.speechSynthesis.speak(utter);
+            } catch (err) {
+              console.warn('speak execute error:', err);
+            }
+          }, 80);
+        } catch (e) {
+          console.warn('语音播报失败:', e);
+        }
+      };
+
+      // 触发胜利动效（全屏火花纸屑 + HUD弹窗 + 音效 + 语音播报）
       const triggerVictoryEffect = (trade) => {
         launchCelebrationCanvas();
         playSoundEffect('victory');
+        const resolvedTrade = trade || {
+          _id: 'mock-win-' + Date.now(),
+          price: 68250,
+          closePrice: 68680,
+          tradeType: 'LONG',
+          profitLoss: 8,
+          profitLossPercent: 80,
+          reasoning: ['BTC 5m 均线双金叉放量，顺势多头反包']
+        };
         setSettlementEvent({
           type: 'WIN',
-          trade: trade || {
-            _id: 'mock-win-' + Date.now(),
-            price: 68250,
-            closePrice: 68680,
-            tradeType: 'LONG',
-            profitLoss: 8,
-            profitLossPercent: 80,
-            reasoning: ['BTC 5m 均线双金叉放量，顺势多头反包']
-          },
+          trade: resolvedTrade,
           key: Date.now()
         });
+
+        // 语音播报盈利结单
+        const direction = resolvedTrade.tradeType === 'LONG' ? '做多' : resolvedTrade.tradeType === 'SHORT' ? '做空' : '';
+        const rawProfit = resolvedTrade.profitLoss !== undefined ? Math.abs(resolvedTrade.profitLoss) : 8;
+        const amountStr = Number(rawProfit).toFixed(2);
+        speak(`您的${direction}订单盈利达成，已结单到账 ${amountStr} U`);
       };
 
-      // 触发亏损/止损动效（屏幕暗红边缘脉冲 + HUD弹窗 + 告警音效）
+      // 触发亏损/止损动效（屏幕暗红边缘脉冲 + HUD弹窗 + 告警音效 + 语音播报）
       const triggerLossEffect = (trade) => {
         setShowScreenLossFlash(true);
         setTimeout(() => setShowScreenLossFlash(false), 2000);
         playSoundEffect('loss');
+        const resolvedTrade = trade || {
+          _id: 'mock-loss-' + Date.now(),
+          price: 68600,
+          closePrice: 68420,
+          tradeType: 'SHORT',
+          profitLoss: -10,
+          profitLossPercent: -100,
+          reasoning: ['多空反转波动力度触发防守止损阈值']
+        };
         setSettlementEvent({
           type: 'LOSS',
-          trade: trade || {
-            _id: 'mock-loss-' + Date.now(),
-            price: 68600,
-            closePrice: 68420,
-            tradeType: 'SHORT',
-            profitLoss: -10,
-            profitLossPercent: -100,
-            reasoning: ['多空反转波动力度触发防守止损阈值']
-          },
+          trade: resolvedTrade,
           key: Date.now()
         });
+
+        // 语音播报止损结单
+        const direction = resolvedTrade.tradeType === 'LONG' ? '做多' : resolvedTrade.tradeType === 'SHORT' ? '做空' : '';
+        const rawLoss = resolvedTrade.profitLoss !== undefined ? Math.abs(resolvedTrade.profitLoss) : 10;
+        const amountStr = Number(rawLoss).toFixed(2);
+        speak(`您的${direction}订单触及防守止损，已止损平仓 ${amountStr} U`);
       };
 
       // 触发测试新订单插入动效
@@ -2129,34 +2182,23 @@
         });
         setSocketInstance(socket);
 
-        // 语音播报工具（浏览器原生 Web Speech API，零依赖）
-        const speak = (text) => {
+        // 用户首次交互解锁音频与语音合成权限
+        const unlockAudio = () => {
           try {
             if ('speechSynthesis' in window) {
-              window.speechSynthesis.cancel();
-              const utter = new SpeechSynthesisUtterance(text);
-              utter.lang = 'zh-CN';
-              utter.rate = 1.1;
-              // Chrome下cancel后立即speak可能被吞掉，延迟一拍确保播报生效
-              setTimeout(() => window.speechSynthesis.speak(utter), 60);
-            }
-          } catch (e) {
-            console.warn('语音播报失败:', e);
-          }
-        };
-
-        // Chrome要求用户先与页面交互才允许语音合成，首次点击时播一条静音内容解锁
-        const primeSpeech = () => {
-          try {
-            if ('speechSynthesis' in window) {
+              window.speechSynthesis.resume();
               const utter = new SpeechSynthesisUtterance(' ');
-              utter.volume = 0;
+              utter.volume = 0.01;
               window.speechSynthesis.speak(utter);
             }
           } catch (e) { /* 忽略 */ }
-          document.removeEventListener('click', primeSpeech);
+          ['click', 'touchstart', 'keydown'].forEach(ev => {
+            document.removeEventListener(ev, unlockAudio);
+          });
         };
-        document.addEventListener('click', primeSpeech);
+        ['click', 'touchstart', 'keydown'].forEach(ev => {
+          document.addEventListener(ev, unlockAudio);
+        });
 
         socket.on('connect', () => {
           setIsConnected(true);
@@ -2189,13 +2231,15 @@
           setCurrentSignal(null);
         });
 
-        // 订单结算语音播报
+        // 订单结算动效与语音总入口
         socket.on('tradeClosed', (result) => {
-          const direction = result.tradeType === 'LONG' ? '做多' : '做空';
-          const isProfit = result.profitLoss >= 0;
-          const action = isProfit ? '到账' : '亏损';
-          const amount = formatAmountU(Math.abs(result.profitLoss));
-          speak(`您的${direction}订单${action} ${amount}`);
+          if (!result) return;
+          const isProfit = (result.profitLoss !== undefined && result.profitLoss >= 0) || result.isCorrect === true;
+          if (isProfit) {
+            triggerVictoryEffect(result);
+          } else {
+            triggerLossEffect(result);
+          }
         });
 
         socket.on('balanceUpdate', (data) => {

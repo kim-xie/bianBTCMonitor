@@ -6,7 +6,7 @@
 services:
   # BTC 交易监控面板（包含交易信号生成循环 + 前端 UI + API）
   - type: web
-    name: btc-trading-dashboard
+    name: btc-oracle-dashboard
     branch: master
     runtime: node
     region: singapore            # 币安 API 对新加坡节点友好，避免美国节点被限制

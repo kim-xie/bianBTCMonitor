@@ -696,7 +696,32 @@
                         {/* 操作 */}
                         <td className="py-3.5 px-3 text-center">
                           <button
-                            onClick={() => onSelectStrategy(item.keyword)}
+                            onClick={() => {
+                              let startDate = '';
+                              let endDate = '';
+                              const now = new Date();
+                              const pad = (n) => String(n).padStart(2, '0');
+                              const fmt = (d) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+
+                              if (timeFilter === 'today') {
+                                startDate = fmt(now);
+                                endDate = fmt(now);
+                              } else if (timeFilter === '3d') {
+                                startDate = fmt(new Date(Date.now() - 3 * 86400000));
+                                endDate = fmt(now);
+                              } else if (timeFilter === '7d') {
+                                startDate = fmt(new Date(Date.now() - 7 * 86400000));
+                                endDate = fmt(now);
+                              }
+
+                              onSelectStrategy({
+                                reasoningKeyword: item.keyword || '',
+                                strategy: (item.category === '趋势策略' || item.category === '反转策略') ? item.category : '',
+                                tradeType: item.direction === 'BUY' ? 'LONG' : (item.direction === 'SELL' ? 'SHORT' : ''),
+                                startDate,
+                                endDate
+                              });
+                            }}
                             className="px-2.5 py-1 rounded-lg bg-cyan-500/10 hover:bg-cyan-500/20 text-cyan-400 border border-cyan-500/30 text-[11px] font-medium transition-all"
                           >
                             查看记录 →
@@ -1227,6 +1252,7 @@
       });
       const [tradesQueryRange, setTradesQueryRange] = useState(null); // 日历周统计跳转携带的时间范围
       const [selectedStrategyKeyword, setSelectedStrategyKeyword] = useState('');
+      const [tradesFilterParams, setTradesFilterParams] = useState(null); // 策略/筛选跳转参数
       const [chartTrade, setChartTrade] = useState(null);
       const [user, setUser] = useState(null);
       const [subscription, setSubscription] = useState(null);
@@ -2262,7 +2288,7 @@
                   日历统计
                 </button>
                 <button
-                  onClick={() => { setTradesQueryRange(null); setSelectedStrategyKeyword(''); setActiveView('trades'); }}
+                  onClick={() => { setTradesQueryRange(null); setSelectedStrategyKeyword(''); setTradesFilterParams(null); setActiveView('trades'); }}
                   style={{
                     padding: '8px 16px',
                     borderRadius: '8px',
@@ -2573,7 +2599,7 @@
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '15px' }}>
                       <h3 style={{ margin: 0 }}>最近交易记录</h3>
                       <button
-                        onClick={() => { setTradesQueryRange(null); setActiveView('trades'); }}
+                        onClick={() => { setTradesQueryRange(null); setSelectedStrategyKeyword(''); setTradesFilterParams(null); setActiveView('trades'); }}
                         style={{
                           padding: '6px 12px',
                           backgroundColor: 'rgba(0, 212, 255, 0.2)',
@@ -2665,9 +2691,13 @@
               ) : activeView === 'strategies' ? (
                 <StrategyStats
                   trades={allTrades}
-                  onSelectStrategy={(keyword) => {
-                    setTradesQueryRange(null);
-                    setSelectedStrategyKeyword(keyword);
+                  onSelectStrategy={(filterData) => {
+                    const filters = typeof filterData === 'string'
+                      ? { reasoningKeyword: filterData }
+                      : filterData;
+                    setTradesQueryRange(filters.startDate && filters.endDate ? { startDate: filters.startDate, endDate: filters.endDate } : null);
+                    setSelectedStrategyKeyword(filters.reasoningKeyword || '');
+                    setTradesFilterParams(filters);
                     setActiveView('trades');
                   }}
                 />
@@ -2675,7 +2705,10 @@
                 <CalendarStats
                   trades={allTrades}
                   onQueryRange={(startDate, endDate) => {
-                    setTradesQueryRange({ startDate, endDate });
+                    const range = { startDate, endDate };
+                    setTradesQueryRange(range);
+                    setSelectedStrategyKeyword('');
+                    setTradesFilterParams(range);
                     setActiveView('trades');
                   }}
                 />
@@ -2685,6 +2718,7 @@
                   onChartView={setChartTrade}
                   dateRange={tradesQueryRange}
                   initialKeyword={selectedStrategyKeyword}
+                  initialFilters={tradesFilterParams}
                 />
               )}
             </>
@@ -2892,29 +2926,32 @@
       );
     };
 
-    const TradesQuery = ({ onChartView, dateRange, initialKeyword }) => {
+    const TradesQuery = ({ trades: propTrades, onChartView, dateRange, initialKeyword, initialFilters }) => {
       const [trades, setTrades] = useState([]);
-      const [allTrades, setAllTrades] = useState([]); // 存储所有交易数据
+      const [allTrades, setAllTrades] = useState(propTrades || []); // 存储所有交易数据
       const [loading, setLoading] = useState(false);
-      const [filters, setFilters] = useState({
-        reasoningKeyword: initialKeyword || '',    // 新增：入场原因关键词
-        signal: '',             // 新增：交易信号
-        strategy: '',           // 新增：策略筛选
-        confidenceMin: '',      // 新增：最小置信度
-        confidenceMax: '',      // 原有：时间范围
-        startDate: dateRange?.startDate || '',
-        endDate: dateRange?.endDate || '',
-        tradeType: '',
-        result: ''
+
+      // 构建初始过滤条件对象
+      const buildInitialFilters = () => ({
+        reasoningKeyword: initialFilters?.reasoningKeyword || initialKeyword || '',
+        signal: initialFilters?.signal || '',
+        strategy: initialFilters?.strategy || '',
+        confidenceMin: initialFilters?.confidenceMin || '',
+        confidenceMax: initialFilters?.confidenceMax || '',
+        startDate: initialFilters?.startDate || dateRange?.startDate || '',
+        endDate: initialFilters?.endDate || dateRange?.endDate || '',
+        tradeType: initialFilters?.tradeType || '',
+        result: initialFilters?.result || ''
       });
 
+      const [filters, setFilters] = useState(buildInitialFilters);
+
+      // 同步父级传入的全部交易数据
       useEffect(() => {
-        if (initialKeyword !== undefined && initialKeyword !== filters.reasoningKeyword) {
-          const next = { ...filters, reasoningKeyword: initialKeyword };
-          setFilters(next);
-          fetchTrades(next);
+        if (propTrades && propTrades.length > 0) {
+          setAllTrades(propTrades);
         }
-      }, [initialKeyword]);
+      }, [propTrades]);
 
       const fetchAllTrades = async () => {
         try {
@@ -2934,12 +2971,18 @@
         const f = overrideFilters || filters;
         setLoading(true);
         try {
-          // 如果还没有加载全部数据，先获取
+          // 如果还没有加载全部数据，优先使用 propTrades 或远程获取
           let sourceTrades = allTrades;
-          if (sourceTrades.length === 0) {
-            const fetched = await fetchAllTrades();
-            if (fetched) sourceTrades = fetched;
+          if (!sourceTrades || sourceTrades.length === 0) {
+            if (propTrades && propTrades.length > 0) {
+              sourceTrades = propTrades;
+              setAllTrades(propTrades);
+            } else {
+              const fetched = await fetchAllTrades();
+              if (fetched) sourceTrades = fetched;
+            }
           }
+          if (!sourceTrades) sourceTrades = [];
 
           // 应用筛选条件并按时间倒序排列（最近时间在前）
           let filteredTrades = sourceTrades.filter(trade => {
@@ -2958,10 +3001,10 @@
               if (f.signal === 'SELL' && trade.signal !== 'SELL') return false;
             }
 
-            // 策略筛选（按入场原因前缀匹配策略类型）
+            // 策略筛选（按入场原因前缀或包含匹配策略类型）
             if (f.strategy) {
               const hasStrategy = trade.reasoning && trade.reasoning.some(reason =>
-                reason.startsWith(f.strategy)
+                reason.includes(f.strategy) || reason.startsWith(f.strategy)
               );
               if (!hasStrategy) return false;
             }
@@ -3029,25 +3072,27 @@
         fetchTrades(next);
       };
 
-      // 从日历周统计跳转进入时，自动按携带的时间范围执行一次查询
+      // 无论首次挂载还是跳转过滤参数发生变化，自动填充筛选表单并立即执行查询
       useEffect(() => {
-        if (dateRange) {
-          fetchTrades();
-        }
-      }, []);
+        const nextFilters = buildInitialFilters();
+        setFilters(nextFilters);
+        fetchTrades(nextFilters);
+      }, [initialFilters, initialKeyword, dateRange]);
 
       const resetFilters = () => {
-        setFilters({
-          reasoningKeyword: '',    // 重置入场原因关键词
-          signal: '',             // 重置交易信号
-          strategy: '',           // 重置策略筛选
-          confidenceMin: '',      // 重置置信度范围
+        const empty = {
+          reasoningKeyword: '',
+          signal: '',
+          strategy: '',
+          confidenceMin: '',
           confidenceMax: '',
           startDate: '',
           endDate: '',
           tradeType: '',
           result: ''
-        });
+        };
+        setFilters(empty);
+        fetchTrades(empty);
       };
 
       const formatCurrency = (amount) => {

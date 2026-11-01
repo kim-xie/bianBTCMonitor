@@ -171,19 +171,19 @@
       animation: screenLossPulse 1.8s ease-out forwards;
     }
 
-    /* 弹窗动效 */
+    /* 弹窗动效（严格居中弹性弹出） */
     @keyframes celebrationPop {
       0% {
         opacity: 0;
-        transform: translate(-50%, -60%) scale(0.85);
+        transform: scale(0.85) translateY(24px);
       }
       60% {
         opacity: 1;
-        transform: translate(-50%, -48%) scale(1.03);
+        transform: scale(1.03) translateY(-4px);
       }
       100% {
         opacity: 1;
-        transform: translate(-50%, -50%) scale(1);
+        transform: scale(1) translateY(0);
       }
     }
     .animate-celebration-pop {
@@ -191,11 +191,11 @@
     }
 
     @keyframes shakeLoss {
-      0%, 100% { transform: translate(-50%, -50%) rotate(0deg); }
-      20% { transform: translate(-52%, -50%) rotate(-1deg); }
-      40% { transform: translate(-48%, -50%) rotate(1deg); }
-      60% { transform: translate(-51%, -50%) rotate(-0.5deg); }
-      80% { transform: translate(-49%, -50%) rotate(0.5deg); }
+      0%, 100% { transform: scale(1) rotate(0deg); }
+      20% { transform: scale(1) translateX(-6px) rotate(-1.5deg); }
+      40% { transform: scale(1) translateX(6px) rotate(1.5deg); }
+      60% { transform: scale(1) translateX(-3px) rotate(-0.8deg); }
+      80% { transform: scale(1) translateX(3px) rotate(0.8deg); }
     }
     .animate-loss-shake {
       animation: celebrationPop 0.35s cubic-bezier(0.16, 1, 0.3, 1) forwards, shakeLoss 0.6s 0.25s ease-in-out;
@@ -2614,10 +2614,11 @@
           {/* 全屏亏损防守脉冲暗红光晕 */}
           {showScreenLossFlash && <div className="screen-loss-vignette" />}
 
-          {/* 结算盈利 / 亏损 赛博HUD动效卡片 */}
+          {/* 结算盈利 / 亏损 赛博HUD动效卡片（全屏绝对居中显示） */}
           {settlementEvent && (
-            <div className="fixed top-6 left-1/2 -translate-x-1/2 z-[99999] max-w-lg w-[92%] sm:w-[500px]">
-              {settlementEvent.type === 'WIN' ? (
+            <div className="fixed inset-0 z-[99999] flex items-center justify-center p-4 pointer-events-none">
+              <div className="pointer-events-auto max-w-lg w-[92%] sm:w-[500px]">
+                {settlementEvent.type === 'WIN' ? (
                 <div className="p-[1.5px] rounded-2xl bg-gradient-to-r from-emerald-500 via-amber-400 to-emerald-500 shadow-2xl shadow-emerald-500/50 animate-celebration-pop font-mono">
                   <div className="p-4 sm:p-5 rounded-2xl bg-[#060b11] relative overflow-hidden">
                     <div className="flex items-center justify-between gap-2 mb-2 pb-2 border-b border-emerald-500/30">
@@ -2734,6 +2735,7 @@
                   </div>
                 </div>
               )}
+              </div>
             </div>
           )}
 

@@ -30,7 +30,7 @@ async function run() {
   closedTrades.forEach(t => {
     const reason = (t.reasoning && t.reasoning[0]) ? t.reasoning[0] : "未知策略";
     let stratKey = "其他";
-    if (reason.includes("二次反包")) stratKey = "二次反包确认反转";
+    if (reason.includes("二次反包")) stratKey = reason.includes("做空") || reason.includes("阴线") ? "上涨趋势阴线二次反包" : "下跌趋势阳线二次反包";
     else if (reason.includes("多头回踩EMA50")) stratKey = "多头回踩EMA50做多";
     else if (reason.includes("空头反弹EMA50")) stratKey = "空头反弹EMA50做空";
     else if (reason.includes("5连跌")) stratKey = "5连跌超跌反弹做多";

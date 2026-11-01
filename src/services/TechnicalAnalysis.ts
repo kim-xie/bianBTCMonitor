@@ -629,7 +629,7 @@ export class TechnicalAnalysisService {
     if (lookbackCandles.length < 3) return null;
 
     // -------------------------------------------------------------------------
-    // A. 顶部二次反包做空 (Top Reversal SHORT - 图示红框形态)
+    // A. 反转策略：上涨趋势，阴线二次反包做空 (Top Reversal SHORT - 用户图示形态)
     // -------------------------------------------------------------------------
     const isCurrBearish = currClose < currOpen && currBody >= minBody;
 
@@ -638,8 +638,11 @@ export class TechnicalAnalysisService {
       const peakCandle = lookbackCandles.find(k => +k.high === peakHigh);
       const peakIndex = lookbackCandles.findIndex(k => +k.high === peakHigh);
 
-      // 条件1：当前处于波段冲高之后（最高峰值至少比当前收盘高出0.10%且峰值处于EMA50附近或上方）
-      const hasElevatedPeak = peakHigh >= currClose * 1.0010;
+      // 上涨趋势背景判定：EMA50 >= EMA200，或者波段高点处于EMA50上方
+      const isUptrendContext = indicators.ema50 >= indicators.ema200 || peakHigh >= indicators.ema50;
+
+      // 条件1：当前处于波段冲高之后（最高峰值至少比当前收盘高出0.10%）
+      const hasElevatedPeak = isUptrendContext && (peakHigh >= currClose * 1.0010);
 
       // 条件2：摸高后有初次受阻表现（摸高K线留有上影线>=20%或长上影>=15点，或者摸高后收过阴线回调）
       let hadFirstRejection = false;
@@ -665,7 +668,7 @@ export class TechnicalAnalysisService {
       const isPrevSmallPause = prevBody <= Math.max(currBody * 0.7, 30) || prevBody <= currClose * 0.0004;
       const isPauseOrBounce = (isPrevWeakBounce || isPrevSmallPause) && prevHigh <= peakHigh * 1.0008;
 
-      // 条件4：二次反包确认 (Secondary Engulfing)
+      // 条件4：阴线二次反包确认 (Secondary Engulfing)
       // 当前阴线收盘跌破前阳开盘价，或跌破前K线低点/实体
       const isEngulfingPrev =
         (prevClose >= prevOpen && currClose <= prevOpen) ||
@@ -691,7 +694,7 @@ export class TechnicalAnalysisService {
 
         confidence = Math.min(95, confidence);
         const detailStr = details.length > 0 ? `(${details.join('｜')})` : '';
-        const reason = `反转策略: 顶部二次反包确认做空｜波段冲高(${peakHigh.toFixed(0)})受阻后弱反弹无力破高，关键大阴线二次反包确认见顶${detailStr}｜置信度${confidence}%`;
+        const reason = `反转策略: 上涨趋势阴线二次反包做空｜波段冲高(${peakHigh.toFixed(0)})受阻后弱反弹无力破高，关键大阴线二次反包确认见顶${detailStr}｜置信度${confidence}%`;
 
         return {
           direction: 'DOWN',
@@ -702,7 +705,7 @@ export class TechnicalAnalysisService {
     }
 
     // -------------------------------------------------------------------------
-    // B. 底部二次反包做多 (Bottom Reversal LONG - 底部对称形态)
+    // B. 反转策略：下跌趋势，阳线二次反包做多 (Bottom Reversal LONG - 底部对称形态)
     // -------------------------------------------------------------------------
     const isCurrBullish = currClose > currOpen && currBody >= minBody;
 
@@ -711,8 +714,11 @@ export class TechnicalAnalysisService {
       const troughCandle = lookbackCandles.find(k => +k.low === troughLow);
       const troughIndex = lookbackCandles.findIndex(k => +k.low === troughLow);
 
+      // 下跌趋势背景判定：EMA50 <= EMA200，或者波段低点处于EMA50下方
+      const isDowntrendContext = indicators.ema50 <= indicators.ema200 || troughLow <= indicators.ema50;
+
       // 条件1：当前处于波段探底之后（最低谷值至少比当前收盘低出0.10%）
-      const hasDepressedTrough = troughLow <= currClose * 0.9990;
+      const hasDepressedTrough = isDowntrendContext && (troughLow <= currClose * 0.9990);
 
       // 条件2：探底后有初次企稳表现（探底K线留有下影线>=20%或长下影>=15点，或者探底后收过阳线反弹）
       let hadFirstStabilization = false;
@@ -738,7 +744,7 @@ export class TechnicalAnalysisService {
       const isPrevSmallPause = prevBody <= Math.max(currBody * 0.7, 30) || prevBody <= currClose * 0.0004;
       const isPauseOrPullback = (isPrevWeakPullback || isPrevSmallPause) && prevLow >= troughLow * 0.9992;
 
-      // 条件4：二次反包确认 (Secondary Engulfing)
+      // 条件4：阳线二次反包确认 (Secondary Engulfing)
       const isEngulfingPrev =
         (prevClose <= prevOpen && currClose >= prevOpen) ||
         (currClose >= prevHigh && currClose > prevClose) ||
@@ -763,7 +769,7 @@ export class TechnicalAnalysisService {
 
         confidence = Math.min(95, confidence);
         const detailStr = details.length > 0 ? `(${details.join('｜')})` : '';
-        const reason = `反转策略: 底部二次反包确认做多｜波段探底(${troughLow.toFixed(0)})企稳后弱下探无力破低，关键大阳线二次反包确认筑底${detailStr}｜置信度${confidence}%`;
+        const reason = `反转策略: 下跌趋势阳线二次反包做多｜波段探底(${troughLow.toFixed(0)})企稳后弱下探无力破低，关键大阳线二次反包确认筑底${detailStr}｜置信度${confidence}%`;
 
         return {
           direction: 'UP',

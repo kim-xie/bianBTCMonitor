@@ -190,7 +190,7 @@ export class TradingSignalService {
 
     if (direction === 'UP') {
       if (isSecondaryReversal) {
-        return `建议开仓做多 - 底部二次反包确认反转 (置信度: ${confidence}%)`;
+        return `建议开仓做多 - 下跌趋势阳线二次反包反转 (置信度: ${confidence}%)`;
       }
       if (isTrend) {
         return `建议开仓做多 - EMA多头回踩反包阳线 (置信度: ${confidence}%)`;
@@ -198,7 +198,7 @@ export class TradingSignalService {
       return '建议开仓做多 - 5分钟6连跌超跌反弹信号';
     } else {
       if (isSecondaryReversal) {
-        return `建议开仓做空 - 顶部二次反包确认反转 (置信度: ${confidence}%)`;
+        return `建议开仓做空 - 上涨趋势阴线二次反包反转 (置信度: ${confidence}%)`;
       }
       if (isTrend) {
         return `建议开仓做空 - EMA空头反弹反包阴线 (置信度: ${confidence}%)`;

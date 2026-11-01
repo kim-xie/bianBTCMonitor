@@ -288,9 +288,9 @@
             id: isShort ? 'secondary_engulfing_short' : 'secondary_engulfing_long',
             category: '反转策略',
             type: 'reversal',
-            name: isShort ? '二次反包 顶部见顶做空' : '二次反包 底部探底做多',
+            name: isShort ? '上涨趋势 阴线二次反包' : '下跌趋势 阳线二次反包',
             direction: isShort ? 'SELL' : 'BUY',
-            desc: isShort ? '局部摸高承压后弱势整理无力破高，关键大阴线二次反包确认见顶反转下杀' : '局部探底企稳后弱势回踩无力破低，关键大阳线二次反包确认筑底反转上攻',
+            desc: isShort ? '上涨趋势中摸高遇阻弱反弹无力破高，关键大阴线二次反包确认见顶做空反转' : '下跌趋势中探底企稳弱回踩无力破低，关键大阳线二次反包确认筑底做多反转',
             status: 'active',
             statusLabel: '核心反转',
             keyword: '二次反包'
@@ -1013,7 +1013,7 @@
               <div className="p-3 rounded bg-[#05080c] border border-slate-800">
                 <div className="text-rose-400 font-bold mb-1">[CONF.05] SECONDARY_ENGULFING_REVERSAL</div>
                 <p className="text-slate-400 leading-relaxed text-[11px]">
-                  波段冲高/探底后，弱势整理未能创新极值，随后关键实体K线二次反包确认反转（顶部做空/底部做多），置信度85%~95%（&ge;80%核心反转）。
+                  反转策略：上涨趋势中冲高受阻，关键阴线二次反包做空；下跌趋势中探底企稳，关键阳线二次反包做多。置信度85%~95%（&ge;80%）。
                 </p>
               </div>
             </div>

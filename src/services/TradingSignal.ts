@@ -185,14 +185,21 @@ export class TradingSignalService {
    */
   private generateRecommendedAction(prediction: PredictionResult, _currentPrice: number): string {
     const { direction, confidence, reasoning } = prediction;
+    const isSecondaryReversal = reasoning.some(r => r.includes('二次反包'));
     const isTrend = reasoning.some(r => r.includes('趋势策略'));
 
     if (direction === 'UP') {
+      if (isSecondaryReversal) {
+        return `建议开仓做多 - 底部二次反包确认反转 (置信度: ${confidence}%)`;
+      }
       if (isTrend) {
         return `建议开仓做多 - EMA多头回踩反包阳线 (置信度: ${confidence}%)`;
       }
       return '建议开仓做多 - 5分钟6连跌超跌反弹信号';
     } else {
+      if (isSecondaryReversal) {
+        return `建议开仓做空 - 顶部二次反包确认反转 (置信度: ${confidence}%)`;
+      }
       if (isTrend) {
         return `建议开仓做空 - EMA空头反弹反包阴线 (置信度: ${confidence}%)`;
       }

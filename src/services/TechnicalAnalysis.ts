@@ -149,6 +149,18 @@ export class TechnicalAnalysisService {
     }
 
     /**
+     * 1.5 反转策略：二次反包确认策略（顶部冲高见顶做空 / 底部探底企稳做多）
+     * 对应红框反转形态：摸高/探底受阻后，弱势整理未能创新极值，随后关键实体K线二次反包确认反转
+     */
+    if (!this.isFiveMinuteUsed && score === 0 && fiveMinuteKlines.length >= 5) {
+      const secondaryReversal = this.detectSecondaryEngulfingReversal(fiveMinuteKlines, indicators);
+      if (secondaryReversal) {
+        score = secondaryReversal.direction === 'UP' ? secondaryReversal.confidence : -secondaryReversal.confidence;
+        reasoning.push(secondaryReversal.reason);
+      }
+    }
+
+    /**
      * 2. 趋势做多策略（红框K线形态）：
      * - 上涨趋势：EMA50 > EMA200
      * - 形态识别：阴线回调后收出关键反包阳线（阳线收盘反包阴线开盘价，或实体强反转刺透）
@@ -574,6 +586,194 @@ export class TechnicalAnalysisService {
     }
 
     return { isSupported: false, supportLevel: 0, reason: '' };
+  }
+
+  /**
+   * 反转策略：二次反包确认策略（顶部冲高见顶做空 / 底部探底企稳做多）
+   * 对应图示红框反转形态：
+   * 1. 局部冲高/探底形成波段极值（Peak / Trough）
+   * 2. 初次受阻回落/反弹
+   * 3. 出现1~2根弱势反弹/停顿K线，未能突破前极值（无力创新高/新低，形成受阻停顿或双顶/双底）
+   * 4. 当前K线出现关键实体反向K线，实施二次反包（顶部大阴反包前阳开盘价/实体，底部大阳反包前阴开盘价/实体）
+   * 5. 确认反转确立，置信度 85% ~ 95%（>=80% 核心反转）
+   */
+  private detectSecondaryEngulfingReversal(
+    fiveMinuteKlines: any[],
+    indicators: any
+  ): { direction: 'UP' | 'DOWN'; confidence: number; reason: string } | null {
+    if (!fiveMinuteKlines || fiveMinuteKlines.length < 5) {
+      return null;
+    }
+
+    const currKline = fiveMinuteKlines[fiveMinuteKlines.length - 1];
+    const prevKline = fiveMinuteKlines[fiveMinuteKlines.length - 2];
+
+    const currOpen = +currKline.open;
+    const currClose = +currKline.close;
+    const currHigh = +currKline.high;
+    const currLow = +currKline.low;
+    const currBody = Math.abs(currClose - currOpen);
+
+    const prevOpen = +prevKline.open;
+    const prevClose = +prevKline.close;
+    const prevHigh = +prevKline.high;
+    const prevLow = +prevKline.low;
+    const prevBody = Math.abs(prevClose - prevOpen);
+
+    // 最小实体门槛：避免微弱十字星或极小波动误判（如BTC至少15点或万分之二）
+    const minBody = Math.max(15, currClose * 0.0002);
+
+    // 回看最近 3 ~ 10 根K线寻找波段极值
+    const lookbackStart = Math.max(0, fiveMinuteKlines.length - 10);
+    const lookbackCandles = fiveMinuteKlines.slice(lookbackStart, fiveMinuteKlines.length - 1);
+    if (lookbackCandles.length < 3) return null;
+
+    // -------------------------------------------------------------------------
+    // A. 顶部二次反包做空 (Top Reversal SHORT - 图示红框形态)
+    // -------------------------------------------------------------------------
+    const isCurrBearish = currClose < currOpen && currBody >= minBody;
+
+    if (isCurrBearish) {
+      const peakHigh = Math.max(...lookbackCandles.map(k => +k.high));
+      const peakCandle = lookbackCandles.find(k => +k.high === peakHigh);
+      const peakIndex = lookbackCandles.findIndex(k => +k.high === peakHigh);
+
+      // 条件1：当前处于波段冲高之后（最高峰值至少比当前收盘高出0.10%且峰值处于EMA50附近或上方）
+      const hasElevatedPeak = peakHigh >= currClose * 1.0010;
+
+      // 条件2：摸高后有初次受阻表现（摸高K线留有上影线>=20%或长上影>=15点，或者摸高后收过阴线回调）
+      let hadFirstRejection = false;
+      if (peakCandle) {
+        const pRange = Math.max(1, +peakCandle.high - +peakCandle.low);
+        const pUpperShadow = +peakCandle.high - Math.max(+peakCandle.open, +peakCandle.close);
+        if (pUpperShadow / pRange >= 0.20 || pUpperShadow >= 15) {
+          hadFirstRejection = true;
+        }
+      }
+      for (let i = peakIndex; i < lookbackCandles.length; i++) {
+        const c = lookbackCandles[i];
+        if (+c.close < +c.open || +c.close < peakHigh * 0.999) {
+          hadFirstRejection = true;
+          break;
+        }
+      }
+
+      // 条件3：前一根K线为弱势反弹或小实体停顿（非强劲单边大阴线瀑布）
+      // - 阳线弱反弹：prevClose >= prevOpen
+      // - 或停顿十字星/小实体：prevBody <= Math.max(currBody * 0.7, 30)
+      const isPrevWeakBounce = prevClose >= prevOpen;
+      const isPrevSmallPause = prevBody <= Math.max(currBody * 0.7, 30) || prevBody <= currClose * 0.0004;
+      const isPauseOrBounce = (isPrevWeakBounce || isPrevSmallPause) && prevHigh <= peakHigh * 1.0008;
+
+      // 条件4：二次反包确认 (Secondary Engulfing)
+      // 当前阴线收盘跌破前阳开盘价，或跌破前K线低点/实体
+      const isEngulfingPrev =
+        (prevClose >= prevOpen && currClose <= prevOpen) ||
+        (currClose <= prevLow && currClose < prevClose) ||
+        (currClose <= Math.min(prevOpen, prevClose) && currBody >= prevBody * 0.8);
+
+      if (hasElevatedPeak && hadFirstRejection && isPauseOrBounce && isEngulfingPrev) {
+        let confidence = 85;
+        const details: string[] = [];
+
+        // 加分项1：双顶/多次测顶无力突破（M顶结构）
+        const retestCount = lookbackCandles.filter(k => +k.high >= peakHigh * 0.9988).length;
+        if (retestCount >= 2) {
+          confidence += 5;
+          details.push('双顶/多次测顶承压');
+        }
+
+        // 加分项2：实体坚决且彻底跌破前K线低点
+        if (currClose < prevLow && currBody > prevBody * 1.2) {
+          confidence += 5;
+          details.push('大阴破底击穿支撑');
+        }
+
+        confidence = Math.min(95, confidence);
+        const detailStr = details.length > 0 ? `(${details.join('｜')})` : '';
+        const reason = `反转策略: 顶部二次反包确认做空｜波段冲高(${peakHigh.toFixed(0)})受阻后弱反弹无力破高，关键大阴线二次反包确认见顶${detailStr}｜置信度${confidence}%`;
+
+        return {
+          direction: 'DOWN',
+          confidence,
+          reason
+        };
+      }
+    }
+
+    // -------------------------------------------------------------------------
+    // B. 底部二次反包做多 (Bottom Reversal LONG - 底部对称形态)
+    // -------------------------------------------------------------------------
+    const isCurrBullish = currClose > currOpen && currBody >= minBody;
+
+    if (isCurrBullish) {
+      const troughLow = Math.min(...lookbackCandles.map(k => +k.low));
+      const troughCandle = lookbackCandles.find(k => +k.low === troughLow);
+      const troughIndex = lookbackCandles.findIndex(k => +k.low === troughLow);
+
+      // 条件1：当前处于波段探底之后（最低谷值至少比当前收盘低出0.10%）
+      const hasDepressedTrough = troughLow <= currClose * 0.9990;
+
+      // 条件2：探底后有初次企稳表现（探底K线留有下影线>=20%或长下影>=15点，或者探底后收过阳线反弹）
+      let hadFirstStabilization = false;
+      if (troughCandle) {
+        const tRange = Math.max(1, +troughCandle.high - +troughCandle.low);
+        const tLowerShadow = Math.min(+troughCandle.open, +troughCandle.close) - +troughCandle.low;
+        if (tLowerShadow / tRange >= 0.20 || tLowerShadow >= 15) {
+          hadFirstStabilization = true;
+        }
+      }
+      for (let i = troughIndex; i < lookbackCandles.length; i++) {
+        const c = lookbackCandles[i];
+        if (+c.close > +c.open || +c.close > troughLow * 1.001) {
+          hadFirstStabilization = true;
+          break;
+        }
+      }
+
+      // 条件3：前一根K线为弱势下探或小实体停顿
+      // - 阴线弱下探：prevClose <= prevOpen
+      // - 或停顿十字星/小实体：prevBody <= Math.max(currBody * 0.7, 30)
+      const isPrevWeakPullback = prevClose <= prevOpen;
+      const isPrevSmallPause = prevBody <= Math.max(currBody * 0.7, 30) || prevBody <= currClose * 0.0004;
+      const isPauseOrPullback = (isPrevWeakPullback || isPrevSmallPause) && prevLow >= troughLow * 0.9992;
+
+      // 条件4：二次反包确认 (Secondary Engulfing)
+      const isEngulfingPrev =
+        (prevClose <= prevOpen && currClose >= prevOpen) ||
+        (currClose >= prevHigh && currClose > prevClose) ||
+        (currClose >= Math.max(prevOpen, prevClose) && currBody >= prevBody * 0.8);
+
+      if (hasDepressedTrough && hadFirstStabilization && isPauseOrPullback && isEngulfingPrev) {
+        let confidence = 85;
+        const details: string[] = [];
+
+        // 加分项1：双底/多次测底企稳（W底结构）
+        const retestCount = lookbackCandles.filter(k => +k.low <= troughLow * 1.0012).length;
+        if (retestCount >= 2) {
+          confidence += 5;
+          details.push('双底/多次测底企稳');
+        }
+
+        // 加分项2：实体坚决且彻底突破前K线高点
+        if (currClose > prevHigh && currBody > prevBody * 1.2) {
+          confidence += 5;
+          details.push('大阳破顶反包上攻');
+        }
+
+        confidence = Math.min(95, confidence);
+        const detailStr = details.length > 0 ? `(${details.join('｜')})` : '';
+        const reason = `反转策略: 底部二次反包确认做多｜波段探底(${troughLow.toFixed(0)})企稳后弱下探无力破低，关键大阳线二次反包确认筑底${detailStr}｜置信度${confidence}%`;
+
+        return {
+          direction: 'UP',
+          confidence,
+          reason
+        };
+      }
+    }
+
+    return null;
   }
 
   private determineTrend(ema50: number, ema150: number): 'BULLISH' | 'BEARISH' | 'NEUTRAL' {

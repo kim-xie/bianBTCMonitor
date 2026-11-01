@@ -282,6 +282,21 @@
         const r = (trade.reasoning && trade.reasoning[0]) || '';
         const isLong = trade.signal === 'BUY';
 
+        if (r.includes('二次反包')) {
+          const isShort = r.includes('做空') || !isLong;
+          return {
+            id: isShort ? 'secondary_engulfing_short' : 'secondary_engulfing_long',
+            category: '反转策略',
+            type: 'reversal',
+            name: isShort ? '二次反包 顶部见顶做空' : '二次反包 底部探底做多',
+            direction: isShort ? 'SELL' : 'BUY',
+            desc: isShort ? '局部摸高承压后弱势整理无力破高，关键大阴线二次反包确认见顶反转下杀' : '局部探底企稳后弱势回踩无力破低，关键大阳线二次反包确认筑底反转上攻',
+            status: 'active',
+            statusLabel: '核心反转',
+            keyword: '二次反包'
+          };
+        }
+
         if (r.includes('EMA多头回踩反包') || (r.includes('反包') && r.includes('做多'))) {
           return {
             id: 'trend_ema_engulfing',
@@ -966,7 +981,7 @@
                 [ENGINE_ONLINE]
               </span>
             </div>
-            <div className="grid grid-cols-1 md:grid-cols-4 gap-3 text-slate-300">
+            <div className="grid grid-cols-1 md:grid-cols-5 gap-3 text-slate-300">
               <div className="p-3 rounded bg-[#05080c] border border-slate-800">
                 <div className="text-emerald-400 font-bold mb-1">[CONF.01] 6-DOWN_REVERSAL_LONG</div>
                 <p className="text-slate-400 leading-relaxed text-[11px]">
@@ -992,6 +1007,13 @@
                 <div className="text-purple-400 font-bold mb-1">[CONF.04] 10M_COOLDOWN_MUTEX_LOCK</div>
                 <p className="text-slate-400 leading-relaxed text-[11px]">
                   已平仓结算前，10 分钟内禁止开出同方向新订单，杜绝单边逆势行情连续连开的重复吃损。
+                </p>
+              </div>
+
+              <div className="p-3 rounded bg-[#05080c] border border-slate-800">
+                <div className="text-rose-400 font-bold mb-1">[CONF.05] SECONDARY_ENGULFING_REVERSAL</div>
+                <p className="text-slate-400 leading-relaxed text-[11px]">
+                  波段冲高/探底后，弱势整理未能创新极值，随后关键实体K线二次反包确认反转（顶部做空/底部做多），置信度85%~95%（&ge;80%核心反转）。
                 </p>
               </div>
             </div>

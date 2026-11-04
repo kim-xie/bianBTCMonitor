@@ -18,6 +18,8 @@ export interface TradingSignal {
 
 export class TradingSignalService {
   private technicalAnalysis: TechnicalAnalysisService;
+  /** 上涨沿 EMA50 反包做多，下跌沿 EMA50 反包做空。 */
+  private readonly STRATEGIES_ENABLED = true;
   private readonly CONFIDENCE_THRESHOLD = 80;
   private readonly FEISHU_WEBHOOK_URL = process.env.FEISHU_WEBHOOK_URL || '';
 
@@ -59,6 +61,11 @@ export class TradingSignalService {
    */
   async generateSignal(symbol: string = 'BTCUSDT', fiveMinuteKlines: any[], tenMinuteKlines: any[]): Promise<TradingSignal | null> {
     try {
+      if (!this.STRATEGIES_ENABLED) {
+        console.log('全部策略已下线，不生成交易信号');
+        return null;
+      }
+
       // 清理过期的K线记录
       this.cleanupExpiredKlines();
 
@@ -192,18 +199,24 @@ export class TradingSignalService {
       if (isSecondaryReversal) {
         return `建议开仓做多 - 下跌趋势阳线二次反包反转 (置信度: ${confidence}%)`;
       }
+      if (reasoning.some(r => r.includes('沿EMA50反包'))) {
+        return `建议开仓做多 - 上涨趋势沿EMA50反包 (置信度: ${confidence}%)`;
+      }
       if (isTrend) {
         return `建议开仓做多 - EMA多头回踩反包阳线 (置信度: ${confidence}%)`;
       }
-      return '建议开仓做多 - 5分钟6连跌超跌反弹信号';
+      return `建议开仓做多 (置信度: ${confidence}%)`;
     } else {
       if (isSecondaryReversal) {
         return `建议开仓做空 - 上涨趋势阴线二次反包反转 (置信度: ${confidence}%)`;
       }
+      if (reasoning.some(r => r.includes('沿EMA50反包做空'))) {
+        return `建议开仓做空 - 下跌趋势沿EMA50反包 (置信度: ${confidence}%)`;
+      }
       if (isTrend) {
         return `建议开仓做空 - EMA空头反弹反包阴线 (置信度: ${confidence}%)`;
       }
-      return '建议开仓做空 - 5分钟6连涨超买回落信号';
+      return `建议开仓做空 (置信度: ${confidence}%)`;
     }
   }
 

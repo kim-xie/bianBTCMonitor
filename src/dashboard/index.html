@@ -393,6 +393,20 @@
         const r = (trade.reasoning && trade.reasoning[0]) || '';
         const isLong = trade.signal === 'BUY';
 
+        if (r.includes('沿EMA50反包')) {
+          return {
+            id: 'trendline_engulf_long',
+            category: '趋势策略',
+            type: 'trend',
+            name: '上涨趋势 沿EMA50反包做多',
+            direction: 'BUY',
+            desc: 'EMA50在EMA200上方并向上时，回踩下影贴住EMA50，阳线反包前一根阴线并收回到均线上方',
+            status: 'active',
+            statusLabel: '只做多',
+            keyword: '沿EMA50反包'
+          };
+        }
+
         if (r.includes('二次反包')) {
           const isShort = r.includes('做空') || !isLong;
           return {
@@ -657,7 +671,7 @@
                   <span className="text-slate-600">|</span>
                   <span className="text-slate-400">HOST: btc-oracle-sg-01</span>
                   <span className="text-slate-600">|</span>
-                  <span className="text-cyan-400 font-medium">CORE: EMA50/200 + 6-KLINE</span>
+                  <span className="text-cyan-400 font-medium">CORE: EMA50 沿趋势反包做多</span>
                 </div>
                 <div className="flex items-center gap-2">
                   <span className="text-emerald-400 font-bold text-lg font-mono">&gt;</span>
@@ -811,7 +825,7 @@
                 </span>
               </div>
               <p className="text-[11px] text-slate-400 mb-3 leading-relaxed">
-                趋势回踩与反弹反包已全部下线，仅保留历史统计
+                上涨趋势只沿 EMA50 回踩反包做多，下影贴住黄线且阳线反包才开仓
               </p>
               <div className="grid grid-cols-3 gap-2 py-2.5 border-y border-slate-800 text-center">
                 <div>
@@ -1095,21 +1109,21 @@
               <div className="p-3 rounded bg-[#05080c] border border-slate-800">
                 <div className="text-emerald-400 font-bold mb-1">[CONF.01] 6-DOWN_REVERSAL_LONG</div>
                 <p className="text-slate-400 leading-relaxed text-[11px]">
-                  连续6根5分钟阴线且收盘价持续创新低，即直接进场做多（无振幅过滤与门槛限制）。
+                  已下线。连跌不再开仓。
                 </p>
               </div>
 
               <div className="p-3 rounded bg-[#05080c] border border-slate-800">
                 <div className="text-cyan-400 font-bold mb-1">[CONF.02] 6-UP_REVERSAL_SHORT</div>
                 <p className="text-slate-400 leading-relaxed text-[11px]">
-                  连续6根5分钟阳线且收盘价持续创新高，即直接进场做空（无振幅过滤与门槛限制）。
+                  已下线。连涨不再开仓，上涨趋势不做空。
                 </p>
               </div>
 
               <div className="p-3 rounded bg-[#05080c] border border-slate-800">
-                <div className="text-amber-400 font-bold mb-1">[CONF.03] EMA50_200_DUAL_ENGULFING</div>
+                <div className="text-amber-400 font-bold mb-1">[CONF.03] EMA50_TRENDLINE_ENGULF_LONG</div>
                 <p className="text-slate-400 leading-relaxed text-[11px]">
-                  EMA50&gt;200多头回踩反包做多，EMA50&lt;200空头反弹反包做空，越贴近均线置信度越高（最高95%）；遇前高阻力/前低支撑降低置信度，置信度&lt;80%不操作。
+                  只做多。EMA50 在 EMA200 上方且两条均线向上时，回踩下影贴住 EMA50，阳线反包前一根阴线并收到均线上方 0.30% 以内。不碰 EMA200，不做空。
                 </p>
               </div>
 

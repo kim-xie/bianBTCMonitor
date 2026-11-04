@@ -18,8 +18,8 @@ export interface TradingSignal {
 
 export class TradingSignalService {
   private technicalAnalysis: TechnicalAnalysisService;
-  /** 全部策略下线。恢复开仓时改为 true。 */
-  private readonly STRATEGIES_ENABLED = false;
+  /** 只允许上涨趋势沿 EMA50 反包做多。 */
+  private readonly STRATEGIES_ENABLED = true;
   private readonly CONFIDENCE_THRESHOLD = 80;
   private readonly FEISHU_WEBHOOK_URL = process.env.FEISHU_WEBHOOK_URL || '';
 
@@ -198,6 +198,9 @@ export class TradingSignalService {
     if (direction === 'UP') {
       if (isSecondaryReversal) {
         return `建议开仓做多 - 下跌趋势阳线二次反包反转 (置信度: ${confidence}%)`;
+      }
+      if (reasoning.some(r => r.includes('沿EMA50反包'))) {
+        return `建议开仓做多 - 上涨趋势沿EMA50反包 (置信度: ${confidence}%)`;
       }
       if (isTrend) {
         return `建议开仓做多 - EMA多头回踩反包阳线 (置信度: ${confidence}%)`;

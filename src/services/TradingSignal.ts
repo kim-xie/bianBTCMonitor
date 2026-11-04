@@ -18,6 +18,8 @@ export interface TradingSignal {
 
 export class TradingSignalService {
   private technicalAnalysis: TechnicalAnalysisService;
+  /** 全部策略下线。恢复开仓时改为 true。 */
+  private readonly STRATEGIES_ENABLED = false;
   private readonly CONFIDENCE_THRESHOLD = 80;
   private readonly FEISHU_WEBHOOK_URL = process.env.FEISHU_WEBHOOK_URL || '';
 
@@ -59,6 +61,11 @@ export class TradingSignalService {
    */
   async generateSignal(symbol: string = 'BTCUSDT', fiveMinuteKlines: any[], tenMinuteKlines: any[]): Promise<TradingSignal | null> {
     try {
+      if (!this.STRATEGIES_ENABLED) {
+        console.log('全部策略已下线，不生成交易信号');
+        return null;
+      }
+
       // 清理过期的K线记录
       this.cleanupExpiredKlines();
 

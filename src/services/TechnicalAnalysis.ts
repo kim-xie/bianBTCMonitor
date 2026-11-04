@@ -26,6 +26,8 @@ interface Kline {
 }
 
 export class TechnicalAnalysisService {
+  /** 全部策略下线。恢复预测时改为 true。 */
+  private readonly STRATEGIES_ENABLED = false;
   private readonly EMA50_PERIOD = 50;
   private readonly EMA150_PERIOD = 150;
   private readonly EMA200_PERIOD = 200;
@@ -87,6 +89,22 @@ export class TechnicalAnalysisService {
    * 预测未来10分钟价格走势
    */
   async predictDirection(priceHistory: IPriceData[], fiveMinuteKlines: any[]): Promise<PredictionResult> {
+    if (!this.STRATEGIES_ENABLED) {
+      console.log('全部策略已下线，不产生预测');
+      return {
+        direction: 'UP',
+        confidence: 0,
+        reasoning: [],
+        indicators: {
+          ema50: 0,
+          ema150: 0,
+          ema200: 0,
+          trend: 'NEUTRAL',
+          volatility: 0
+        }
+      };
+    }
+
     // 重置K线状态，防止跨调用污染
     this.resetKlineState();
 
@@ -957,6 +975,11 @@ export class TechnicalAnalysisService {
    */
   async generate10MinuteSignal(priceHistory: IPriceData[], tenMinuteKlines: any[]): Promise<{ direction: 'UP' | 'DOWN', confidence: number, reasoning: string[] } | null> {
     try {
+      if (!this.STRATEGIES_ENABLED) {
+        console.log('全部策略已下线，不产生10分钟信号');
+        return null;
+      }
+
       // 检查参数是否存在
       if (!tenMinuteKlines || !Array.isArray(tenMinuteKlines)) {
         console.log('10分钟K线数据不存在');

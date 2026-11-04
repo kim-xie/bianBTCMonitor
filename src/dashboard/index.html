@@ -399,11 +399,11 @@
             id: isShort ? 'secondary_engulfing_short' : 'secondary_engulfing_long',
             category: '反转策略',
             type: 'reversal',
-            name: isShort ? '上涨趋势 阴线二次反包' : '下跌趋势 阳线二次反包',
+            name: isShort ? '上涨趋势 阴线二次反包 (已下线)' : '下跌趋势 阳线二次反包 (已下线)',
             direction: isShort ? 'SELL' : 'BUY',
-            desc: isShort ? '上涨趋势中摸高遇阻弱反弹无力破高，关键大阴线二次反包确认见顶做空反转' : '下跌趋势中探底企稳弱回踩无力破低，关键大阳线二次反包确认筑底做多反转',
-            status: 'active',
-            statusLabel: '核心反转',
+            desc: isShort ? '上涨趋势中摸高遇阻弱反弹无力破高，关键大阴线二次反包确认见顶做空反转（已下线停用）' : '下跌趋势中探底企稳弱回踩无力破低，关键大阳线二次反包确认筑底做多反转（已下线停用）',
+            status: 'disabled',
+            statusLabel: '已下线',
             keyword: '二次反包'
           };
         }
@@ -413,11 +413,11 @@
             id: 'trend_ema_engulfing',
             category: '趋势策略',
             type: 'trend',
-            name: 'EMA多头 回踩反包做多',
+            name: 'EMA多头 回踩反包做多 (已下线)',
             direction: 'BUY',
-            desc: 'EMA50>EMA200上涨趋势中，阴线回调后关键阳线反包做多，越靠近均线置信度越高；遇前高阻力降低置信度，<80%不操作',
-            status: 'active',
-            statusLabel: '核心趋势',
+            desc: 'EMA50>EMA200上涨趋势中，阴线回调后关键阳线反包做多（已下线停用）',
+            status: 'disabled',
+            statusLabel: '已下线',
             keyword: '反包'
           };
         }
@@ -426,11 +426,11 @@
             id: 'trend_ema_engulfing_short',
             category: '趋势策略',
             type: 'trend',
-            name: 'EMA空头 反弹反包做空',
+            name: 'EMA空头 反弹反包做空 (已下线)',
             direction: 'SELL',
-            desc: 'EMA50<EMA200下跌趋势中，阳线反弹后关键阴线反包做空，越靠近均线置信度越高；遇前低支撑降低置信度，<80%不操作',
-            status: 'active',
-            statusLabel: '核心趋势',
+            desc: 'EMA50<EMA200下跌趋势中，阳线反弹后关键阴线反包做空（已下线停用）',
+            status: 'disabled',
+            statusLabel: '已下线',
             keyword: '反包'
           };
         }
@@ -811,7 +811,7 @@
                 </span>
               </div>
               <p className="text-[11px] text-slate-400 mb-3 leading-relaxed">
-                顺大势做小级别回调：重点基于 EMA50 动态生命线支撑阻力精准切入
+                趋势回踩与反弹反包已全部下线，仅保留历史统计
               </p>
               <div className="grid grid-cols-3 gap-2 py-2.5 border-y border-slate-800 text-center">
                 <div>
@@ -843,7 +843,7 @@
                 </span>
               </div>
               <p className="text-[11px] text-slate-400 mb-3 leading-relaxed">
-                短线动能衰竭与均值回归：运行上涨/下跌趋势的二次反包（连涨连跌已下线）
+                二次反包与连涨连跌已全部下线，仅保留历史统计
               </p>
               <div className="grid grid-cols-3 gap-2 py-2.5 border-y border-slate-800 text-center">
                 <div>

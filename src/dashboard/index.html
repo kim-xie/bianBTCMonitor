@@ -393,6 +393,20 @@
         const r = (trade.reasoning && trade.reasoning[0]) || '';
         const isLong = trade.signal === 'BUY';
 
+        if (r.includes('沿EMA50反包做空')) {
+          return {
+            id: 'trendline_engulf_short',
+            category: '趋势策略',
+            type: 'trend',
+            name: '下跌趋势 沿EMA50反包做空',
+            direction: 'SELL',
+            desc: 'EMA50在EMA200下方并向下时，反弹上影贴住EMA50，阴线反包前一根阳线并收回到均线下方',
+            status: 'active',
+            statusLabel: '做空',
+            keyword: '沿EMA50反包做空'
+          };
+        }
+
         if (r.includes('沿EMA50反包')) {
           return {
             id: 'trendline_engulf_long',
@@ -402,7 +416,7 @@
             direction: 'BUY',
             desc: 'EMA50在EMA200上方并向上时，回踩下影贴住EMA50，阳线反包前一根阴线并收回到均线上方',
             status: 'active',
-            statusLabel: '只做多',
+            statusLabel: '做多',
             keyword: '沿EMA50反包'
           };
         }
@@ -671,7 +685,7 @@
                   <span className="text-slate-600">|</span>
                   <span className="text-slate-400">HOST: btc-oracle-sg-01</span>
                   <span className="text-slate-600">|</span>
-                  <span className="text-cyan-400 font-medium">CORE: EMA50 沿趋势反包做多</span>
+                  <span className="text-cyan-400 font-medium">CORE: EMA50 沿趋势反包</span>
                 </div>
                 <div className="flex items-center gap-2">
                   <span className="text-emerald-400 font-bold text-lg font-mono">&gt;</span>
@@ -825,7 +839,7 @@
                 </span>
               </div>
               <p className="text-[11px] text-slate-400 mb-3 leading-relaxed">
-                上涨趋势只沿 EMA50 回踩反包做多，下影贴住黄线且阳线反包才开仓
+                上涨沿 EMA50 回踩阳线反包做多，下跌沿 EMA50 反弹阴线反包做空
               </p>
               <div className="grid grid-cols-3 gap-2 py-2.5 border-y border-slate-800 text-center">
                 <div>
@@ -1116,14 +1130,14 @@
               <div className="p-3 rounded bg-[#05080c] border border-slate-800">
                 <div className="text-cyan-400 font-bold mb-1">[CONF.02] 6-UP_REVERSAL_SHORT</div>
                 <p className="text-slate-400 leading-relaxed text-[11px]">
-                  已下线。连涨不再开仓，上涨趋势不做空。
+                  已下线。连涨不再开仓。下跌只做沿 EMA50 的阴线反包。
                 </p>
               </div>
 
               <div className="p-3 rounded bg-[#05080c] border border-slate-800">
-                <div className="text-amber-400 font-bold mb-1">[CONF.03] EMA50_TRENDLINE_ENGULF_LONG</div>
+                <div className="text-amber-400 font-bold mb-1">[CONF.03] EMA50_TRENDLINE_ENGULF</div>
                 <p className="text-slate-400 leading-relaxed text-[11px]">
-                  只做多。EMA50 在 EMA200 上方且两条均线向上时，回踩下影贴住 EMA50，阳线反包前一根阴线并收到均线上方 0.30% 以内。不碰 EMA200，不做空。
+                  上涨：EMA50 在 EMA200 上方且均线向上，回踩下影贴住 EMA50，阳线反包并收到均线上方 0.30% 以内。下跌相反：均线向下，反弹上影贴住 EMA50，阴线反包并收到均线下方 0.30% 以内。
                 </p>
               </div>
 

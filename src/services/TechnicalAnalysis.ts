@@ -125,41 +125,7 @@ export class TechnicalAnalysisService {
     const reasoning: string[] = [];
 
     /**
-     * 1. 反转策略：5分钟周期 6连涨做空、6连跌做多（无振幅过滤）
-     */
-    if (!this.isFiveMinuteUsed && fiveMinuteKlines.length >= 6) {
-      const recentSixCandles = fiveMinuteKlines.slice(-6); // 最近6根K线
-
-      // 计算最近6根K线中的最高价和最低价
-      const highestHigh = Math.max(...recentSixCandles.map(k => k.high));
-      const lowestLow = Math.min(...recentSixCandles.map(k => k.low));
-      const priceRange = highestHigh - lowestLow;
-
-      console.log(`最近6根K线: 最高价=${highestHigh.toFixed(2)}, 最低价=${lowestLow.toFixed(2)}, 价差=${priceRange.toFixed(2)}`);
-
-      const is6ConsecutiveDown = this.checkConsecutiveTrend(recentSixCandles, 'DOWN', 6);
-      const is6ConsecutiveUp = this.checkConsecutiveTrend(recentSixCandles, 'UP', 6);
-
-      // 6连跌：直接做多
-      if (is6ConsecutiveDown) {
-        score = 100;
-        reasoning.push(`反转策略: 6连跌做多｜价差${priceRange.toFixed(0)}点`);
-      }
-
-      // 6连涨：直接做空（若处于标准EMA多头平行上升趋势中，禁止摸顶做空避免逆势遭强轧空）
-      if (is6ConsecutiveUp) {
-        const isStrongUptrend = this.isParallelEmaTrend(ema50Values, ema200Values, 'UP');
-        if (isStrongUptrend) {
-          console.log('⚠️ 处于标准EMA多头平行上升趋势(EMA50>EMA200且斜率同向上行)中，规避6连涨逆势摸顶做空');
-        } else {
-          score = -100;
-          reasoning.push(`反转策略: 6连涨做空｜价差${priceRange.toFixed(0)}点`);
-        }
-      }
-    }
-
-    /**
-     * 1.5 反转策略：二次反包确认策略（顶部冲高见顶做空 / 底部探底企稳做多）
+     * 1. 反转策略：二次反包确认策略（顶部冲高见顶做空 / 底部探底企稳做多）
      * 对应红框反转形态：摸高/探底受阻后，弱势整理未能创新极值，随后关键实体K线二次反包确认反转
      */
     if (!this.isFiveMinuteUsed && score === 0 && fiveMinuteKlines.length >= 5) {
@@ -816,51 +782,6 @@ export class TechnicalAnalysisService {
     const variance = returns.reduce((sum, ret) => sum + Math.pow(ret - mean, 2), 0) / returns.length;
 
     return Math.sqrt(variance);
-  }
-
-  /**
-   * 检查是否是连续趋势
-   * 6连涨：必须是阳线（收盘价 > 开盘价）且收盘价连续上涨
-   * 6连跌：必须是阴线（收盘价 < 开盘价）且收盘价连续下跌
-   */
-  private checkConsecutiveTrend(candles: any[], direction: 'UP' | 'DOWN', targetCount: number = 6): boolean {
-    if (candles.length < targetCount) return false;
-
-    for (let i = 0; i < candles.length; i++) {
-      const currentCandle = candles[i];
-      const currentClose = +currentCandle.close;
-      const currentOpen = +currentCandle.open;
-
-      if (direction === 'UP') {
-        // 连涨：必须是阳线（收盘价 > 开盘价）
-        if (currentClose <= currentOpen) {
-          return false;
-        }
-
-        // 检查收盘价是否连续上涨（从第2根开始比较）
-        if (i > 0) {
-          const previousCandle = candles[i - 1];
-          if (currentClose <= +previousCandle.close) {
-            return false;
-          }
-        }
-      } else {
-        // 连跌：必须是阴线（收盘价 < 开盘价）
-        if (currentClose >= currentOpen) {
-          return false;
-        }
-
-        // 检查收盘价是否连续下跌（从第2根开始比较）
-        if (i > 0) {
-          const previousCandle = candles[i - 1];
-          if (currentClose >= +previousCandle.close) {
-            return false;
-          }
-        }
-      }
-    }
-
-    return true;
   }
 
   // 上影线不能大过实体 或者上影线不能大于下影线

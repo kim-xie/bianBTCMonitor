@@ -195,7 +195,7 @@ export class TradingSignalService {
       if (isTrend) {
         return `建议开仓做多 - EMA多头回踩反包阳线 (置信度: ${confidence}%)`;
       }
-      return '建议开仓做多 - 5分钟6连跌超跌反弹信号';
+      return `建议开仓做多 (置信度: ${confidence}%)`;
     } else {
       if (isSecondaryReversal) {
         return `建议开仓做空 - 上涨趋势阴线二次反包反转 (置信度: ${confidence}%)`;
@@ -203,7 +203,7 @@ export class TradingSignalService {
       if (isTrend) {
         return `建议开仓做空 - EMA空头反弹反包阴线 (置信度: ${confidence}%)`;
       }
-      return '建议开仓做空 - 5分钟6连涨超买回落信号';
+      return `建议开仓做空 (置信度: ${confidence}%)`;
     }
   }
 

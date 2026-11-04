@@ -440,11 +440,11 @@
             id: is6 ? '6down_long' : '5down_long',
             category: '反转策略',
             type: 'reversal',
-            name: is6 ? '6连跌 做多' : '5连跌 超跌反弹做多 (已下线)',
+            name: is6 ? '6连跌 做多 (已下线)' : '5连跌 超跌反弹做多 (已下线)',
             direction: 'BUY',
-            desc: is6 ? '连续6根5分阴线直接做多（无振幅过滤）' : '历史5连阴策略（已下线停用）',
-            status: is6 ? 'active' : 'disabled',
-            statusLabel: is6 ? '主力王牌' : '已下线',
+            desc: is6 ? '连续6根5分阴线做多（已下线停用）' : '历史5连阴策略（已下线停用）',
+            status: 'disabled',
+            statusLabel: '已下线',
             keyword: is6 ? '6连跌' : '5连跌'
           };
         }
@@ -454,11 +454,11 @@
             id: is6 ? '6up_short' : '5up_short',
             category: '反转策略',
             type: 'reversal',
-            name: is6 ? '6连涨 做空' : '5连涨 逆势猜顶做空 (已下线)',
+            name: is6 ? '6连涨 做空 (已下线)' : '5连涨 逆势猜顶做空 (已下线)',
             direction: 'SELL',
-            desc: is6 ? '连续6根5分阳线直接做空（无振幅过滤）' : '历史5连阳策略（已下线停用）',
-            status: is6 ? 'active' : 'disabled',
-            statusLabel: is6 ? '主力做空' : '已下线',
+            desc: is6 ? '连续6根5分阳线做空（已下线停用）' : '历史5连阳策略（已下线停用）',
+            status: 'disabled',
+            statusLabel: '已下线',
             keyword: is6 ? '6连涨' : '5连涨'
           };
         }
@@ -843,7 +843,7 @@
                 </span>
               </div>
               <p className="text-[11px] text-slate-400 mb-3 leading-relaxed">
-                短线动能衰竭与均值回归：运行 6连跌做多与 6连涨做空（5连涨跌已下线）
+                短线动能衰竭与均值回归：运行上涨/下跌趋势的二次反包（连涨连跌已下线）
               </p>
               <div className="grid grid-cols-3 gap-2 py-2.5 border-y border-slate-800 text-center">
                 <div>

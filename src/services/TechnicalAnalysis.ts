@@ -179,7 +179,8 @@ export class TechnicalAnalysisService {
   /**
    * 沿 EMA50 反包做多。
    * 前一根为阴线，当前为阳线且收盘反包前一根开盘价。
-   * 两根 K 线的最低价贴到 EMA50（允许下影略微刺破），阴线收盘没有有效跌破，阳线收盘回到均线上方且偏离不超过 0.30%。
+   * 两根 K 线的最低价贴到 EMA50（允许下影略微刺破）。阴线收盘只要在 EMA200 上方即可。
+   * 阳线收盘回到 EMA50 上方且偏离不超过 0.30%。
    */
   private detectUptrendTrendlineEngulf(
     fiveMinuteKlines: any[],
@@ -204,24 +205,25 @@ export class TechnicalAnalysisService {
     }
 
     const ema50 = ema50Values[ema50Values.length - 1];
-    if (!(ema50 > 0)) return null;
+    const ema200 = ema200Values[ema200Values.length - 1];
+    if (!(ema50 > 0) || !(ema200 > 0)) return null;
 
     const pullbackLow = Math.min(prevLow, currLow);
     const tagsLine = pullbackLow <= ema50 * 1.001;
     const notBroken = pullbackLow >= ema50 * 0.997;
-    const bearishHeld = prevClose >= ema50 * 0.9985;
+    const bearishAboveEma200 = prevClose > ema200;
     const fromAbove = prevHigh > ema50;
     const reclaimed = currClose > ema50;
     const distPct = ((currClose - ema50) / ema50) * 100;
 
-    if (!tagsLine || !notBroken || !bearishHeld || !fromAbove || !reclaimed || distPct > 0.30) {
+    if (!tagsLine || !notBroken || !bearishAboveEma200 || !fromAbove || !reclaimed || distPct > 0.30) {
       return null;
     }
 
     const confidence = distPct <= 0.15 ? 90 : 85;
     return {
       confidence,
-      reason: `趋势策略: 上涨趋势沿EMA50反包做多｜下影贴黄线后阳线反包｜收盘高出EMA50 ${distPct.toFixed(2)}%｜置信度${confidence}%`
+      reason: `趋势策略: 上涨趋势沿EMA50反包做多｜阴线收在EMA200上方｜阳线反包上穿EMA50｜收盘高出EMA50 ${distPct.toFixed(2)}%｜置信度${confidence}%`
     };
   }
 
@@ -247,7 +249,8 @@ export class TechnicalAnalysisService {
   /**
    * 沿 EMA50 反包做空，与做多对称。
    * 前一根为阳线，当前为阴线且收盘反包前一根开盘价。
-   * 两根 K 线的最高价贴到 EMA50（允许上影略微刺破），阳线收盘没有有效升破，阴线收盘回到均线下方且偏离不超过 0.30%。
+   * 两根 K 线的最高价贴到 EMA50（允许上影略微刺破）。阳线收盘只要在 EMA200 下方即可。
+   * 阴线收盘回到 EMA50 下方且偏离不超过 0.30%。
    */
   private detectDowntrendTrendlineEngulf(
     fiveMinuteKlines: any[],
@@ -272,24 +275,25 @@ export class TechnicalAnalysisService {
     }
 
     const ema50 = ema50Values[ema50Values.length - 1];
-    if (!(ema50 > 0)) return null;
+    const ema200 = ema200Values[ema200Values.length - 1];
+    if (!(ema50 > 0) || !(ema200 > 0)) return null;
 
     const bounceHigh = Math.max(prevHigh, currHigh);
     const tagsLine = bounceHigh >= ema50 * 0.999;
     const notBroken = bounceHigh <= ema50 * 1.003;
-    const bullishHeld = prevClose <= ema50 * 1.0015;
+    const bullishBelowEma200 = prevClose < ema200;
     const fromBelow = prevLow < ema50;
     const reclaimed = currClose < ema50;
     const distPct = ((ema50 - currClose) / ema50) * 100;
 
-    if (!tagsLine || !notBroken || !bullishHeld || !fromBelow || !reclaimed || distPct > 0.30) {
+    if (!tagsLine || !notBroken || !bullishBelowEma200 || !fromBelow || !reclaimed || distPct > 0.30) {
       return null;
     }
 
     const confidence = distPct <= 0.15 ? 90 : 85;
     return {
       confidence,
-      reason: `趋势策略: 下跌趋势沿EMA50反包做空｜上影贴黄线后阴线反包｜收盘低于EMA50 ${distPct.toFixed(2)}%｜置信度${confidence}%`
+      reason: `趋势策略: 下跌趋势沿EMA50反包做空｜阳线收在EMA200下方｜阴线反包下穿EMA50｜收盘低于EMA50 ${distPct.toFixed(2)}%｜置信度${confidence}%`
     };
   }
 

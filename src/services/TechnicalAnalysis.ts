@@ -128,8 +128,8 @@ export class TechnicalAnalysisService {
 
     /**
      * 沿 EMA50 反包，多空对称。
-     * 上涨：从上方回踩，下影贴住黄线，阳线反包并收回均线上方。
-     * 下跌：从下方反弹，上影贴住黄线，阴线反包并收回均线下方。
+     * 上涨：从上方回踩，阳线收盘高于前一根阴线实体的一半，并收回 EMA50 上方。
+     * 下跌：从下方反弹，阴线收盘低于前一根阳线实体的一半，并收回 EMA50 下方。
      */
     if (!this.isFiveMinuteUsed && fiveMinuteKlines.length >= 2) {
       const trendlineLong = this.detectUptrendTrendlineEngulf(fiveMinuteKlines, ema50Values, ema200Values);
@@ -178,7 +178,7 @@ export class TechnicalAnalysisService {
 
   /**
    * 沿 EMA50 反包做多。
-   * 前一根为阴线，当前为阳线且收盘反包前一根开盘价。
+   * 前一根为阴线，当前阳线收盘高于阴线实体的一半。
    * 两根 K 线的最低价贴到 EMA50（允许下影略微刺破）。阴线收盘只要在 EMA200 上方即可。
    * 阳线收盘回到 EMA50 上方且偏离不超过 0.30%。
    */
@@ -200,7 +200,8 @@ export class TechnicalAnalysisService {
     const currOpen = +curr.open;
     const currLow = +curr.low;
 
-    if (!(prevClose < prevOpen && currClose > currOpen && currClose >= prevOpen)) {
+    const bearishMidpoint = (prevOpen + prevClose) / 2;
+    if (!(prevClose < prevOpen && currClose > currOpen && currClose > bearishMidpoint)) {
       return null;
     }
 
@@ -223,7 +224,7 @@ export class TechnicalAnalysisService {
     const confidence = distPct <= 0.15 ? 90 : 85;
     return {
       confidence,
-      reason: `趋势策略: 上涨趋势沿EMA50反包做多｜阴线收在EMA200上方｜阳线反包上穿EMA50｜收盘高出EMA50 ${distPct.toFixed(2)}%｜置信度${confidence}%`
+      reason: `趋势策略: 上涨趋势沿EMA50反包做多｜阴线收在EMA200上方｜阳线收盘过阴线实体一半并上穿EMA50｜收盘高出EMA50 ${distPct.toFixed(2)}%｜置信度${confidence}%`
     };
   }
 
@@ -248,7 +249,7 @@ export class TechnicalAnalysisService {
 
   /**
    * 沿 EMA50 反包做空，与做多对称。
-   * 前一根为阳线，当前为阴线且收盘反包前一根开盘价。
+   * 前一根为阳线，当前阴线收盘低于阳线实体的一半。
    * 两根 K 线的最高价贴到 EMA50（允许上影略微刺破）。阳线收盘只要在 EMA200 下方即可。
    * 阴线收盘回到 EMA50 下方且偏离不超过 0.30%。
    */
@@ -270,7 +271,8 @@ export class TechnicalAnalysisService {
     const currOpen = +curr.open;
     const currHigh = +curr.high;
 
-    if (!(prevClose > prevOpen && currClose < currOpen && currClose <= prevOpen)) {
+    const bullishMidpoint = (prevOpen + prevClose) / 2;
+    if (!(prevClose > prevOpen && currClose < currOpen && currClose < bullishMidpoint)) {
       return null;
     }
 
@@ -293,7 +295,7 @@ export class TechnicalAnalysisService {
     const confidence = distPct <= 0.15 ? 90 : 85;
     return {
       confidence,
-      reason: `趋势策略: 下跌趋势沿EMA50反包做空｜阳线收在EMA200下方｜阴线反包下穿EMA50｜收盘低于EMA50 ${distPct.toFixed(2)}%｜置信度${confidence}%`
+      reason: `趋势策略: 下跌趋势沿EMA50反包做空｜阳线收在EMA200下方｜阴线收盘过阳线实体一半并下穿EMA50｜收盘低于EMA50 ${distPct.toFixed(2)}%｜置信度${confidence}%`
     };
   }
 

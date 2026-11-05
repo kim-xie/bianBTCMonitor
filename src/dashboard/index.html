@@ -400,7 +400,7 @@
             type: 'trend',
             name: '下跌趋势 沿EMA50反包做空',
             direction: 'SELL',
-            desc: '下跌趋势中阳线收盘不高于EMA200的0.15%，阴线收盘低于阳线实体一半并下穿EMA50或EMA200，偏离不超过0.30%',
+            desc: '下跌趋势中EMA50与EMA200最近1小时都至少下跌0.01%，阳线收盘不高于EMA200的0.15%，阴线收盘低于阳线实体一半并下穿EMA50或EMA200，偏离不超过0.30%'
             status: 'active',
             statusLabel: '做空',
             keyword: '沿EMA50反包做空'
@@ -414,7 +414,7 @@
             type: 'trend',
             name: '上涨趋势 沿EMA50反包做多',
             direction: 'BUY',
-            desc: '上涨趋势中阴线收盘不低于EMA200的0.15%，阳线收盘高于阴线实体一半并上穿EMA50或EMA200，高出不超过0.30%',
+            desc: '上涨趋势中EMA50与EMA200最近1小时都至少上涨0.01%，阴线收盘不低于EMA200的0.15%，阳线收盘高于阴线实体一半并上穿EMA50或EMA200，高出不超过0.30%'
             status: 'active',
             statusLabel: '做多',
             keyword: '沿EMA50反包'
@@ -839,7 +839,7 @@
                 </span>
               </div>
               <p className="text-[11px] text-slate-400 mb-3 leading-relaxed">
-                上涨：阴线收盘不低于 EMA200 的 0.15%，阳线过阴线实体一半，上穿 EMA50 或 EMA200 且高出不超过 0.30%。下跌对称。
+                上涨：EMA50 与 EMA200 最近 1 小时都至少上涨 0.01%，阴线收盘不低于 EMA200 的 0.15%，阳线过阴线实体一半，上穿 EMA50 或 EMA200 且高出不超过 0.30%。下跌对称。
               </p>
               <div className="grid grid-cols-3 gap-2 py-2.5 border-y border-slate-800 text-center">
                 <div>
@@ -1137,7 +1137,7 @@
               <div className="p-3 rounded bg-[#05080c] border border-slate-800">
                 <div className="text-amber-400 font-bold mb-1">[CONF.03] EMA50_TRENDLINE_ENGULF</div>
                 <p className="text-slate-400 leading-relaxed text-[11px]">
-                  上涨：阴线收盘不低于 EMA200 的 0.15%，阳线收盘高于阴线实体一半，上穿 EMA50 或 EMA200，高出不超过 0.30%。下跌相反：阳线收盘不高于 EMA200 的 0.15%，阴线收盘低于阳线实体一半，下穿 EMA50 或 EMA200，低于不超过 0.30%。
+                  上涨：EMA50 与 EMA200 最近 1 小时都至少上涨 0.01%，阴线收盘不低于 EMA200 的 0.15%，阳线收盘高于阴线实体一半，上穿 EMA50 或 EMA200，高出不超过 0.30%。下跌相反：两条均线最近 1 小时都至少下跌 0.01%，阳线收盘不高于 EMA200 的 0.15%，阴线收盘低于阳线实体一半，下穿 EMA50 或 EMA200，低于不超过 0.30%。
                 </p>
               </div>
 
@@ -3720,9 +3720,9 @@
             const avgSpread = spreads.reduce((a, b) => a + b, 0) / spreads.length;
             const isParallel = avgSpread > 0 && spreads.every(s => Math.abs(s - avgSpread) / avgSpread <= 0.25);
 
-            if (curE50 > curE200 && slope50 > 0.0002 && slope200 > 0 && isParallel) {
+            if (curE50 > curE200 && slope50 >= 0.0001 && slope200 >= 0.0001 && isParallel) {
               setTrendStatus('PARALLEL_UPTREND 上涨平行趋势');
-            } else if (curE50 < curE200 && slope50 < -0.0002 && slope200 < 0 && isParallel) {
+            } else if (curE50 < curE200 && slope50 <= -0.0001 && slope200 <= -0.0001 && isParallel) {
               setTrendStatus('PARALLEL_DOWNTREND 下跌平行趋势');
             } else if (curE50 > curE200) {
               setTrendStatus('EMA50 > EMA200 多头排列(非平行)');

@@ -158,7 +158,7 @@ export class TechnicalAnalysisService {
   }
 
   /**
-   * 上涨趋势：EMA50 在 EMA200 之上，且两条均线都向上。黄线用最近约 1 小时的斜率。
+   * 上涨趋势：EMA50 在 EMA200 之上，两条均线最近约 1 小时都至少上涨 0.01%。
    */
   private isRisingEma50Uptrend(ema50Values: number[], ema200Values: number[]): boolean {
     if (!ema50Values || !ema200Values) return false;
@@ -173,7 +173,7 @@ export class TechnicalAnalysisService {
 
     const slope50 = (cur50 - ema50Recent[0]) / ema50Recent[0];
     const slope200 = (cur200 - ema200Recent[0]) / ema200Recent[0];
-    return slope50 >= 0.0002 && slope200 >= 0;
+    return slope50 >= 0.0001 && slope200 >= 0.0001;
   }
 
   /**
@@ -254,7 +254,7 @@ export class TechnicalAnalysisService {
   }
 
   /**
-   * 下跌趋势：EMA50 在 EMA200 之下，且两条均线都向下。黄线用最近约 1 小时的斜率。
+   * 下跌趋势：EMA50 在 EMA200 之下，两条均线最近约 1 小时都至少下跌 0.01%。
    */
   private isFallingEma50Downtrend(ema50Values: number[], ema200Values: number[]): boolean {
     if (!ema50Values || !ema200Values) return false;
@@ -269,7 +269,7 @@ export class TechnicalAnalysisService {
 
     const slope50 = (cur50 - ema50Recent[0]) / ema50Recent[0];
     const slope200 = (cur200 - ema200Recent[0]) / ema200Recent[0];
-    return slope50 <= -0.0002 && slope200 <= 0;
+    return slope50 <= -0.0001 && slope200 <= -0.0001;
   }
 
   /**

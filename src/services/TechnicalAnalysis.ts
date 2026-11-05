@@ -127,9 +127,9 @@ export class TechnicalAnalysisService {
     const reasoning: string[] = [];
 
     /**
-     * 沿 EMA50 反包，多空对称。
-     * 上涨：从上方回踩，下影贴住黄线，阳线反包并收回均线上方。
-     * 下跌：从下方反弹，上影贴住黄线，阴线反包并收回均线下方。
+     * 沿 EMA50 / EMA200 反包，多空对称。
+     * 上涨：阴线收盘不低于 EMA200 的 0.15%，阳线收盘高于阴线实体一半，上穿 EMA50 或 EMA200，高出不超过 0.30%。
+     * 下跌：阳线收盘不高于 EMA200 的 0.15%，阴线收盘低于阳线实体一半，下穿 EMA50 或 EMA200，低于不超过 0.30%。
      */
     if (!this.isFiveMinuteUsed && fiveMinuteKlines.length >= 2) {
       const trendlineLong = this.detectUptrendTrendlineEngulf(fiveMinuteKlines, ema50Values, ema200Values);
@@ -177,10 +177,46 @@ export class TechnicalAnalysisService {
   }
 
   /**
-   * 沿 EMA50 反包做多。
-   * 前一根为阴线，当前为阳线且收盘反包前一根开盘价。
-   * 两根 K 线的最低价贴到 EMA50（允许下影略微刺破）。阴线收盘只要在 EMA200 上方即可。
-   * 阳线收盘回到 EMA50 上方且偏离不超过 0.30%。
+   * 上穿或下穿 EMA50、EMA200 之一，且收盘偏离该均线不超过 0.30%。
+   * 两条都满足时取更近的一条。
+   */
+  private closestMaCross(
+    current: any,
+    previous: any,
+    ema50: number,
+    ema200: number,
+    direction: 'UP' | 'DOWN'
+  ): { name: 'EMA50' | 'EMA200'; distPct: number } | null {
+    const close = +current.close;
+    const lines: { name: 'EMA50' | 'EMA200'; ma: number }[] = [
+      { name: 'EMA50', ma: ema50 },
+      { name: 'EMA200', ma: ema200 }
+    ];
+    let best: { name: 'EMA50' | 'EMA200'; distPct: number } | null = null;
+
+    for (const line of lines) {
+      if (!(line.ma > 0)) continue;
+      const crossed = direction === 'UP'
+        ? this.crossesAboveMa(current, previous, line.ma)
+        : this.crossesBelowMa(current, previous, line.ma);
+      if (!crossed) continue;
+
+      const distPct = direction === 'UP'
+        ? ((close - line.ma) / line.ma) * 100
+        : ((line.ma - close) / line.ma) * 100;
+      if (distPct > 0.30) continue;
+      if (!best || distPct < best.distPct) {
+        best = { name: line.name, distPct };
+      }
+    }
+
+    return best;
+  }
+
+  /**
+   * 沿均线反包做多。
+   * 前一根为阴线，收盘不低于 EMA200 的 0.15%。
+   * 当前阳线收盘高于阴线实体的一半，并上穿 EMA50 或 EMA200，高出幅度不超过 0.30%。
    */
   private detectUptrendTrendlineEngulf(
     fiveMinuteKlines: any[],
@@ -194,36 +230,26 @@ export class TechnicalAnalysisService {
     const curr = fiveMinuteKlines[fiveMinuteKlines.length - 1];
     const prevOpen = +prev.open;
     const prevClose = +prev.close;
-    const prevHigh = +prev.high;
-    const prevLow = +prev.low;
     const currClose = +curr.close;
     const currOpen = +curr.open;
-    const currLow = +curr.low;
 
-    if (!(prevClose < prevOpen && currClose > currOpen && currClose >= prevOpen)) {
+    const bearishMidpoint = (prevOpen + prevClose) / 2;
+    if (!(prevClose < prevOpen && currClose > currOpen && currClose > bearishMidpoint)) {
       return null;
     }
 
     const ema50 = ema50Values[ema50Values.length - 1];
     const ema200 = ema200Values[ema200Values.length - 1];
     if (!(ema50 > 0) || !(ema200 > 0)) return null;
+    if (prevClose < ema200 * 0.9985) return null;
 
-    const pullbackLow = Math.min(prevLow, currLow);
-    const tagsLine = pullbackLow <= ema50 * 1.001;
-    const notBroken = pullbackLow >= ema50 * 0.997;
-    const bearishAboveEma200 = prevClose > ema200;
-    const fromAbove = prevHigh > ema50;
-    const reclaimed = currClose > ema50;
-    const distPct = ((currClose - ema50) / ema50) * 100;
+    const cross = this.closestMaCross(curr, prev, ema50, ema200, 'UP');
+    if (!cross) return null;
 
-    if (!tagsLine || !notBroken || !bearishAboveEma200 || !fromAbove || !reclaimed || distPct > 0.30) {
-      return null;
-    }
-
-    const confidence = distPct <= 0.15 ? 90 : 85;
+    const confidence = cross.distPct <= 0.15 ? 90 : 85;
     return {
       confidence,
-      reason: `趋势策略: 上涨趋势沿EMA50反包做多｜阴线收在EMA200上方｜阳线反包上穿EMA50｜收盘高出EMA50 ${distPct.toFixed(2)}%｜置信度${confidence}%`
+      reason: `趋势策略: 上涨趋势沿EMA50反包做多｜阴线收盘不低于EMA200的0.15%｜阳线收盘过阴线实体一半并上穿${cross.name}｜高出${cross.distPct.toFixed(2)}%｜置信度${confidence}%`
     };
   }
 
@@ -247,10 +273,9 @@ export class TechnicalAnalysisService {
   }
 
   /**
-   * 沿 EMA50 反包做空，与做多对称。
-   * 前一根为阳线，当前为阴线且收盘反包前一根开盘价。
-   * 两根 K 线的最高价贴到 EMA50（允许上影略微刺破）。阳线收盘只要在 EMA200 下方即可。
-   * 阴线收盘回到 EMA50 下方且偏离不超过 0.30%。
+   * 沿均线反包做空，与做多对称。
+   * 前一根为阳线，收盘不高于 EMA200 的 0.15%。
+   * 当前阴线收盘低于阳线实体的一半，并下穿 EMA50 或 EMA200，低于幅度不超过 0.30%。
    */
   private detectDowntrendTrendlineEngulf(
     fiveMinuteKlines: any[],
@@ -264,36 +289,26 @@ export class TechnicalAnalysisService {
     const curr = fiveMinuteKlines[fiveMinuteKlines.length - 1];
     const prevOpen = +prev.open;
     const prevClose = +prev.close;
-    const prevHigh = +prev.high;
-    const prevLow = +prev.low;
     const currClose = +curr.close;
     const currOpen = +curr.open;
-    const currHigh = +curr.high;
 
-    if (!(prevClose > prevOpen && currClose < currOpen && currClose <= prevOpen)) {
+    const bullishMidpoint = (prevOpen + prevClose) / 2;
+    if (!(prevClose > prevOpen && currClose < currOpen && currClose < bullishMidpoint)) {
       return null;
     }
 
     const ema50 = ema50Values[ema50Values.length - 1];
     const ema200 = ema200Values[ema200Values.length - 1];
     if (!(ema50 > 0) || !(ema200 > 0)) return null;
+    if (prevClose > ema200 * 1.0015) return null;
 
-    const bounceHigh = Math.max(prevHigh, currHigh);
-    const tagsLine = bounceHigh >= ema50 * 0.999;
-    const notBroken = bounceHigh <= ema50 * 1.003;
-    const bullishBelowEma200 = prevClose < ema200;
-    const fromBelow = prevLow < ema50;
-    const reclaimed = currClose < ema50;
-    const distPct = ((ema50 - currClose) / ema50) * 100;
+    const cross = this.closestMaCross(curr, prev, ema50, ema200, 'DOWN');
+    if (!cross) return null;
 
-    if (!tagsLine || !notBroken || !bullishBelowEma200 || !fromBelow || !reclaimed || distPct > 0.30) {
-      return null;
-    }
-
-    const confidence = distPct <= 0.15 ? 90 : 85;
+    const confidence = cross.distPct <= 0.15 ? 90 : 85;
     return {
       confidence,
-      reason: `趋势策略: 下跌趋势沿EMA50反包做空｜阳线收在EMA200下方｜阴线反包下穿EMA50｜收盘低于EMA50 ${distPct.toFixed(2)}%｜置信度${confidence}%`
+      reason: `趋势策略: 下跌趋势沿EMA50反包做空｜阳线收盘不高于EMA200的0.15%｜阴线收盘过阳线实体一半并下穿${cross.name}｜低于${cross.distPct.toFixed(2)}%｜置信度${confidence}%`
     };
   }
 

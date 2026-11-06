@@ -400,7 +400,7 @@
             type: 'trend',
             name: '下跌趋势 沿EMA50反包做空',
             direction: 'SELL',
-            desc: '下跌趋势中EMA50与EMA200最近1小时都至少下跌0.01%，前一根收盘不高于EMA200的0.15%。阳线或阴线最高价触及EMA50或EMA200，允许差0.02%，收盘落回其下且低于不超过0.30%',
+            desc: 'EMA50在EMA200下方即视为下跌。阴线收回前一根阳线，收盘离EMA50不超过0.30%，这种反包可以多次开空。均线向下时，最高价接近EMA50或EMA200后收在其下也同样开空',
             status: 'active',
             statusLabel: '做空',
             keyword: '沿EMA50反包做空'
@@ -839,7 +839,7 @@
                 </span>
               </div>
               <p className="text-[11px] text-slate-400 mb-3 leading-relaxed">
-                上涨：EMA50 与 EMA200 最近 1 小时都至少上涨 0.01%，阴线收盘不低于 EMA200 的 0.15%，阳线过阴线实体一半，上穿 EMA50 或 EMA200 且高出不超过 0.30%。下跌：两条均线最近 1 小时都至少下跌 0.01%，前一根收盘不高于 EMA200 的 0.15%。阳线或阴线最高价触及 EMA50 或 EMA200，允许差 0.02%，收盘落回其下且低于不超过 0.30%。
+                上涨：EMA50 与 EMA200 最近 1 小时都至少上涨 0.01%，阴线收盘不低于 EMA200 的 0.15%，阳线过阴线实体一半，上穿 EMA50 或 EMA200 且高出不超过 0.30%。下跌：只要 EMA50 在 EMA200 下方。阴线收回前一根阳线，收盘离 EMA50 不超过 0.30%，多次反包也开空。均线向下时，最高价接近均线后收在其下也同样开空。
               </p>
               <div className="grid grid-cols-3 gap-2 py-2.5 border-y border-slate-800 text-center">
                 <div>
@@ -1137,7 +1137,7 @@
               <div className="p-3 rounded bg-[#05080c] border border-slate-800">
                 <div className="text-amber-400 font-bold mb-1">[CONF.03] EMA50_TRENDLINE_ENGULF</div>
                 <p className="text-slate-400 leading-relaxed text-[11px]">
-                  上涨：EMA50 与 EMA200 最近 1 小时都至少上涨 0.01%，阴线收盘不低于 EMA200 的 0.15%，阳线收盘高于阴线实体一半，上穿 EMA50 或 EMA200，高出不超过 0.30%。下跌：两条均线最近 1 小时都至少下跌 0.01%，前一根收盘不高于 EMA200 的 0.15%。阳线或阴线最高价触及 EMA50 或 EMA200，允许差 0.02%，收盘落回其下且低于不超过 0.30%。
+                  上涨：EMA50 与 EMA200 最近 1 小时都至少上涨 0.01%，阴线收盘不低于 EMA200 的 0.15%，阳线收盘高于阴线实体一半，上穿 EMA50 或 EMA200，高出不超过 0.30%。下跌：只要 EMA50 在 EMA200 下方。阴线收回前一根阳线，收盘离 EMA50 不超过 0.30%，多次反包也开空。均线向下时，最高价接近均线后收在其下也同样开空。
                 </p>
               </div>
 

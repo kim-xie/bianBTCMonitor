@@ -129,7 +129,8 @@ export class TechnicalAnalysisService {
     /**
      * 沿 EMA50 / EMA200 反包，多空对称。
      * 上涨：阴线收盘不低于 EMA200 的 0.15%，阳线收盘高于阴线实体一半，上穿 EMA50 或 EMA200，高出不超过 0.30%。
-     * 下跌：阳线收盘不高于 EMA200 的 0.15%，阴线收盘低于阳线实体一半，下穿 EMA50 或 EMA200，低于不超过 0.30%。
+     * 下跌：EMA50 在 EMA200 下方即可。阴线收回前一根阳线，收盘离 EMA50 不超过 0.30%，多次出现也开空。
+     * 均线向下时，阳线或阴线最高价接近 EMA50 或 EMA200 后收在其下，同样开空。
      */
     if (!this.isFiveMinuteUsed && fiveMinuteKlines.length >= 2) {
       const trendlineLong = this.detectUptrendTrendlineEngulf(fiveMinuteKlines, ema50Values, ema200Values);
@@ -273,34 +274,41 @@ export class TechnicalAnalysisService {
   }
 
   /**
-   * 沿均线反包做空，与做多对称。
-   * 前一根为阳线，收盘不高于 EMA200 的 0.15%。
-   * 当前阴线收盘低于阳线实体的一半，并下穿 EMA50 或 EMA200，低于幅度不超过 0.30%。
+   * 下跌趋势做空。EMA50 在 EMA200 下方即可，不要求黄线已经向下。
+   * 阴线收回前一根阳线的收盘，且收盘离 EMA50 不超过 0.30%，多次出现就多次开空。
+   * 两条均线都向下时，仍保留贴着 EMA50 或 EMA200 受阻后的做空。
    */
   private detectDowntrendTrendlineEngulf(
     fiveMinuteKlines: any[],
     ema50Values: number[],
     ema200Values: number[]
   ): { confidence: number; reason: string } | null {
-    if (!this.isFallingEma50Downtrend(ema50Values, ema200Values)) return null;
     if (!fiveMinuteKlines || fiveMinuteKlines.length < 2) return null;
 
     const prev = fiveMinuteKlines[fiveMinuteKlines.length - 2];
     const curr = fiveMinuteKlines[fiveMinuteKlines.length - 1];
     const prevOpen = +prev.open;
     const prevClose = +prev.close;
-    const currClose = +curr.close;
     const currOpen = +curr.open;
-
-    const bullishMidpoint = (prevOpen + prevClose) / 2;
-    if (!(prevClose > prevOpen && currClose < currOpen && currClose < bullishMidpoint)) {
-      return null;
-    }
+    const currClose = +curr.close;
 
     const ema50 = ema50Values[ema50Values.length - 1];
     const ema200 = ema200Values[ema200Values.length - 1];
     if (!(ema50 > 0) || !(ema200 > 0)) return null;
+    if (!(ema50 < ema200)) return null;
     if (prevClose > ema200 * 1.0015) return null;
+
+    const pulledBack = prevClose > prevOpen && currClose < currOpen && currClose < prevClose;
+    const dist50 = ((currClose - ema50) / ema50) * 100;
+    if (pulledBack && dist50 <= 0.30 && dist50 >= -0.30) {
+      const confidence = Math.abs(dist50) <= 0.15 ? 90 : 85;
+      return {
+        confidence,
+        reason: `趋势策略: 下跌趋势沿EMA50反包做空｜EMA50在EMA200下方｜阴线收回前一根阳线｜收盘距EMA50 ${dist50.toFixed(2)}%｜置信度${confidence}%`
+      };
+    }
+
+    if (!this.isFallingEma50Downtrend(ema50Values, ema200Values)) return null;
 
     const cross = this.closestMaCross(curr, prev, ema50, ema200, 'DOWN');
     if (!cross) return null;
@@ -308,7 +316,7 @@ export class TechnicalAnalysisService {
     const confidence = cross.distPct <= 0.15 ? 90 : 85;
     return {
       confidence,
-      reason: `趋势策略: 下跌趋势沿EMA50反包做空｜阳线收盘不高于EMA200的0.15%｜阴线收盘过阳线实体一半并下穿${cross.name}｜低于${cross.distPct.toFixed(2)}%｜置信度${confidence}%`
+      reason: `趋势策略: 下跌趋势沿EMA50反包做空｜前一根收盘不高于EMA200的0.15%｜最高价接近${cross.name}后收在其下｜低于${cross.distPct.toFixed(2)}%｜置信度${confidence}%`
     };
   }
 
@@ -814,13 +822,16 @@ export class TechnicalAnalysisService {
   }
 
   /**
-   * 判断K线是否下穿均线：当前收盘跌破均线，且开盘在均线上方或前一根收盘在均线上方
+   * 判断K线是否在均线处受阻：收盘落回均线下方。
+   * 最高价触及均线，或距离均线不超过 0.02%；开盘、前一根收盘在均线上方也算。
    */
   private crossesBelowMa(current: any, previous: any, ma: number): boolean {
     const curOpen = +current.open;
+    const curHigh = +current.high;
     const curClose = +current.close;
     const prevClose = +previous.close;
-    return curClose < ma && (curOpen >= ma || prevClose >= ma);
+    const highReachesMa = curHigh >= ma * (1 - 0.0002);
+    return curClose < ma && (highReachesMa || curOpen >= ma || prevClose >= ma);
   }
 
   /**

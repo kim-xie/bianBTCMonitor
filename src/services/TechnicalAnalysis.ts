@@ -129,7 +129,7 @@ export class TechnicalAnalysisService {
     /**
      * 沿 EMA50 / EMA200 反包，多空对称。
      * 上涨：阴线收盘不低于 EMA200 的 0.15%，阳线收盘高于阴线实体一半，上穿 EMA50 或 EMA200，高出不超过 0.30%。
-     * 下跌：阳线收盘不高于 EMA200 的 0.15%，阴线收盘低于阳线实体一半，下穿 EMA50 或 EMA200，低于不超过 0.30%。
+     * 下跌：阳线收盘不高于 EMA200 的 0.15%，阴线收盘低于阳线实体一半，上影触及 EMA50 或 EMA200 后收盘落回其下，低于不超过 0.30%。
      */
     if (!this.isFiveMinuteUsed && fiveMinuteKlines.length >= 2) {
       const trendlineLong = this.detectUptrendTrendlineEngulf(fiveMinuteKlines, ema50Values, ema200Values);
@@ -275,7 +275,7 @@ export class TechnicalAnalysisService {
   /**
    * 沿均线反包做空，与做多对称。
    * 前一根为阳线，收盘不高于 EMA200 的 0.15%。
-   * 当前阴线收盘低于阳线实体的一半，并下穿 EMA50 或 EMA200，低于幅度不超过 0.30%。
+   * 当前阴线收盘低于阳线实体的一半。上影触及 EMA50 或 EMA200，收盘落回该均线下方，低于幅度不超过 0.30%。
    */
   private detectDowntrendTrendlineEngulf(
     fiveMinuteKlines: any[],
@@ -308,7 +308,7 @@ export class TechnicalAnalysisService {
     const confidence = cross.distPct <= 0.15 ? 90 : 85;
     return {
       confidence,
-      reason: `趋势策略: 下跌趋势沿EMA50反包做空｜阳线收盘不高于EMA200的0.15%｜阴线收盘过阳线实体一半并下穿${cross.name}｜低于${cross.distPct.toFixed(2)}%｜置信度${confidence}%`
+      reason: `趋势策略: 下跌趋势沿EMA50反包做空｜阳线收盘不高于EMA200的0.15%｜阴线收盘过阳线实体一半，上影触及${cross.name}后收在其下｜低于${cross.distPct.toFixed(2)}%｜置信度${confidence}%`
     };
   }
 
@@ -814,13 +814,14 @@ export class TechnicalAnalysisService {
   }
 
   /**
-   * 判断K线是否下穿均线：当前收盘跌破均线，且开盘在均线上方或前一根收盘在均线上方
+   * 判断K线是否下穿均线：收盘落回均线下方，且上影触及均线，或开盘、前一根收盘在均线上方。
    */
   private crossesBelowMa(current: any, previous: any, ma: number): boolean {
     const curOpen = +current.open;
+    const curHigh = +current.high;
     const curClose = +current.close;
     const prevClose = +previous.close;
-    return curClose < ma && (curOpen >= ma || prevClose >= ma);
+    return curClose < ma && (curHigh >= ma || curOpen >= ma || prevClose >= ma);
   }
 
   /**

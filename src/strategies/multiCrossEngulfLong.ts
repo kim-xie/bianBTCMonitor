@@ -5,7 +5,7 @@ import {
 } from './registry';
 
 export const MULTI_CROSS_ENGULF_LONG_ID = 'multi-cross-engulf-long';
-export const MULTI_CROSS_ENGULF_LONG_NAME = '趋势策略，多次上穿反包做多';
+export const MULTI_CROSS_ENGULF_LONG_NAME = '趋势策略：多次上穿反包做多';
 
 /** 只看最近这 20 根已收盘 K 线。 */
 export const LOOKBACK_BARS = 20;

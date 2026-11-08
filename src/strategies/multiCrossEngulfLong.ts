@@ -11,15 +11,13 @@ export const MULTI_CROSS_ENGULF_LONG_NAME = '趋势策略，多次上穿反包�
 export const LOOKBACK_BARS = 20;
 /** 这 20 根里至少两次上穿 EMA50。 */
 export const MIN_CROSS_COUNT = 2;
-/** 最后一次上穿之后，至少这几根收在 EMA50 上方附近。 */
-export const MIN_CHOP_BARS = 3;
 /** 收盘价高于 EMA50，且高出幅度不超过这个百分比，算上方附近。 */
 export const NEAR_ABOVE_PCT = 0.30;
 
 export const MULTI_CROSS_ENGULF_LONG_SUMMARY = [
   '最近 20 根已收盘的 5 分钟 K 线里，至少 2 次上穿 EMA50。',
   '上穿指收盘站上当根 EMA50，并且开盘不高于当根 EMA50，或前一根收盘不高于前一根 EMA50。',
-  '最后一次上穿之后，至少 3 根 K 线收在 EMA50 上方，距离不超过 0.30%。',
+  '最后一次上穿之后，到反包阳线之前的 K 线都收在 EMA50 上方，距离不超过 0.30%。不要求根数。',
   '最后一根是阳线，收盘高于前一根阴线的开盘价，收盘仍在 EMA50 上方 0.30% 以内，收盘进场做多。',
   '收盘价离 EMA50 不超过 0.15% 时置信度 90，否则 85。'
 ].join('');
@@ -76,7 +74,6 @@ export function evaluateMultiCrossEngulfLong(candles: Candle[]): StrategySignal 
   if (!crossesBeforeEntry.length) return null;
   const lastCrossBeforeEntry = crossesBeforeEntry[crossesBeforeEntry.length - 1];
   const chopCount = lastIndex - lastCrossBeforeEntry - 1;
-  if (chopCount < MIN_CHOP_BARS) return null;
 
   for (let i = lastCrossBeforeEntry + 1; i < lastIndex; i++) {
     const ema = emas[i];

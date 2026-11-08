@@ -10,6 +10,7 @@ import { StatisticsService } from '../services/StatisticsService';
 import { BinanceService } from '../services/BinanceService';
 import PriceDataModel, { IPriceData } from '../models/PriceData';
 import TradeModel from '../models/Trade';
+import { listStrategyDefinitions } from '../strategies/registry';
 
 /**
  * 获取北京时间今天0点对应的 Date 对象。
@@ -197,6 +198,10 @@ const binanceService = new BinanceService(proxyConfig);
 // 认证相关导入
 import { AuthRequest } from '../middleware/auth';
 import UserSubscriptionModel from '../models/UserSubscription';
+
+app.get('/api/strategies', (_req, res) => {
+  res.json(listStrategyDefinitions());
+});
 
 app.get('/api/stats', async (req: AuthRequest, res) => {
   try {

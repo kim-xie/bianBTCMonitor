@@ -392,6 +392,16 @@
       const [timeFilter, setTimeFilter] = useState('today'); // 默认选中今日 (today)
       const [typeFilter, setTypeFilter] = useState('all'); // all, trend, reversal
       const [statusFilter, setStatusFilter] = useState('all'); // all, active, disabled
+      const [strategyDefs, setStrategyDefs] = useState([]);
+
+      useEffect(() => {
+        let cancelled = false;
+        fetch('/api/strategies')
+          .then(res => res.ok ? res.json() : [])
+          .then(data => { if (!cancelled) setStrategyDefs(Array.isArray(data) ? data : []); })
+          .catch(() => { if (!cancelled) setStrategyDefs([]); });
+        return () => { cancelled = true; };
+      }, []);
 
       // 时间范围过滤
       const filteredTrades = React.useMemo(() => {
@@ -421,6 +431,62 @@
       const parseStrategy = (trade) => {
         const r = (trade.reasoning && trade.reasoning[0]) || '';
         const isLong = trade.signal === 'BUY';
+
+        if (r.includes('策略:strong-drop-pullback-short') || r.includes('强势下跌，弱回调反包做空')) {
+          return {
+            id: 'strong-drop-pullback-short',
+            category: '趋势策略',
+            type: 'trend',
+            name: '趋势策略：强势下跌，弱回调反包做空',
+            direction: 'SELL',
+            desc: '至少3根强势阴线之后弱回调，阴线反包立即做空',
+            status: 'active',
+            statusLabel: '运行中',
+            keyword: '弱回调反包做空'
+          };
+        }
+
+        if (r.includes('策略:strong-rally-pullback-long') || r.includes('强势上涨、弱回调反包做多')) {
+          return {
+            id: 'strong-rally-pullback-long',
+            category: '趋势策略',
+            type: 'trend',
+            name: '强势上涨、弱回调反包做多',
+            direction: 'BUY',
+            desc: '至少3根强势阳线之后弱回调，阳线反包立即做多',
+            status: 'active',
+            statusLabel: '运行中',
+            keyword: '弱回调反包做多'
+          };
+        }
+
+        if (r.includes('策略:multi-cross-engulf-short') || r.includes('多次下穿反包做空')) {
+          return {
+            id: 'multi-cross-engulf-short',
+            category: '趋势策略',
+            type: 'trend',
+            name: '趋势策略：多次下穿反包做空',
+            direction: 'SELL',
+            desc: '20根内至少两次下穿EMA50，下方附近震荡后阴线反包做空',
+            status: 'active',
+            statusLabel: '运行中',
+            keyword: '多次下穿反包做空'
+          };
+        }
+
+        if (r.includes('策略:multi-cross-engulf-long') || r.includes('多次上穿反包做多')) {
+          return {
+            id: 'multi-cross-engulf-long',
+            category: '趋势策略',
+            type: 'trend',
+            name: '趋势策略：多次上穿反包做多',
+            direction: 'BUY',
+            desc: '20根内至少两次上穿EMA50，上方附近震荡后阳线反包做多',
+            status: 'active',
+            statusLabel: '运行中',
+            keyword: '多次上穿反包做多'
+          };
+        }
 
         if (r.includes('沿EMA50反包做空')) {
           return {
@@ -714,7 +780,7 @@
                   <span className="text-slate-600">|</span>
                   <span className="text-slate-400">HOST: btc-oracle-sg-01</span>
                   <span className="text-slate-600">|</span>
-                  <span className="text-cyan-400 font-medium">CORE: 技术指标已移除</span>
+                  <span className="text-cyan-400 font-medium">CORE: 四条趋势策略</span>
                 </div>
                 <div className="flex items-center gap-2">
                   <span className="text-emerald-400 font-bold text-lg font-mono">&gt;</span>
@@ -868,7 +934,7 @@
                 </span>
               </div>
               <p className="text-[11px] text-slate-400 mb-3 leading-relaxed">
-                技术指标已移除，不再按均线开仓。下方统计只保留历史订单。
+                当前有四条趋势策略：两次做多，两次做空。做空是多次下穿反包，以及强势下跌后的弱回调反包。旧的均线反包只留在历史订单里。
               </p>
               <div className="grid grid-cols-3 gap-2 py-2.5 border-y border-slate-800 text-center">
                 <div>
@@ -900,7 +966,7 @@
                 </span>
               </div>
               <p className="text-[11px] text-slate-400 mb-3 leading-relaxed">
-                二次反包与连涨连跌已全部下线，仅保留历史统计
+                旧反转策略已全部下线。下方只统计历史订单。
               </p>
               <div className="grid grid-cols-3 gap-2 py-2.5 border-y border-slate-800 text-center">
                 <div>
@@ -1140,49 +1206,31 @@
             </div>
           </div>
 
-          {/* 策略规则与风控引擎配置 (Terminal Sysconfig Log) */}
+          {/* 当前策略定义。旧策略已全部下线，只展示注册表里的定义。 */}
           <div className="p-4 rounded-xl bg-[#080d14] border border-slate-700/80 text-xs font-mono shadow-xl shadow-black/60">
             <div className="flex items-center gap-2 mb-3 text-xs font-bold text-emerald-400 tracking-wider">
-              <span>SYSTEM_LOG :: CORE_RULES_AND_RISK_GUARD</span>
-              <span className="text-[10px] px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-300 border border-emerald-500/20 font-normal">
-                [ENGINE_ONLINE]
+              <span>SYSTEM_LOG :: STRATEGY_DEFINITION</span>
+              <span className={`text-[10px] px-2 py-0.5 rounded font-normal ${strategyDefs.some(def => def.enabled) ? 'bg-emerald-500/10 text-emerald-300 border border-emerald-500/20' : 'bg-amber-500/10 text-amber-300 border border-amber-500/20'}`}>
+                {strategyDefs.some(def => def.enabled) ? '[STRATEGY_ENABLED]' : '[NO_ENABLED_STRATEGY]'}
               </span>
             </div>
-            <div className="grid grid-cols-1 md:grid-cols-5 gap-3 text-slate-300">
-              <div className="p-3 rounded bg-[#05080c] border border-slate-800">
-                <div className="text-emerald-400 font-bold mb-1">[CONF.01] 6-DOWN_REVERSAL_LONG</div>
-                <p className="text-slate-400 leading-relaxed text-[11px]">
-                  已下线。连跌不再开仓。
-                </p>
-              </div>
-
-              <div className="p-3 rounded bg-[#05080c] border border-slate-800">
-                <div className="text-cyan-400 font-bold mb-1">[CONF.02] 6-UP_REVERSAL_SHORT</div>
-                <p className="text-slate-400 leading-relaxed text-[11px]">
-                  已下线。连涨不再开仓。
-                </p>
-              </div>
-
-              <div className="p-3 rounded bg-[#05080c] border border-slate-800">
-                <div className="text-amber-400 font-bold mb-1">[CONF.03] INDICATORS_REMOVED</div>
-                <p className="text-slate-400 leading-relaxed text-[11px]">
-                  已下线。EMA、RSI、MACD、布林带等技术指标已移除，不再作为开仓条件。
-                </p>
-              </div>
-
-              <div className="p-3 rounded bg-[#05080c] border border-slate-800">
-                <div className="text-purple-400 font-bold mb-1">[CONF.04] 10M_COOLDOWN_MUTEX_LOCK</div>
-                <p className="text-slate-400 leading-relaxed text-[11px]">
-                  已平仓结算前，10 分钟内禁止开出同方向新订单，杜绝单边逆势行情连续连开的重复吃损。
-                </p>
-              </div>
-
-              <div className="p-3 rounded bg-[#05080c] border border-slate-800">
-                <div className="text-rose-400 font-bold mb-1">[CONF.05] SECONDARY_ENGULFING_REVERSAL</div>
-                <p className="text-slate-400 leading-relaxed text-[11px]">
-                  已下线。二次反包不再开仓。
-                </p>
-              </div>
+            <p className="text-[11px] text-slate-400 mb-3 leading-relaxed">
+              均线反包、二次反包、连涨连跌已全部下线。现在有四条策略：多次上穿后在 EMA50 上方附近反包做多；多次下穿后在 EMA50 下方附近反包做空；至少 3 根强势阳线之后弱回调反包做多；至少 3 根强势阴线之后弱回调反包做空。
+            </p>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-slate-300">
+              {strategyDefs.length === 0 && (
+                <div className="p-3 rounded bg-[#05080c] border border-slate-800 text-slate-500">
+                  策略定义加载中
+                </div>
+              )}
+              {strategyDefs.map(def => (
+                <div key={def.id} className="p-3 rounded bg-[#05080c] border border-slate-800">
+                  <div className={`font-bold mb-1 ${def.enabled ? 'text-emerald-400' : 'text-amber-400'}`}>
+                    [{def.enabled ? 'ENABLED' : 'DISABLED'}] {def.name}
+                  </div>
+                  <p className="text-slate-400 leading-relaxed text-[11px]">{def.summary}</p>
+                </div>
+              ))}
             </div>
           </div>
         </div>

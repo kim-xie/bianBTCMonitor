@@ -44,7 +44,7 @@ export class TradingSignalService {
   }
 
   /**
-   * 只跑 src/strategies/registry.ts 里 enabled 的策略。当前没有启用策略，不开仓。
+   * 只跑 src/strategies/registry.ts 里 enabled 的策略。没有信号就不开仓。
    */
   async generateSignal(symbol: string = 'BTCUSDT', fiveMinuteKlines: any[] = [], _tenMinuteKlines: any[] = []): Promise<TradingSignal | null> {
     try {
@@ -54,7 +54,7 @@ export class TradingSignalService {
       const candles = toCandles(fiveMinuteKlines);
       const found = evaluateStrategies(candles);
       if (!found) {
-        console.log('没有启用中的策略，不开仓');
+        console.log('没有策略信号，不开仓');
         return null;
       }
       if (found.confidence < this.CONFIDENCE_THRESHOLD) {

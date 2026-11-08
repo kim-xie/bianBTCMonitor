@@ -432,17 +432,17 @@
         const r = (trade.reasoning && trade.reasoning[0]) || '';
         const isLong = trade.signal === 'BUY';
 
-        if (r.includes('策略:btc-5m') || r.includes('BTC 5分钟')) {
+        if (r.includes('策略:multi-cross-engulf-long') || r.includes('多次上穿反包做多')) {
           return {
-            id: 'btc-5m',
-            category: '当前策略',
+            id: 'multi-cross-engulf-long',
+            category: '趋势策略',
             type: 'trend',
-            name: 'BTC 5分钟',
-            direction: isLong ? 'BUY' : 'SELL',
-            desc: '注册表中的新策略。未启用时不会产生订单',
-            status: 'disabled',
-            statusLabel: '未启用',
-            keyword: 'btc-5m'
+            name: '多次上穿反包做多',
+            direction: 'BUY',
+            desc: '20根内至少两次上穿EMA50，上方附近震荡后阳线反包做多',
+            status: 'active',
+            statusLabel: '运行中',
+            keyword: '多次上穿反包做多'
           };
         }
 
@@ -738,7 +738,7 @@
                   <span className="text-slate-600">|</span>
                   <span className="text-slate-400">HOST: btc-oracle-sg-01</span>
                   <span className="text-slate-600">|</span>
-                  <span className="text-cyan-400 font-medium">CORE: 策略未启用</span>
+                  <span className="text-cyan-400 font-medium">CORE: 多次上穿反包做多</span>
                 </div>
                 <div className="flex items-center gap-2">
                   <span className="text-emerald-400 font-bold text-lg font-mono">&gt;</span>
@@ -892,7 +892,7 @@
                 </span>
               </div>
               <p className="text-[11px] text-slate-400 mb-3 leading-relaxed">
-                旧趋势策略已全部下线。下方只统计历史订单。
+                当前趋势策略是多次上穿反包做多。旧的均线反包只留在历史订单里。
               </p>
               <div className="grid grid-cols-3 gap-2 py-2.5 border-y border-slate-800 text-center">
                 <div>
@@ -1168,12 +1168,12 @@
           <div className="p-4 rounded-xl bg-[#080d14] border border-slate-700/80 text-xs font-mono shadow-xl shadow-black/60">
             <div className="flex items-center gap-2 mb-3 text-xs font-bold text-emerald-400 tracking-wider">
               <span>SYSTEM_LOG :: STRATEGY_DEFINITION</span>
-              <span className="text-[10px] px-2 py-0.5 rounded bg-amber-500/10 text-amber-300 border border-amber-500/20 font-normal">
-                [NO_ENABLED_STRATEGY]
+              <span className={`text-[10px] px-2 py-0.5 rounded font-normal ${strategyDefs.some(def => def.enabled) ? 'bg-emerald-500/10 text-emerald-300 border border-emerald-500/20' : 'bg-amber-500/10 text-amber-300 border border-amber-500/20'}`}>
+                {strategyDefs.some(def => def.enabled) ? '[STRATEGY_ENABLED]' : '[NO_ENABLED_STRATEGY]'}
               </span>
             </div>
             <p className="text-[11px] text-slate-400 mb-3 leading-relaxed">
-              均线反包、二次反包、连涨连跌已全部下线，不再开仓。新策略只写在注册表里，未启用时信号服务直接返回空。
+              均线反包、二次反包、连涨连跌已全部下线。当前按图中的形态做多：最近 20 根里至少两次上穿 EMA50，随后几根贴在均线上方，最后一根阳线反包收盘进场。
             </p>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-slate-300">
               {strategyDefs.length === 0 && (

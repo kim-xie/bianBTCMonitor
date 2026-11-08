@@ -1,3 +1,5 @@
+import { evaluateMultiCrossEngulfLong, MULTI_CROSS_ENGULF_LONG_ID, MULTI_CROSS_ENGULF_LONG_NAME, MULTI_CROSS_ENGULF_LONG_SUMMARY } from './multiCrossEngulfLong';
+
 export interface Candle {
   open: number;
   high: number;
@@ -40,17 +42,27 @@ export function classifyEma50Trend(close: number, ema50: number): MarketTrend | 
   return null;
 }
 
-/** 返回最新一根已计算 K 线的 EMA50。不足 50 根收盘价时返回 null。 */
-export function calculateEma50(closes: number[]): number | null {
-  if (closes.length < EMA50_PERIOD) return null;
+/** 每根 K 线对应的 EMA50。前 49 根没有值。 */
+export function calculateEma50Series(closes: number[]): Array<number | null> {
+  const out: Array<number | null> = closes.map(() => null);
+  if (closes.length < EMA50_PERIOD) return out;
   const k = 2 / (EMA50_PERIOD + 1);
   let prev = 0;
   for (let i = 0; i < EMA50_PERIOD; i++) prev += closes[i];
   prev /= EMA50_PERIOD;
+  out[EMA50_PERIOD - 1] = prev;
   for (let i = EMA50_PERIOD; i < closes.length; i++) {
     prev = closes[i] * k + prev * (1 - k);
+    out[i] = prev;
   }
-  return prev;
+  return out;
+}
+
+/** 返回最新一根已计算 K 线的 EMA50。不足 50 根收盘价时返回 null。 */
+export function calculateEma50(closes: number[]): number | null {
+  const series = calculateEma50Series(closes);
+  const last = series[series.length - 1];
+  return last == null ? null : last;
 }
 
 /**
@@ -60,20 +72,11 @@ export function calculateEma50(closes: number[]): number | null {
  */
 export const strategies: StrategyDefinition[] = [
   {
-    id: 'btc-5m',
-    name: 'BTC 5分钟',
-    enabled: false,
-    summary: [
-      '品种 BTCUSDT，只看已收盘的 5 分钟 K 线。',
-      '同一根 K 线最多一笔。持仓 10 分钟，每笔 100 USDT，同时最多 5 笔。',
-      '10 分钟内已有同向未平仓时，不再同向开仓。',
-      '趋势只看 EMA50：已收盘 5 分钟 K 线的收盘价在 EMA50 上方为多头趋势，在 EMA50 下方为空头趋势。',
-      '入场规则尚未写入。当前未启用，不开仓。'
-    ].join(''),
-    evaluate(candles: Candle[]): StrategySignal | null {
-      if (candles.length < 2) return null;
-      return null;
-    }
+    id: MULTI_CROSS_ENGULF_LONG_ID,
+    name: MULTI_CROSS_ENGULF_LONG_NAME,
+    enabled: true,
+    summary: MULTI_CROSS_ENGULF_LONG_SUMMARY,
+    evaluate: evaluateMultiCrossEngulfLong
   }
 ];
 

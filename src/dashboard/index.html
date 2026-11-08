@@ -432,6 +432,20 @@
         const r = (trade.reasoning && trade.reasoning[0]) || '';
         const isLong = trade.signal === 'BUY';
 
+        if (r.includes('策略:strong-rally-pullback-long') || r.includes('强势上涨、弱回调反包做多')) {
+          return {
+            id: 'strong-rally-pullback-long',
+            category: '趋势策略',
+            type: 'trend',
+            name: '强势上涨、弱回调反包做多',
+            direction: 'BUY',
+            desc: '至少3根强势阳线之后弱回调，阳线反包立即做多',
+            status: 'active',
+            statusLabel: '运行中',
+            keyword: '弱回调反包做多'
+          };
+        }
+
         if (r.includes('策略:multi-cross-engulf-long') || r.includes('多次上穿反包做多')) {
           return {
             id: 'multi-cross-engulf-long',
@@ -738,7 +752,7 @@
                   <span className="text-slate-600">|</span>
                   <span className="text-slate-400">HOST: btc-oracle-sg-01</span>
                   <span className="text-slate-600">|</span>
-                  <span className="text-cyan-400 font-medium">CORE: 多次上穿反包做多</span>
+                  <span className="text-cyan-400 font-medium">CORE: 两条趋势做多</span>
                 </div>
                 <div className="flex items-center gap-2">
                   <span className="text-emerald-400 font-bold text-lg font-mono">&gt;</span>
@@ -892,7 +906,7 @@
                 </span>
               </div>
               <p className="text-[11px] text-slate-400 mb-3 leading-relaxed">
-                当前趋势策略是多次上穿反包做多。旧的均线反包只留在历史订单里。
+                当前有两条趋势做多：多次上穿反包，以及强势上涨后的弱回调反包。旧的均线反包只留在历史订单里。
               </p>
               <div className="grid grid-cols-3 gap-2 py-2.5 border-y border-slate-800 text-center">
                 <div>
@@ -1173,7 +1187,7 @@
               </span>
             </div>
             <p className="text-[11px] text-slate-400 mb-3 leading-relaxed">
-              均线反包、二次反包、连涨连跌已全部下线。当前按图中的形态做多：最近 20 根里至少两次上穿 EMA50，上穿之后收在均线上方附近，最后一根阳线反包收盘进场。
+              均线反包、二次反包、连涨连跌已全部下线。现在有两条做多策略：多次上穿后在 EMA50 上方附近反包；至少 3 根强势阳线之后弱回调，反包阳线一出来就做多。
             </p>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-slate-300">
               {strategyDefs.length === 0 && (

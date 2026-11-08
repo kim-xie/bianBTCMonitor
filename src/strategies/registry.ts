@@ -1,4 +1,5 @@
 import { evaluateMultiCrossEngulfLong, MULTI_CROSS_ENGULF_LONG_ID, MULTI_CROSS_ENGULF_LONG_NAME, MULTI_CROSS_ENGULF_LONG_SUMMARY } from './multiCrossEngulfLong';
+import { evaluateStrongRallyPullbackLong, STRONG_RALLY_PULLBACK_LONG_ID, STRONG_RALLY_PULLBACK_LONG_NAME, STRONG_RALLY_PULLBACK_LONG_SUMMARY } from './strongRallyPullbackLong';
 
 export interface Candle {
   open: number;
@@ -77,6 +78,13 @@ export const strategies: StrategyDefinition[] = [
     enabled: true,
     summary: MULTI_CROSS_ENGULF_LONG_SUMMARY,
     evaluate: evaluateMultiCrossEngulfLong
+  },
+  {
+    id: STRONG_RALLY_PULLBACK_LONG_ID,
+    name: STRONG_RALLY_PULLBACK_LONG_NAME,
+    enabled: true,
+    summary: STRONG_RALLY_PULLBACK_LONG_SUMMARY,
+    evaluate: evaluateStrongRallyPullbackLong
   }
 ];
 

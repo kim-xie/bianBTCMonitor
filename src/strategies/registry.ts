@@ -1,4 +1,5 @@
 import { evaluateMultiCrossEngulfLong, MULTI_CROSS_ENGULF_LONG_ID, MULTI_CROSS_ENGULF_LONG_NAME, MULTI_CROSS_ENGULF_LONG_SUMMARY } from './multiCrossEngulfLong';
+import { evaluateMultiCrossEngulfShort, MULTI_CROSS_ENGULF_SHORT_ID, MULTI_CROSS_ENGULF_SHORT_NAME, MULTI_CROSS_ENGULF_SHORT_SUMMARY } from './multiCrossEngulfShort';
 import { evaluateStrongRallyPullbackLong, STRONG_RALLY_PULLBACK_LONG_ID, STRONG_RALLY_PULLBACK_LONG_NAME, STRONG_RALLY_PULLBACK_LONG_SUMMARY } from './strongRallyPullbackLong';
 import { evaluateRallyDropWeakBounceShort, RALLY_DROP_WEAK_BOUNCE_SHORT_ID, RALLY_DROP_WEAK_BOUNCE_SHORT_NAME, RALLY_DROP_WEAK_BOUNCE_SHORT_SUMMARY } from './rallyDropWeakBounceShort';
 
@@ -79,6 +80,13 @@ export const strategies: StrategyDefinition[] = [
     enabled: true,
     summary: MULTI_CROSS_ENGULF_LONG_SUMMARY,
     evaluate: evaluateMultiCrossEngulfLong
+  },
+  {
+    id: MULTI_CROSS_ENGULF_SHORT_ID,
+    name: MULTI_CROSS_ENGULF_SHORT_NAME,
+    enabled: true,
+    summary: MULTI_CROSS_ENGULF_SHORT_SUMMARY,
+    evaluate: evaluateMultiCrossEngulfShort
   },
   {
     id: STRONG_RALLY_PULLBACK_LONG_ID,

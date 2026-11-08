@@ -1,6 +1,6 @@
-import { TechnicalAnalysisService } from '../services/TechnicalAnalysis';
 import { IPriceData } from '../models/PriceData';
 import { BinanceService } from '../services/BinanceService';
+import { evaluateStrategies } from '../strategies/registry';
 
 interface BacktestResult {
     totalTrades: number;
@@ -81,8 +81,7 @@ function convertKlinesToPriceData(klines: any[]): IPriceData[] {
  * @param fiveMinuteKlines 5分钟K线数据
  * @returns 回测结果
  */
-async function runBacktest(priceHistory: IPriceData[], fiveMinuteKlines: any[]): Promise<BacktestResult> {
-    const taService = new TechnicalAnalysisService();
+async function runBacktest(_priceHistory: IPriceData[], fiveMinuteKlines: any[]): Promise<BacktestResult> {
     const trades: BacktestTrade[] = [];
 
     // 确保有足够的数据进行回测
@@ -94,13 +93,14 @@ async function runBacktest(priceHistory: IPriceData[], fiveMinuteKlines: any[]):
         try {
             // 准备当前K线和之前的价格数据
             const currentKlines = fiveMinuteKlines.slice(0, i + 1);
-            const currentPriceHistory = priceHistory.slice(0, (i + 1) * 5);
+            const found = evaluateStrategies(currentKlines.map((kline: any) => ({
+                open: +kline.open,
+                high: +kline.high,
+                low: +kline.low,
+                close: +kline.close
+            })));
 
-            // 预测方向
-            const prediction = await taService.predictDirection(currentPriceHistory, currentKlines);
-
-            // 置信度小于80不操作，且必须有分析依据
-            if (!prediction || prediction.reasoning.length === 0 || prediction.confidence < 80) {
+            if (!found || found.confidence < 80) {
                 continue;
             }
 
@@ -111,20 +111,20 @@ async function runBacktest(priceHistory: IPriceData[], fiveMinuteKlines: any[]):
             // 计算交易结果
             const entryPrice = currentKlines[i].close;
             const exitPrice = nextKline.close;
-            const profit = prediction.direction === 'UP' ? exitPrice - entryPrice : entryPrice - exitPrice;
-            const correct = prediction.direction === actualDirection;
+            const profit = found.direction === 'UP' ? exitPrice - entryPrice : entryPrice - exitPrice;
+            const correct = found.direction === actualDirection;
 
             // 记录交易
             trades.push({
                 timestamp: new Date(currentKlines[i].closeTime),
-                predictedDirection: prediction.direction,
+                predictedDirection: found.direction,
                 actualDirection,
                 entryPrice,
                 exitPrice,
                 profit,
                 correct,
-                confidence: prediction.confidence,
-                reasoning: prediction.reasoning
+                confidence: found.confidence,
+                reasoning: [`策略:${found.strategyId}｜${found.reason}`]
             });
 
         } catch (error) {

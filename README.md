@@ -5,7 +5,7 @@
 ## 功能特性
 
 ### 🔍 交易预测算法
-- **不再按指标开仓**: RSI、MACD、布林带和均线信号已移除。图表仍绘制 EMA50，只用于看盘
+- **策略注册表**: 旧策略已全部下线。新策略只在 `src/strategies/registry.ts` 定义，当前未启用，不开仓
 - **历史记录**: 仍可查询已经产生的交易和胜率
 - **10分钟结算**: 已有持仓仍按 10 分钟到期结算
 
@@ -81,9 +81,10 @@ src/
 │   ├── Trade.ts     # 交易记录模型
 │   └── PriceData.ts # 价格数据模型
 ├── services/        # 业务逻辑
-│   ├── TechnicalAnalysis.ts  # 技术分析服务
 │   ├── TradingSignal.ts      # 交易信号服务
 │   └── StatisticsService.ts  # 统计服务
+├── strategies/
+│   └── registry.ts           # 策略定义。未启用则不开仓
 ├── dashboard/       # 前端界面
 │   ├── server.ts    # 仪表板服务器
 │   ├── index.html   # 前端页面
@@ -93,7 +94,7 @@ src/
 
 ## 核心算法说明
 
-开仓不再使用技术指标。`generateSignal` 不再开新仓。监控图和单笔复盘图仍绘制 EMA50，这条线不参与信号。已经持仓的订单仍按 10 分钟到期结算，历史交易可以继续在面板里查询。
+旧策略已全部下线。唯一的策略定义在 `src/strategies/registry.ts`。当前只定义了「BTC 5分钟」，并且 `enabled` 为 false，所以不开新仓。图表上的 EMA50 只用于看盘。已经持仓的订单仍按 10 分钟到期结算。
 
 ## 数据库结构
 

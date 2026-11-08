@@ -240,7 +240,7 @@ let mockTrades = [
     price: 42500,
     investmentAmount: 5,
     tradeType: 'LONG',
-    reasoning: ['RSI oversold', 'Support level bounce', 'Volume spike'],
+    reasoning: ['Session low hold', 'Volume spike'],
     confidence: 85,
     closePrice: 42800,
     closeTime: new Date('2024-01-15T11:45:00'),
@@ -253,7 +253,7 @@ let mockTrades = [
     price: 42800,
     investmentAmount: 5,
     tradeType: 'SHORT',
-    reasoning: ['Resistance rejection', 'Bearish divergence'],
+    reasoning: ['Failed breakout'],
     confidence: 72,
     closePrice: 42650,
     closeTime: new Date('2024-01-15T15:30:00'),
@@ -290,10 +290,8 @@ io.on('connection', (socket) => {
     prediction: 'UP',
     confidence: 87,
     reasoning: [
-      'Golden cross pattern detected',
-      'Volume increasing on upward moves',
-      'RSI showing bullish momentum',
-      'Key resistance broken with high volume'
+      'Broke above the prior high',
+      'Volume increasing on upward moves'
     ],
     recommendedAction: 'Consider opening a long position with 5U investment'
   };

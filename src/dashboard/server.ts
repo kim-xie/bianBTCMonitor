@@ -539,7 +539,7 @@ setInterval(updatePrice, 2000);
  * 确保获取的是已收盘的5分钟K线
  */
 async function getClosedFiveMinuteKlines() {
-  // 获取币安事件合约BTC指数K线数据（多获取一些以确保有已收盘的，EMA200需要至少200根）
+  // 获取币安事件合约BTC指数K线数据（多取一些，确保能筛出已收盘的K线）
   const klines = await binanceService.getIndexPriceKlines('BTCUSDT', '5m', 400);
 
   console.log(`📊 获取到${klines.length}根币安事件合约5分钟指数K线`);

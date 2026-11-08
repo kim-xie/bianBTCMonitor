@@ -90,7 +90,7 @@ async function runBacktest(priceHistory: IPriceData[], fiveMinuteKlines: any[]):
         throw new Error('需要至少2根5分钟K线数据进行回测');
     }
 
-    for (let i = 150; i < fiveMinuteKlines.length - 1; i++) {
+    for (let i = 2; i < fiveMinuteKlines.length - 1; i++) {
         try {
             // 准备当前K线和之前的价格数据
             const currentKlines = fiveMinuteKlines.slice(0, i + 1);

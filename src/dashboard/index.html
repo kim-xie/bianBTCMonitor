@@ -398,11 +398,11 @@
             id: 'trendline_engulf_short',
             category: '趋势策略',
             type: 'trend',
-            name: '下跌趋势 沿EMA50反包做空',
+            name: '下跌趋势 沿EMA50反包做空 (已下线)',
             direction: 'SELL',
-            desc: 'EMA50在EMA200下方即视为下跌。阴线收回前一根阳线，收盘离EMA50不超过0.30%，这种反包可以多次开空。均线向下时，最高价接近EMA50或EMA200后收在其下也同样开空',
-            status: 'active',
-            statusLabel: '做空',
+            desc: '历史均线反包做空。技术指标已移除，不再开仓',
+            status: 'disabled',
+            statusLabel: '已下线',
             keyword: '沿EMA50反包做空'
           };
         }
@@ -412,11 +412,11 @@
             id: 'trendline_engulf_long',
             category: '趋势策略',
             type: 'trend',
-            name: '上涨趋势 沿EMA50反包做多',
+            name: '上涨趋势 沿EMA50反包做多 (已下线)',
             direction: 'BUY',
-            desc: '上涨趋势中EMA50与EMA200最近1小时都至少上涨0.01%，阴线收盘不低于EMA200的0.15%，阳线收盘高于阴线实体一半并上穿EMA50或EMA200，高出不超过0.30%',
-            status: 'active',
-            statusLabel: '做多',
+            desc: '历史均线反包做多。技术指标已移除，不再开仓',
+            status: 'disabled',
+            statusLabel: '已下线',
             keyword: '沿EMA50反包'
           };
         }
@@ -685,7 +685,7 @@
                   <span className="text-slate-600">|</span>
                   <span className="text-slate-400">HOST: btc-oracle-sg-01</span>
                   <span className="text-slate-600">|</span>
-                  <span className="text-cyan-400 font-medium">CORE: EMA50 沿趋势反包</span>
+                  <span className="text-cyan-400 font-medium">CORE: 技术指标已移除</span>
                 </div>
                 <div className="flex items-center gap-2">
                   <span className="text-emerald-400 font-bold text-lg font-mono">&gt;</span>
@@ -839,7 +839,7 @@
                 </span>
               </div>
               <p className="text-[11px] text-slate-400 mb-3 leading-relaxed">
-                上涨：EMA50 与 EMA200 最近 1 小时都至少上涨 0.01%，阴线收盘不低于 EMA200 的 0.15%，阳线过阴线实体一半，上穿 EMA50 或 EMA200 且高出不超过 0.30%。下跌：只要 EMA50 在 EMA200 下方。阴线收回前一根阳线，收盘离 EMA50 不超过 0.30%，多次反包也开空。均线向下时，最高价接近均线后收在其下也同样开空。
+                技术指标已移除，不再按均线开仓。下方统计只保留历史订单。
               </p>
               <div className="grid grid-cols-3 gap-2 py-2.5 border-y border-slate-800 text-center">
                 <div>
@@ -1130,14 +1130,14 @@
               <div className="p-3 rounded bg-[#05080c] border border-slate-800">
                 <div className="text-cyan-400 font-bold mb-1">[CONF.02] 6-UP_REVERSAL_SHORT</div>
                 <p className="text-slate-400 leading-relaxed text-[11px]">
-                  已下线。连涨不再开仓。下跌只做沿 EMA50 的阴线反包。
+                  已下线。连涨不再开仓。
                 </p>
               </div>
 
               <div className="p-3 rounded bg-[#05080c] border border-slate-800">
-                <div className="text-amber-400 font-bold mb-1">[CONF.03] EMA50_TRENDLINE_ENGULF</div>
+                <div className="text-amber-400 font-bold mb-1">[CONF.03] INDICATORS_REMOVED</div>
                 <p className="text-slate-400 leading-relaxed text-[11px]">
-                  上涨：EMA50 与 EMA200 最近 1 小时都至少上涨 0.01%，阴线收盘不低于 EMA200 的 0.15%，阳线收盘高于阴线实体一半，上穿 EMA50 或 EMA200，高出不超过 0.30%。下跌：只要 EMA50 在 EMA200 下方。阴线收回前一根阳线，收盘离 EMA50 不超过 0.30%，多次反包也开空。均线向下时，最高价接近均线后收在其下也同样开空。
+                  已下线。EMA、RSI、MACD、布林带等技术指标已移除，不再作为开仓条件。
                 </p>
               </div>
 
@@ -1151,7 +1151,7 @@
               <div className="p-3 rounded bg-[#05080c] border border-slate-800">
                 <div className="text-rose-400 font-bold mb-1">[CONF.05] SECONDARY_ENGULFING_REVERSAL</div>
                 <p className="text-slate-400 leading-relaxed text-[11px]">
-                  反转策略：上涨趋势中冲高受阻，关键阴线二次反包做空；下跌趋势中探底企稳，关键阳线二次反包做多。置信度85%~95%（&ge;80%）。
+                  已下线。二次反包不再开仓。
                 </p>
               </div>
             </div>
@@ -2048,7 +2048,7 @@
           tradeType: 'LONG',
           profitLoss: 80,
           profitLossPercent: 80,
-          reasoning: ['BTC 5m 均线双金叉放量，顺势多头反包']
+          reasoning: ['测试盈利结单']
         };
         setSettlementEvent({
           type: 'WIN',
@@ -2099,7 +2099,7 @@
           price: 68350.5,
           investmentAmount: 100,
           tradeType: 'LONG',
-          reasoning: ['BTC 5m 实时触发：EMA50 > EMA200 平行趋势入场'],
+          reasoning: ['测试新订单'],
           priceSpread: 0
         };
         knownTradeIdsRef.current.add(mockId);
@@ -2372,7 +2372,7 @@
                   prediction: t.prediction || (t.signal === 'BUY' ? 'UP' : 'DOWN'),
                   confidence: t.confidence || 80,
                   reasoning: Array.isArray(t.reasoning) ? t.reasoning : [t.reasoning],
-                  recommendedAction: t.recommendedAction || (t.signal === 'BUY' ? '建议开仓做多 - 均线反包' : '建议开仓做空 - 均线反包'),
+                  recommendedAction: t.recommendedAction || (t.signal === 'BUY' ? '建议开仓做多' : '建议开仓做空'),
                   investmentAmount: t.investmentAmount || 100
                 }));
             });
@@ -2509,7 +2509,7 @@
                     prediction: t.prediction || (t.signal === 'BUY' ? 'UP' : 'DOWN'),
                     confidence: t.confidence || 80,
                     reasoning: Array.isArray(t.reasoning) ? t.reasoning : [t.reasoning],
-                    recommendedAction: t.recommendedAction || (t.signal === 'BUY' ? '建议开仓做多 - 均线反包' : '建议开仓做空 - 均线反包'),
+                    recommendedAction: t.recommendedAction || (t.signal === 'BUY' ? '建议开仓做多' : '建议开仓做空'),
                     investmentAmount: t.investmentAmount || 100
                   }));
               });
@@ -2776,7 +2776,7 @@
                       </div>
                       <div className="col-span-2 truncate">
                         <span className="text-slate-400">入场策略: </span>
-                        <span className="text-slate-200">{settlementEvent.trade.reasoning?.[0] || '均线多头趋势量化反包'}</span>
+                        <span className="text-slate-200">{settlementEvent.trade.reasoning?.[0] || '历史订单'}</span>
                       </div>
                     </div>
 
@@ -2955,7 +2955,7 @@
                 </div>
                 <h3 className="text-lg font-bold text-slate-100 uppercase font-mono mb-2">请先登录以访问 BTC Oracle</h3>
                 <p className="text-slate-400 text-xs font-mono mb-6 leading-relaxed">
-                  需要终端访问权限以加载实盘信号、均线模型与量化资金矩阵
+                  需要终端访问权限以加载实盘信号与资金矩阵
                 </p>
                 <button
                   onClick={() => setShowAuthModal(true)}
@@ -3278,7 +3278,7 @@
                     </div>
                   </div>
 
-                  {/* BTC 5分钟周期K线图实时走势卡片 (EMA50/EMA200, K线倒计时, 成交量) */}
+                  {/* BTC 5分钟周期K线图实时走势卡片 */}
                   <BtcRealtimeKlineCard socket={socketInstance} />
 
                   {/* 最近交易流水明细面板 */}
@@ -3536,14 +3536,12 @@
     /**
      * BTC 5分钟周期K线图实时走势卡片
      * 支持【🎯 币安事件合约 (标的综合指数)】与【现货撮合价】一键双模切换
-     * 包含：5分钟K线、EMA50、EMA200、K线倒计时、预估结算价、毫秒级实时跳动
+     * 包含：5分钟K线、K线倒计时、预估结算价、毫秒级实时跳动
      */
     const BtcRealtimeKlineCard = ({ socket }) => {
       const mainContainerRef = React.useRef(null);
       const chartRef = React.useRef(null);
       const candleSeriesRef = React.useRef(null);
-      const ema50SeriesRef = React.useRef(null);
-      const ema200SeriesRef = React.useRef(null);
       const candlesRef = React.useRef([]);
       const isInitialScrollRef = React.useRef(true);
       const prevPriceRef = React.useRef(null);
@@ -3556,9 +3554,6 @@
       const [currentPrice, setCurrentPrice] = useState(null);
       const [priceFlash, setPriceFlash] = useState(''); // 'up' | 'down' | ''
       const [countdown, setCountdown] = useState('--:--');
-      const [latestEma50, setLatestEma50] = useState(null);
-      const [latestEma200, setLatestEma200] = useState(null);
-      const [trendStatus, setTrendStatus] = useState('CALCULATING...');
       const [hoverData, setHoverData] = useState(null);
       const [loading, setLoading] = useState(true);
       const [error, setError] = useState('');
@@ -3587,22 +3582,6 @@
           minimumFractionDigits: digits,
           maximumFractionDigits: digits
         });
-      };
-
-      // 计算EMA序列
-      const calculateEMA = (candles, period) => {
-        const closes = candles.map(c => c.close);
-        if (closes.length < period) return [];
-        const k = 2 / (period + 1);
-        let sum = 0;
-        for (let i = 0; i < period; i++) sum += closes[i];
-        let prev = sum / period;
-        const out = [{ time: candles[period - 1].time, value: +prev.toFixed(2) }];
-        for (let i = period; i < closes.length; i++) {
-          prev = closes[i] * k + prev * (1 - k);
-          out.push({ time: candles[i].time, value: +prev.toFixed(2) });
-        }
-        return out;
       };
 
       // 实时将价格更新到最新一根K线
@@ -3693,50 +3672,11 @@
           candlesRef.current = uniqueCandles;
           const lastCandle = uniqueCandles[uniqueCandles.length - 1];
 
-          // 计算指标
-          const ema50Data = calculateEMA(uniqueCandles, 50);
-          const ema200Data = calculateEMA(uniqueCandles, 200);
-
-          // 更新状态
           if (lastCandle) {
             setCurrentPrice(lastCandle.close);
           }
-          if (ema50Data.length > 0) {
-            setLatestEma50(ema50Data[ema50Data.length - 1].value);
-          }
-          if (ema200Data.length > 0) {
-            setLatestEma200(ema200Data[ema200Data.length - 1].value);
-          }
 
-          // 判定趋势状态（EMA50/EMA200 平行趋势判定）
-          if (ema50Data.length >= 12 && ema200Data.length >= 12) {
-            const e50Recent = ema50Data.slice(-12);
-            const e200Recent = ema200Data.slice(-12);
-            const curE50 = e50Recent[e50Recent.length - 1].value;
-            const curE200 = e200Recent[e200Recent.length - 1].value;
-            const slope50 = (curE50 - e50Recent[0].value) / e50Recent[0].value;
-            const slope200 = (curE200 - e200Recent[0].value) / e200Recent[0].value;
-            const spreads = e50Recent.map((v, i) => Math.abs(v.value - e200Recent[i].value));
-            const avgSpread = spreads.reduce((a, b) => a + b, 0) / spreads.length;
-            const isParallel = avgSpread > 0 && spreads.every(s => Math.abs(s - avgSpread) / avgSpread <= 0.25);
-
-            if (curE50 > curE200 && slope50 >= 0.0001 && slope200 >= 0.0001 && isParallel) {
-              setTrendStatus('PARALLEL_UPTREND 上涨平行趋势');
-            } else if (curE50 < curE200 && slope50 <= -0.0001 && slope200 <= -0.0001 && isParallel) {
-              setTrendStatus('PARALLEL_DOWNTREND 下跌平行趋势');
-            } else if (curE50 > curE200) {
-              setTrendStatus('EMA50 > EMA200 多头排列(非平行)');
-            } else if (curE50 < curE200) {
-              setTrendStatus('EMA50 < EMA200 空头排列(非平行)');
-            } else {
-              setTrendStatus('CHOPPY 均线纠缠震荡');
-            }
-          }
-
-          // 注入数据到图表
           if (candleSeriesRef.current) candleSeriesRef.current.setData(uniqueCandles);
-          if (ema50SeriesRef.current) ema50SeriesRef.current.setData(ema50Data);
-          if (ema200SeriesRef.current) ema200SeriesRef.current.setData(ema200Data);
 
           // 首次加载或重绘时，锁定最新K线停靠在右侧（按固定的 12 根K线舒适边距对齐右边距）
           if (isInitialScrollRef.current) {
@@ -3798,7 +3738,7 @@
 
         const width = mainContainerRef.current.clientWidth;
 
-        // 1. 主K线图表（含K线、EMA50、EMA200、成交量柱状图）
+        // 1. 主K线图表
         const chart = LightweightCharts.createChart(mainContainerRef.current, {
           width,
           height: 420,
@@ -3853,22 +3793,6 @@
           lastValueVisible: true
         });
 
-        const ema50Series = chart.addLineSeries({
-          color: '#f59e0b',
-          lineWidth: 2,
-          priceLineVisible: false,
-          lastValueVisible: false,
-          title: ''
-        });
-
-        const ema200Series = chart.addLineSeries({
-          color: '#a855f7',
-          lineWidth: 2,
-          priceLineVisible: false,
-          lastValueVisible: false,
-          title: ''
-        });
-
         // 2. 监听时间轴拖动锁定检测
         chart.timeScale().subscribeVisibleLogicalRangeChange(range => {
           if (!range) return;
@@ -3885,23 +3809,17 @@
             return;
           }
           const c = param.seriesData.get(candleSeries);
-          const e50 = param.seriesData.get(ema50Series);
-          const e200 = param.seriesData.get(ema200Series);
           setHoverData({
             time: param.time,
             open: c ? c.open : null,
             high: c ? c.high : null,
             low: c ? c.low : null,
-            close: c ? c.close : null,
-            ema50: e50 ? e50.value : null,
-            ema200: e200 ? e200.value : null
+            close: c ? c.close : null
           });
         });
 
         chartRef.current = chart;
         candleSeriesRef.current = candleSeries;
-        ema50SeriesRef.current = ema50Series;
-        ema200SeriesRef.current = ema200Series;
 
         // 响应窗口尺寸变化
         const handleResize = () => {
@@ -4055,8 +3973,6 @@
       const displayOpen = hoverData?.open;
       const displayHigh = hoverData?.high;
       const displayLow = hoverData?.low;
-      const displayEma50 = hoverData?.ema50 ?? latestEma50;
-      const displayEma200 = hoverData?.ema200 ?? latestEma200;
 
       return (
         <div className="p-4 rounded-xl bg-[#080d14] border border-cyan-500/35 shadow-2xl shadow-black/80 font-mono relative overflow-hidden mb-6">
@@ -4090,15 +4006,6 @@
                     'text-slate-100'
                   }`}>
                     ${formatNumber(displayPrice, 2)}
-                  </span>
-                  <span className={`text-[10px] px-2 py-0.5 rounded font-bold border ${
-                    trendStatus.includes('UPTREND')
-                      ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40'
-                      : trendStatus.includes('DOWNTREND')
-                      ? 'bg-rose-500/20 text-rose-300 border-rose-500/40'
-                      : 'bg-slate-800 text-slate-300 border-slate-700'
-                  }`}>
-                    {trendStatus}
                   </span>
                 </div>
               </div>
@@ -4140,7 +4047,7 @@
             </div>
           </div>
 
-          {/* 指标数据状态栏 (OHLC + EMA50 + EMA200 + 事件合约结算说明) */}
+          {/* 行情状态栏 (OHLC + 事件合约结算说明) */}
           <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 py-2 text-xs border-b border-slate-800/60 bg-[#05080c]/60 -mx-4 px-4">
             {displayOpen != null && (
               <div className="flex items-center gap-1 text-[11px] text-slate-400">
@@ -4150,18 +4057,6 @@
                 <span>C: <span className="text-slate-200 font-semibold">{formatNumber(displayPrice)}</span></span>
               </div>
             )}
-
-            <div className="flex items-center gap-1.5 text-[11px]">
-              <span className="w-2 h-2 rounded-full bg-amber-400"></span>
-              <span className="text-amber-400 font-bold">EMA50:</span>
-              <span className="text-amber-200 font-mono font-bold">${formatNumber(displayEma50, 2)}</span>
-            </div>
-
-            <div className="flex items-center gap-1.5 text-[11px]">
-              <span className="w-2 h-2 rounded-full bg-purple-400"></span>
-              <span className="text-purple-400 font-bold">EMA200:</span>
-              <span className="text-purple-200 font-mono font-bold">${formatNumber(displayEma200, 2)}</span>
-            </div>
 
             <div className="flex flex-wrap items-center gap-2 text-[11px] text-cyan-300/90 bg-cyan-950/30 px-2 py-0.5 rounded border border-cyan-500/20">
               <span className="text-cyan-400 font-bold">🏛️ 事件合约标的:</span>
@@ -4185,7 +4080,7 @@
               <div className="absolute inset-0 bg-[#05080c]/80 flex items-center justify-center z-10">
                 <div className="text-cyan-400 font-mono text-sm flex items-center gap-2">
                   <span className="w-2 h-2 rounded-full bg-cyan-400 animate-ping"></span>
-                  正在加载5分钟K线图表与指标...
+                  正在加载5分钟K线图表...
                 </div>
               </div>
             )}
@@ -4196,7 +4091,7 @@
               </div>
             )}
 
-            {/* 主K线 + EMA50/200 走势图表 */}
+            {/* 主K线走势图表 */}
             <div ref={mainContainerRef} className="w-full" style={{ minHeight: '420px' }}></div>
           </div>
         </div>
@@ -4232,22 +4127,6 @@
               open: +k.open, high: +k.high, low: +k.low, close: +k.close
             }));
             if (!candles.length) { setChartError('暂无K线数据'); return; }
-            const ema = (period) => {
-              const closes = candles.map(c => c.close);
-              if (closes.length < period) return [];
-              const k = 2 / (period + 1);
-              let sum = 0;
-              for (let i = 0; i < period; i++) sum += closes[i];
-              let prev = sum / period;
-              const out = [{ time: candles[period - 1].time, value: prev }];
-              for (let i = period; i < closes.length; i++) {
-                prev = closes[i] * k + prev * (1 - k);
-                out.push({ time: candles[i].time, value: prev });
-              }
-              return out;
-            };
-            const ema50Data = ema(50);
-            const ema200Data = ema(200);
             const entryTime = Math.floor(new Date(trade.timestamp).getTime() / 1000);
             const exitTime = trade.closeTime ? Math.floor(new Date(trade.closeTime).getTime() / 1000) : null;
             const findBar = (t) => {
@@ -4302,10 +4181,6 @@
               priceLineVisible: false
             });
             series.setData(candles);
-            const ema50Series = chart.addLineSeries({ color: '#f59e0b', lineWidth: 1, priceLineVisible: false, lastValueVisible: false });
-            ema50Series.setData(ema50Data);
-            const ema200Series = chart.addLineSeries({ color: '#a855f7', lineWidth: 1, priceLineVisible: false, lastValueVisible: false });
-            ema200Series.setData(ema200Data);
             priceLines.forEach(pl => series.createPriceLine(pl));
             if (exitTime && trade.closePrice) {
               const conn = chart.addLineSeries({
@@ -4409,8 +4284,6 @@
                 <div className="absolute top-2 left-2.5 z-10 pointer-events-none flex gap-3 flex-wrap text-[11px] font-mono text-slate-400 bg-[#080d14]/80 p-1.5 px-2.5 rounded border border-slate-800">
                   <span>▲ 开仓（<span className="text-emerald-400 font-bold">绿=多</span> / <span className="text-rose-400 font-bold">红=空</span>）</span>
                   <span>● 平仓（<span className="text-emerald-400 font-bold">绿=盈</span> / <span className="text-rose-400 font-bold">红=亏</span>）</span>
-                  <span className="text-amber-400 font-bold">— EMA50</span>
-                  <span className="text-purple-400 font-bold">— EMA200</span>
                 </div>
               </div>
             )}
@@ -4669,7 +4542,7 @@
                   type="text"
                   value={filters.reasoningKeyword}
                   onChange={(e) => handleFilterChange('reasoningKeyword', e.target.value)}
-                  placeholder="反包 / 6连跌 / EMA50..."
+                  placeholder="入场原因关键词"
                   className="form-control w-full px-3 py-1.5 text-xs text-slate-200"
                 />
               </div>

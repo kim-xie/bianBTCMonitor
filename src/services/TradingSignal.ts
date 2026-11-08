@@ -1,6 +1,4 @@
-import { TechnicalAnalysisService, PredictionResult } from './TechnicalAnalysis';
-import PriceDataModel from '../models/PriceData';
-import TradeModel, { ITrade } from '../models/Trade';
+import TradeModel from '../models/Trade';
 import { axiosInstance } from '../utils/axiosInstance';
 
 export interface TradingSignal {
@@ -11,35 +9,15 @@ export interface TradingSignal {
   prediction: 'UP' | 'DOWN';
   confidence: number;
   reasoning: string[];
-  indicators: any;
   recommendedAction: string;
   investmentAmount?: number; // 买入金额
 }
 
 export class TradingSignalService {
-  private technicalAnalysis: TechnicalAnalysisService;
-  /** 上涨沿 EMA50 反包做多，下跌沿 EMA50 反包做空。 */
-  private readonly STRATEGIES_ENABLED = true;
-  private readonly CONFIDENCE_THRESHOLD = 80;
   private readonly FEISHU_WEBHOOK_URL = process.env.FEISHU_WEBHOOK_URL || '';
 
-  // 防止重复使用同一根5分钟K线的全局记录
+  // 保留接口供仪表板定时清理；技术指标移除后不再写入新的K线占用记录
   private usedFiveMinuteKlines: Set<number> = new Set();
-
-  constructor() {
-    this.technicalAnalysis = new TechnicalAnalysisService();
-  }
-
-  /**
-   * 检查并标记5分钟K线为已使用
-   */
-  private markKlineAsUsed(closeTime: number): boolean {
-    if (this.usedFiveMinuteKlines.has(closeTime)) {
-      return false; // 已经使用过
-    }
-    this.usedFiveMinuteKlines.add(closeTime);
-    return true; // 可以生成信号
-  }
 
   /**
    * 清理过期的K线使用记录（每小时清理一次）
@@ -59,201 +37,9 @@ export class TradingSignalService {
   /**
    * 生成交易信号
    */
-  async generateSignal(symbol: string = 'BTCUSDT', fiveMinuteKlines: any[], tenMinuteKlines: any[]): Promise<TradingSignal | null> {
-    try {
-      if (!this.STRATEGIES_ENABLED) {
-        console.log('全部策略已下线，不生成交易信号');
-        return null;
-      }
-
-      // 清理过期的K线记录
-      this.cleanupExpiredKlines();
-
-      // 获取最近的价格数据（至少100个数据点）
-      const priceHistory = await PriceDataModel
-        .find({ symbol })
-        .sort({ timestamp: -1 })
-        .limit(100)
-        .lean();
-
-      if (priceHistory.length < 100) {
-        console.log('价格数据不足，需要至少100个数据点');
-        return null;
-      }
-
-      // 反转数组以获得正确的时间顺序
-      const sortedHistory = priceHistory.reverse();
-      const currentPrice = sortedHistory[sortedHistory.length - 1].close;
-
-      // 获取最后一根5分钟K线的收盘时间作为标识
-      const lastFiveKline = fiveMinuteKlines[fiveMinuteKlines.length - 1];
-      const klineCloseTime = typeof lastFiveKline.closeTime === 'number'
-        ? lastFiveKline.closeTime
-        : lastFiveKline.closeTime.getTime();
-
-      console.log(`📊 K线分析: closeTime=${new Date(klineCloseTime).toLocaleString()},  closePrice=${lastFiveKline.close}`);
-
-      // 检查这根K线是否已经使用过
-      if (!this.markKlineAsUsed(klineCloseTime)) {
-        console.log(`⚠️  5分钟K线 ${new Date(klineCloseTime).toLocaleString()} 已生成过信号，跳过`);
-        return null;
-      }
-
-      console.log(`✅ 5分钟K线 ${new Date(klineCloseTime).toLocaleString()} 可以生成信号`)
-
-      // 进行技术分析和预测
-      const prediction = await this.technicalAnalysis.predictDirection(sortedHistory, fiveMinuteKlines);
-
-      // 判断是否检测到有效形态
-      if (!prediction || prediction.reasoning.length === 0) {
-        console.log('未检测到符合条件的交易形态，不生成交易信号');
-        return null;
-      }
-
-      // 置信度小于80不操作
-      if (prediction.confidence < this.CONFIDENCE_THRESHOLD) {
-        console.log(`⚠️ 预测置信度(${prediction.confidence}%)低于阈值(${this.CONFIDENCE_THRESHOLD}%)，不执行开仓操作`);
-        return null;
-      }
-
-      // 检查当前持仓数量，最多允许5笔持仓
-      const openPositions = await TradeModel.countDocuments({
-        symbol,
-        isCorrect: { $exists: false } // 未平仓的交易
-      });
-
-      if (openPositions >= 5) {
-        console.log(`当前持仓数量(${openPositions}笔)已达上限(5笔)，不允许开仓`);
-        return null;
-      }
-
-      // 同方向防连续吃损机制：若最近10分钟内已有同方向开仓且尚未平仓，跳过同向加仓，避免单边逆风行情连续吃损
-      const targetSignal = prediction.direction === 'UP' ? 'BUY' : 'SELL';
-      const hasRecentSameDirection = await TradeModel.findOne({
-        symbol,
-        signal: targetSignal,
-        isCorrect: { $exists: false },
-        timestamp: { $gte: new Date(Date.now() - 10 * 60 * 1000) }
-      });
-
-      if (hasRecentSameDirection) {
-        console.log(`⚠️ 最近10分钟内已有同方向(${targetSignal})未平仓持仓，跳过重复开仓以规避单边逆势连损风险`);
-        return null;
-      }
-
-      console.log(`当前持仓数量: ${openPositions}笔，可以开仓`);
-
-      // 生成交易信号
-      const signal = this.generateSignalFromPrediction(prediction, currentPrice);
-
-      // 保存交易记录
-      const saved = await this.saveTrade(signal, currentPrice, prediction, klineCloseTime);
-
-      if (saved) {
-        console.log(`✅ 成功生成并保存${signal.signal}信号，K线时间: ${klineCloseTime}`);
-        // 发送飞书推送
-        await this.sendFeishuNotification(signal, currentPrice, klineCloseTime);
-      } else {
-        console.log(`⚠️ 该K线已被其它进程开仓，跳过飞书推送，仅同步信号到界面`);
-      }
-
-      return signal;
-    } catch (error) {
-      console.error('生成交易信号时出错:', error);
-      return null;
-    }
-  }
-
-  /**
-   * 根据预测结果生成交易信号
-   */
-  private generateSignalFromPrediction(prediction: PredictionResult, currentPrice: number): TradingSignal {
-    const signal = prediction.direction === 'UP' ? 'BUY' : 'SELL';
-    const recommendedAction = this.generateRecommendedAction(prediction, currentPrice);
-
-    const investmentAmount = 100; // 固定买入金额100U
-
-    return {
-      timestamp: new Date(),
-      symbol: 'BTCUSDT',
-      currentPrice,
-      signal,
-      prediction: prediction.direction,
-      confidence: prediction.confidence,
-      reasoning: prediction.reasoning,
-      indicators: prediction.indicators,
-      recommendedAction,
-      investmentAmount
-    };
-  }
-
-  /**
-   * 生成推荐操作
-   */
-  private generateRecommendedAction(prediction: PredictionResult, _currentPrice: number): string {
-    const { direction, confidence, reasoning } = prediction;
-    const isSecondaryReversal = reasoning.some(r => r.includes('二次反包'));
-    const isTrend = reasoning.some(r => r.includes('趋势策略'));
-
-    if (direction === 'UP') {
-      if (isSecondaryReversal) {
-        return `建议开仓做多 - 下跌趋势阳线二次反包反转 (置信度: ${confidence}%)`;
-      }
-      if (reasoning.some(r => r.includes('沿EMA50反包'))) {
-        return `建议开仓做多 - 上涨趋势沿EMA50反包 (置信度: ${confidence}%)`;
-      }
-      if (isTrend) {
-        return `建议开仓做多 - EMA多头回踩反包阳线 (置信度: ${confidence}%)`;
-      }
-      return `建议开仓做多 (置信度: ${confidence}%)`;
-    } else {
-      if (isSecondaryReversal) {
-        return `建议开仓做空 - 上涨趋势阴线二次反包反转 (置信度: ${confidence}%)`;
-      }
-      if (reasoning.some(r => r.includes('沿EMA50反包做空'))) {
-        return `建议开仓做空 - 下跌趋势沿EMA50反包 (置信度: ${confidence}%)`;
-      }
-      if (isTrend) {
-        return `建议开仓做空 - EMA空头反弹反包阴线 (置信度: ${confidence}%)`;
-      }
-      return `建议开仓做空 (置信度: ${confidence}%)`;
-    }
-  }
-
-  /**
-   * 保存交易记录
-   */
-  private async saveTrade(signal: TradingSignal, price: number, prediction: PredictionResult, klineCloseTime: number): Promise<boolean> {
-    // 根据信号确定交易类型：BUY信号对应做多(LONG)，SELL信号对应做空(SHORT)
-    const tradeType = signal.signal === 'BUY' ? 'LONG' : 'SHORT';
-    const investmentAmount = 100; // 固定买入金额100U
-
-    const tradeData: Partial<ITrade> = {
-      symbol: signal.symbol,
-      timestamp: signal.timestamp,
-      price,
-      signal: signal.signal,
-      tradeType, // 添加交易类型
-      confidence: signal.confidence,
-      investmentAmount, // 添加买入金额
-      indicators: prediction.indicators,
-      prediction: signal.prediction,
-      reasoning: signal.reasoning, // 入场原因
-      klineCloseTime // 信号所基于的5分钟K线收盘时间，用于同根K线去重
-    };
-
-    try {
-      await TradeModel.create(tradeData);
-      console.log(`已保存${signal.signal}交易信号，类型: ${tradeType}，价格: ${price}，投资金额: ${investmentAmount}，置信度: ${signal.confidence}%`);
-      return true;
-    } catch (error: any) {
-      // E11000: 唯一索引冲突，说明该根5分钟K线已被（本进程重启/其它进程）交易过
-      if (error && error.code === 11000) {
-        console.log(`⚠️  K线 ${new Date(klineCloseTime).toLocaleString()} 已存在交易记录（唯一索引拦截），跳过重复开仓`);
-        return false;
-      }
-      throw error;
-    }
+  async generateSignal(_symbol: string = 'BTCUSDT', _fiveMinuteKlines: any[] = [], _tenMinuteKlines: any[] = []): Promise<TradingSignal | null> {
+    console.log('技术指标已移除，不生成交易信号');
+    return null;
   }
 
   /**
@@ -308,33 +94,6 @@ export class TradingSignalService {
     } catch (error) {
       console.error('更新交易结果时出错:', error);
       return null;
-    }
-  }
-
-  /**
-   * 发送飞书通知
-   */
-  private async sendFeishuNotification(signal: TradingSignal, currentPrice: number, klineCloseTime: number): Promise<void> {
-    try {
-      const message = {
-        msg_type: 'text',
-        content: {
-          text: `📈 交易信号\n\n` +
-            `预测方向: ${signal.prediction === 'UP' ? '上涨' : '下跌'}\n` +
-            `买入金额: ${signal.investmentAmount}\n` +
-            `当前价格: ${currentPrice.toFixed(2)} USDT\n` +
-            `置信度: ${signal.confidence}%\n` +
-            `K线时间: ${new Date(klineCloseTime).toLocaleString()}\n` +
-            `推荐操作: ${signal.recommendedAction}\n\n` +
-            `分析依据:\n${signal.reasoning.map(reason => `- ${reason}`).join('\n')}\n\n` +
-            `发送时间: ${new Date().toLocaleString()}`
-        }
-      };
-
-      await axiosInstance.post(this.FEISHU_WEBHOOK_URL, message);
-      console.log('✅ 飞书通知发送成功');
-    } catch (error) {
-      console.error('发送飞书通知时出错:', error);
     }
   }
 

@@ -1,5 +1,6 @@
 import { evaluateMultiCrossEngulfLong, MULTI_CROSS_ENGULF_LONG_ID, MULTI_CROSS_ENGULF_LONG_NAME, MULTI_CROSS_ENGULF_LONG_SUMMARY } from './multiCrossEngulfLong';
 import { evaluateStrongRallyPullbackLong, STRONG_RALLY_PULLBACK_LONG_ID, STRONG_RALLY_PULLBACK_LONG_NAME, STRONG_RALLY_PULLBACK_LONG_SUMMARY } from './strongRallyPullbackLong';
+import { evaluateRallyDropWeakBounceShort, RALLY_DROP_WEAK_BOUNCE_SHORT_ID, RALLY_DROP_WEAK_BOUNCE_SHORT_NAME, RALLY_DROP_WEAK_BOUNCE_SHORT_SUMMARY } from './rallyDropWeakBounceShort';
 
 export interface Candle {
   open: number;
@@ -85,6 +86,13 @@ export const strategies: StrategyDefinition[] = [
     enabled: true,
     summary: STRONG_RALLY_PULLBACK_LONG_SUMMARY,
     evaluate: evaluateStrongRallyPullbackLong
+  },
+  {
+    id: RALLY_DROP_WEAK_BOUNCE_SHORT_ID,
+    name: RALLY_DROP_WEAK_BOUNCE_SHORT_NAME,
+    enabled: true,
+    summary: RALLY_DROP_WEAK_BOUNCE_SHORT_SUMMARY,
+    evaluate: evaluateRallyDropWeakBounceShort
   }
 ];
 

@@ -3356,7 +3356,7 @@
                   </div>
 
                   {/* BTC 5分钟周期K线图实时走势卡片（含 EMA50） */}
-                  <BtcRealtimeKlineCard socket={socketInstance} />
+                  <BtcRealtimeKlineCard socket={socketInstance} trades={todayRecentTrades} />
 
                   {/* 最近交易流水明细面板 */}
                   <div className="p-4 rounded-xl bg-[#080d14] border border-emerald-500/25 shadow-2xl shadow-black/80 font-mono">
@@ -3620,9 +3620,9 @@
     /**
      * BTC 5分钟周期K线图实时走势卡片
      * 支持【🎯 币安事件合约 (标的综合指数)】与【现货撮合价】一键双模切换
-     * 包含：5分钟K线、EMA50、K线倒计时、预估结算价、毫秒级实时跳动
+     * 包含：5分钟K线、EMA50、价格线下K线倒计时、预估结算价、毫秒级实时跳动
      */
-    const BtcRealtimeKlineCard = ({ socket }) => {
+    const BtcRealtimeKlineCard = ({ socket, trades: propTrades }) => {
       const mainContainerRef = React.useRef(null);
       const chartRef = React.useRef(null);
       const candleSeriesRef = React.useRef(null);
@@ -3630,7 +3630,34 @@
       const candlesRef = React.useRef([]);
       const isInitialScrollRef = React.useRef(true);
       const prevPriceRef = React.useRef(null);
+      const currentPriceRef = React.useRef(null);
+      const countdownRef = React.useRef('--:--');
+      const countdownBadgeElRef = React.useRef(null);
       const isUserScrolledAwayRef = React.useRef(false);
+
+      // 当日平仓盈亏点标记开关 (默认开启，持久化到 localStorage)
+      const [showTradeMarkers, setShowTradeMarkers] = useState(() => {
+        try {
+          const saved = localStorage.getItem('btc_kline_show_trade_markers');
+          return saved !== null ? saved === 'true' : true;
+        } catch (e) {
+          return true;
+        }
+      });
+
+      const handleToggleMarkers = () => {
+        setShowTradeMarkers(prev => {
+          const next = !prev;
+          try {
+            localStorage.setItem('btc_kline_show_trade_markers', String(next));
+          } catch (e) {}
+          return next;
+        });
+      };
+
+      // 内部保底交易数据（当未从外部传入 trades 时拉取或通过 socket 监听）
+      const [internalTrades, setInternalTrades] = useState([]);
+      const trades = propTrades !== undefined ? propTrades : internalTrades;
 
       // 全量使用币安事件合约BTC综合标的指数数据源
       const dataSource = 'index';
@@ -3691,10 +3718,125 @@
         setLatestEma50(ema50Data.length > 0 ? ema50Data[ema50Data.length - 1].value : null);
       };
 
+      // 更新图表上的当日成交平仓盈亏点标记 (盈利: 绿色W, 亏损: 红色L)
+      const updateTradeMarkers = React.useCallback(() => {
+        if (!candleSeriesRef.current) return;
+
+        if (!showTradeMarkers) {
+          candleSeriesRef.current.setMarkers([]);
+          return;
+        }
+
+        const tradesToUse = Array.isArray(trades) ? trades : [];
+        if (tradesToUse.length === 0) {
+          candleSeriesRef.current.setMarkers([]);
+          return;
+        }
+
+        const candles = candlesRef.current || [];
+        if (candles.length === 0) return;
+
+        const candleTimesSet = new Set(candles.map(c => c.time));
+
+        // 判定北京时间当天
+        const now = new Date();
+        const nowUtc = now.getTime() + now.getTimezoneOffset() * 60000;
+        const beijingToday = new Date(nowUtc + 8 * 3600000);
+        const beijingTodayStr = `${beijingToday.getFullYear()}-${String(beijingToday.getMonth() + 1).padStart(2, '0')}-${String(beijingToday.getDate()).padStart(2, '0')}`;
+
+        const isToday = (dateVal) => {
+          if (!dateVal) return false;
+          const d = new Date(dateVal);
+          if (isNaN(d.getTime())) return false;
+          const dUtc = d.getTime() + d.getTimezoneOffset() * 60000;
+          const dB = new Date(dUtc + 8 * 3600000);
+          const dStr = `${dB.getFullYear()}-${String(dB.getMonth() + 1).padStart(2, '0')}-${String(dB.getDate()).padStart(2, '0')}`;
+          return dStr === beijingTodayStr;
+        };
+
+        const markers = [];
+
+        for (const trade of tradesToUse) {
+          if (!trade || !trade.closeTime) continue;
+          const isClosed = trade.closePrice != null || trade.profitLoss != null || trade.isCorrect !== undefined;
+          if (!isClosed) continue;
+
+          // 仅展示当天平仓成交的订单
+          if (!isToday(trade.closeTime)) continue;
+
+          const exitMs = new Date(trade.closeTime).getTime();
+          if (isNaN(exitMs)) continue;
+          const exitSec = Math.floor(exitMs / 1000);
+
+          let hit = candles.find(c => c.time <= exitSec && exitSec < c.time + 300);
+          let barTime = hit ? hit.time : Math.floor(exitSec / 300) * 300;
+
+          if (!candleTimesSet.has(barTime)) continue;
+
+          const isWin = trade.profitLoss != null ? trade.profitLoss >= 0 : (trade.isCorrect === true);
+
+          markers.push({
+            time: barTime,
+            position: isWin ? 'aboveBar' : 'belowBar',
+            color: isWin ? '#10b981' : '#f43f5e',
+            shape: 'circle',
+            text: isWin ? 'W' : 'L',
+            size: 2
+          });
+        }
+
+        // Lightweight Charts 强制要求 markers 必须按时间升序排列
+        markers.sort((a, b) => a.time - b.time);
+
+        try {
+          candleSeriesRef.current.setMarkers(markers);
+        } catch (e) {
+          console.error('设置平仓盈亏标记失败:', e);
+        }
+      }, [showTradeMarkers, trades]);
+
+      // 监听开关或交易数据变化，及时刷新标记
+      useEffect(() => {
+        updateTradeMarkers();
+      }, [updateTradeMarkers]);
+
+      // 当外部未传入 trades 时，内部主动加载保底数据
+      useEffect(() => {
+        if (propTrades !== undefined) return;
+        const fetchTrades = async () => {
+          try {
+            const token = localStorage.getItem('token');
+            const res = await fetch('/api/recent-trades', {
+              headers: token ? { 'Authorization': `Bearer ${token}` } : {}
+            });
+            if (res.ok) {
+              const data = await res.json();
+              if (Array.isArray(data)) setInternalTrades(data);
+            }
+          } catch (e) {}
+        };
+        fetchTrades();
+      }, [propTrades]);
+
+      // 监听 WebSocket 的交易更新
+      useEffect(() => {
+        if (!socket) return;
+        const handleTradesUpdate = (newTrades) => {
+          if (Array.isArray(newTrades)) {
+            setInternalTrades(newTrades);
+          }
+        };
+        socket.on('tradesUpdate', handleTradesUpdate);
+        return () => {
+          socket.off('tradesUpdate', handleTradesUpdate);
+        };
+      }, [socket]);
+
       // 实时将价格更新到最新一根K线
       const updateLatestCandle = (price, vol = 0) => {
         if (price == null || isNaN(price) || price <= 0) return;
         const p = parseFloat(price);
+        currentPriceRef.current = p;
         setCurrentPrice(p);
 
         if (candleSeriesRef.current && candlesRef.current && candlesRef.current.length > 0) {
@@ -3732,6 +3874,7 @@
             fixScrollToRight(false);
           }
           applyEma50(candlesRef.current);
+          updateTradeMarkers();
         }
       };
 
@@ -3745,8 +3888,8 @@
           }
 
           const endpoint = src === 'index'
-            ? '/api/index-klines?interval=5m&limit=250'
-            : '/api/klines?interval=5m&limit=250';
+            ? '/api/index-klines?interval=5m&limit=288'
+            : '/api/klines?interval=5m&limit=288';
 
           const res = await fetch(endpoint);
           if (!res.ok) throw new Error('网络请求异常');
@@ -3781,11 +3924,13 @@
           const lastCandle = uniqueCandles[uniqueCandles.length - 1];
 
           if (lastCandle) {
+            currentPriceRef.current = lastCandle.close;
             setCurrentPrice(lastCandle.close);
           }
 
           if (candleSeriesRef.current) candleSeriesRef.current.setData(uniqueCandles);
           applyEma50(uniqueCandles);
+          updateTradeMarkers();
 
           // 首次加载或重绘时，锁定最新K线停靠在右侧（按固定的 12 根K线舒适边距对齐右边距）
           if (isInitialScrollRef.current) {
@@ -3941,6 +4086,100 @@
         candleSeriesRef.current = candleSeries;
         ema50SeriesRef.current = ema50Series;
 
+        // 创建置于当前价格线右侧价格正下方的图表倒计时标签（类似 TradingView 倒计时）
+        const badge = document.createElement('div');
+        badge.className = 'absolute z-20 pointer-events-none flex items-center justify-center bg-[#070d18] border border-cyan-500/50 shadow-md shadow-black/80 rounded px-1 py-0.5 select-none font-mono text-[10px] md:text-[11px] font-bold tracking-wider text-cyan-300 leading-none';
+        badge.style.display = 'none';
+        badge.style.position = 'absolute';
+        badge.style.right = '2px';
+        badge.style.zIndex = '20';
+        badge.style.pointerEvents = 'none';
+        badge.title = '5分钟K线结单倒计时';
+        badge.textContent = countdownRef.current || '--:--';
+
+        mainContainerRef.current.appendChild(badge);
+        countdownBadgeElRef.current = badge;
+
+        let animId = null;
+        let lastY = null;
+        let lastWidth = null;
+        let lastVisible = false;
+
+        const syncCountdownPosition = () => {
+          if (!badge || !candleSeriesRef.current || !chartRef.current || !mainContainerRef.current) {
+            if (lastVisible) {
+              badge.style.display = 'none';
+              lastVisible = false;
+            }
+            animId = requestAnimationFrame(syncCountdownPosition);
+            return;
+          }
+
+          const price = currentPriceRef.current;
+          if (price == null || isNaN(price)) {
+            if (lastVisible) {
+              badge.style.display = 'none';
+              lastVisible = false;
+            }
+            animId = requestAnimationFrame(syncCountdownPosition);
+            return;
+          }
+
+          const y = candleSeriesRef.current.priceToCoordinate(price);
+          const containerHeight = mainContainerRef.current.clientHeight || 420;
+          const availableHeight = containerHeight - 26; // 减去底部时间轴高度约26px
+
+          if (y == null || isNaN(y) || y < 0 || y > availableHeight) {
+            if (lastVisible) {
+              badge.style.display = 'none';
+              lastVisible = false;
+            }
+            animId = requestAnimationFrame(syncCountdownPosition);
+            return;
+          }
+
+          let scaleWidth = 65;
+          try {
+            const w = chartRef.current.priceScale('right')?.width();
+            if (w && w > 30) scaleWidth = w;
+          } catch (e) {}
+
+          const badgeHeight = 18;
+          // 当前价格线右侧的价格标签高度约为20px（居中对齐y，下边缘约为 y + 10px）
+          // 因此倒计时标签置于价格标签正下方（y + 12px）
+          let topPos = Math.round(y + 12);
+          if (topPos + badgeHeight > availableHeight) {
+            // 贴近图表底部时间轴时，向上翻转至价格标签正上方，防止被时间轴遮挡
+            topPos = Math.round(y - 12 - badgeHeight);
+          }
+          if (topPos < 0) topPos = 0;
+
+          const badgeWidth = Math.max(scaleWidth - 4, 46);
+
+          if (!lastVisible) {
+            badge.style.display = 'flex';
+            lastVisible = true;
+          }
+
+          if (lastY !== topPos) {
+            badge.style.top = `${topPos}px`;
+            lastY = topPos;
+          }
+
+          if (lastWidth !== badgeWidth) {
+            badge.style.width = `${badgeWidth}px`;
+            lastWidth = badgeWidth;
+          }
+
+          if (badge.textContent !== countdownRef.current && countdownRef.current) {
+            badge.textContent = countdownRef.current;
+          }
+
+          animId = requestAnimationFrame(syncCountdownPosition);
+        };
+
+        animId = requestAnimationFrame(syncCountdownPosition);
+
         // 响应窗口尺寸变化
         const handleResize = () => {
           if (chart && mainContainerRef.current) {
@@ -3955,6 +4194,9 @@
 
         return () => {
           disposed = true;
+          if (animId) cancelAnimationFrame(animId);
+          countdownBadgeElRef.current = null;
+          badge.remove();
           window.removeEventListener('resize', handleResize);
           chart.remove();
         };
@@ -3969,7 +4211,12 @@
           const remainingSec = Math.floor(remainingMs / 1000);
           const m = String(Math.floor(remainingSec / 60)).padStart(2, '0');
           const s = String(remainingSec % 60).padStart(2, '0');
-          setCountdown(`${m}:${s}`);
+          const cdStr = `${m}:${s}`;
+          countdownRef.current = cdStr;
+          setCountdown(cdStr);
+          if (countdownBadgeElRef.current) {
+            countdownBadgeElRef.current.textContent = cdStr;
+          }
 
           // 当新一根5分钟K线生成时（倒计时299秒或0秒瞬时），自动重新请求最新收盘数据
           if (remainingSec === 299 || remainingSec === 0) {
@@ -3990,6 +4237,7 @@
 
       // 价格跳动闪烁动效
       useEffect(() => {
+        currentPriceRef.current = currentPrice;
         if (currentPrice != null && prevPriceRef.current != null) {
           if (currentPrice > prevPriceRef.current) {
             setPriceFlash('up');
@@ -4132,7 +4380,7 @@
               </div>
             </div>
 
-            {/* 右侧：事件合约接入确认徽章、5分钟K线倒计时与刷新 */}
+            {/* 右侧：事件合约接入确认徽章、当日平仓盈亏点开关与刷新 */}
             <div className="flex flex-wrap items-center gap-2.5">
               {/* 事件合约接入确认徽章 */}
               <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-950/40 border border-emerald-500/40 shadow-inner text-emerald-300 text-xs font-bold font-mono">
@@ -4140,18 +4388,33 @@
                 <span>🎯 币安事件合约全量接入</span>
               </div>
 
-              {/* 5M K线倒计时 */}
-              <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-cyan-950/40 border border-cyan-500/40 shadow-inner">
-                <div className="flex flex-col">
-                  <span className="text-[9px] text-cyan-400 uppercase tracking-widest font-bold flex items-center gap-1">
-                    <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-ping"></span>
-                    5M 结单倒计时
+              {/* 当日平仓盈亏点标记开关 */}
+              <button
+                type="button"
+                onClick={handleToggleMarkers}
+                className={`flex items-center gap-2 px-3 py-1.5 rounded-lg border text-xs font-mono font-bold transition-all shadow-sm select-none ${
+                  showTradeMarkers
+                    ? 'bg-cyan-950/60 border-cyan-500/60 text-cyan-300 shadow-cyan-950/50'
+                    : 'bg-slate-900/60 border-slate-700/70 text-slate-400 hover:text-slate-200 hover:border-slate-600'
+                }`}
+                title={showTradeMarkers ? '点击关闭平仓盈亏点标记' : '点击在图表上标记今日平仓盈亏点 (盈利: 绿色W, 亏损: 红色L)'}
+              >
+                <span className="flex items-center gap-1.5">
+                  <span className={`w-2 h-2 rounded-full ${showTradeMarkers ? 'bg-cyan-400 animate-pulse shadow-sm shadow-cyan-400' : 'bg-slate-600'}`}></span>
+                  <span>当日平仓盈亏点</span>
+                  <span className="text-[10px] font-mono">
+                    (<span className="text-emerald-400 font-black">W</span>/<span className="text-rose-400 font-black">L</span>)
                   </span>
-                  <span className="text-lg md:text-xl font-black tracking-widest text-cyan-200">
-                    {countdown}
-                  </span>
-                </div>
-              </div>
+                </span>
+                {/* 仿iOS切换胶囊 */}
+                <span className={`relative inline-block w-7 h-4 rounded-full transition-colors duration-200 ease-in-out ${
+                  showTradeMarkers ? 'bg-cyan-500' : 'bg-slate-700'
+                }`}>
+                  <span className={`inline-block w-3 h-3 transform bg-white rounded-full transition-transform duration-200 ease-in-out mt-0.5 ml-0.5 ${
+                    showTradeMarkers ? 'translate-x-3' : 'translate-x-0'
+                  }`} />
+                </span>
+              </button>
 
               <button
                 onClick={() => {

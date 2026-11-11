@@ -3796,29 +3796,29 @@
         const markers = [];
 
         barTradesMap.forEach(({ wins, losses }, barTime) => {
-          // 盈利标记：置于柱顶之上，大号向下指引箭头，高亮荧光极光绿，加粗醒目的 𝐖
+          // 币安APP风格：小巧精致、紧凑贴合K线的指示箭头 (size: 1，币安官方主题绿/红 #0ecb81 / #f6465d)
           if (wins.length > 0) {
             const countStr = wins.length > 1 ? ` x${wins.length}` : '';
             markers.push({
               time: barTime,
               position: 'aboveBar',
-              color: '#00f59b',
+              color: '#0ecb81',
               shape: 'arrowDown',
-              text: `𝐖${countStr}`,
-              size: 3
+              text: `W${countStr}`,
+              size: 1
             });
           }
 
-          // 亏损/止损标记：置于柱底之下，大号向上指引箭头，高亮警示鲜红，加粗醒目的 𝐋
+          // 币安APP风格：小巧精致、紧凑贴合K线的指示箭头
           if (losses.length > 0) {
             const countStr = losses.length > 1 ? ` x${losses.length}` : '';
             markers.push({
               time: barTime,
               position: 'belowBar',
-              color: '#ff2d55',
+              color: '#f6465d',
               shape: 'arrowUp',
-              text: `𝐋${countStr}`,
-              size: 3
+              text: `L${countStr}`,
+              size: 1
             });
           }
         });

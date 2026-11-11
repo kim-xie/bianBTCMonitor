@@ -4364,21 +4364,23 @@
           ctx.lineTo(x2, y2);
           ctx.stroke();
 
-          // 顶点小圆点 + W/L
+          // 顶点小圆点 + W/L（上方尖点字母在上，下方尖点字母在下）
           ctx.setLineDash([]);
           ctx.fillStyle = fill;
           ctx.beginPath();
           ctx.arc(xMid, yPeak, 3, 0, Math.PI * 2);
           ctx.fill();
 
+          const label = t.isWin ? 'W' : 'L';
+          const labelY = t.peakDown ? yPeak + 5 : yPeak - 5;
           ctx.font = 'bold 11px JetBrains Mono, monospace';
           ctx.textAlign = 'center';
-          ctx.textBaseline = 'bottom';
+          ctx.textBaseline = t.peakDown ? 'top' : 'bottom';
           ctx.lineWidth = 3;
           ctx.strokeStyle = 'rgba(5,8,12,0.85)';
-          ctx.strokeText(t.isWin ? 'W' : 'L', xMid, yPeak - 5);
+          ctx.strokeText(label, xMid, labelY);
           ctx.fillStyle = fill;
-          ctx.fillText(t.isWin ? 'W' : 'L', xMid, yPeak - 5);
+          ctx.fillText(label, xMid, labelY);
           ctx.restore();
         }
       }, []);
@@ -4413,6 +4415,17 @@
 
           const candleStart = candles[0].time;
           const candleEnd = candles[candles.length - 1].time + 300;
+          const ema50Data = calculateEMA(candles, 50);
+          const ema50ByTime = new Map(ema50Data.map(p => [p.time, p.value]));
+          const lookupEma50 = (sec) => {
+            const bar = findBarTime(candles, sec);
+            if (bar != null && ema50ByTime.has(bar)) return ema50ByTime.get(bar);
+            // 回退到不晚于该时刻的最近一根 EMA
+            for (let i = ema50Data.length - 1; i >= 0; i--) {
+              if (ema50Data[i].time <= sec) return ema50Data[i].value;
+            }
+            return null;
+          };
 
           // 判定北京时间当天
           const now = new Date();
@@ -4449,14 +4462,21 @@
             const isWin = trade.profitLoss != null ? trade.profitLoss >= 0 : (trade.isCorrect === true);
 
             let rangeHigh = Math.max(entryPrice, exitPrice);
+            let rangeLow = Math.min(entryPrice, exitPrice);
             for (const c of candles) {
               if (c.time + 300 <= entrySec) continue;
               if (c.time >= exitSec) break;
               if (c.high > rangeHigh) rangeHigh = c.high;
+              if (c.low < rangeLow) rangeLow = c.low;
             }
-            // 顶点抬高，倒V两腰更长更醒目
-            const peakOffset = Math.max(rangeHigh * 0.0035, Math.abs(exitPrice - entryPrice) * 0.9, 25);
-            const peakPrice = +(rangeHigh + peakOffset).toFixed(2);
+            // 相对 EMA50：上方朝上尖，下方朝下尖
+            const midSec = Math.floor((entrySec + exitSec) / 2);
+            const midPrice = (entryPrice + exitPrice) / 2;
+            const ema50 = lookupEma50(midSec);
+            const peakDown = ema50 != null ? midPrice < ema50 : false;
+            const peakBase = peakDown ? rangeLow : rangeHigh;
+            const peakOffset = Math.max(peakBase * 0.0035, Math.abs(exitPrice - entryPrice) * 0.9, 25);
+            const peakPrice = +(peakDown ? peakBase - peakOffset : peakBase + peakOffset).toFixed(2);
 
             drawable.push({
               id: trade._id || `${entrySec}-${exitSec}-${entryPrice}`,
@@ -4465,6 +4485,7 @@
               entryPrice,
               exitPrice,
               peakPrice,
+              peakDown,
               isWin
             });
           }
@@ -4473,7 +4494,7 @@
 
           const markersKey = drawable.length === 0
             ? '__EMPTY__'
-            : drawable.map(t => `${t.id}:${t.entrySec}:${t.exitSec}:${t.entryPrice}:${t.exitPrice}:${t.peakPrice}:${t.isWin ? 'W' : 'L'}`).join('|');
+            : drawable.map(t => `${t.id}:${t.entrySec}:${t.exitSec}:${t.entryPrice}:${t.exitPrice}:${t.peakPrice}:${t.peakDown ? 'D' : 'U'}:${t.isWin ? 'W' : 'L'}`).join('|');
 
           if (markersKey !== lastMarkersKeyRef.current) {
             lastMarkersKeyRef.current = markersKey;
@@ -5334,17 +5355,26 @@
             const entryPriceNum = Number(trade.price);
             const exitPriceNum = hasExit ? Number(trade.closePrice) : null;
             const isWin = trade.profitLoss != null ? trade.profitLoss >= 0 : (trade.isCorrect === true);
-            // 开仓价/平仓价细虚线倒V：时间点必须落在已有K线上，避免向时间轴插点造成缺口
+            // 开仓价/平仓价细虚线倒V：时间点必须落在已有K线上；相对EMA50下方则尖点朝下
             if (hasExit && exitPriceNum != null && entryBar != null && exitBar != null && exitBar > entryBar) {
               let rangeHigh = Math.max(entryPriceNum, exitPriceNum);
+              let rangeLow = Math.min(entryPriceNum, exitPriceNum);
               for (const c of candles) {
                 if (c.time + 300 <= entryTime) continue;
                 if (c.time >= exitTime) break;
                 if (c.high > rangeHigh) rangeHigh = c.high;
+                if (c.low < rangeLow) rangeLow = c.low;
               }
-              // 顶点抬高，倒V两腰更长更醒目
-              const peakOffset = Math.max(rangeHigh * 0.0035, Math.abs(exitPriceNum - entryPriceNum) * 0.9, 25);
-              const peakPrice = +(rangeHigh + peakOffset).toFixed(2);
+              const midSec = Math.floor((entryTime + exitTime) / 2);
+              const midPrice = (entryPriceNum + exitPriceNum) / 2;
+              let ema50AtMid = null;
+              for (let i = ema50Data.length - 1; i >= 0; i--) {
+                if (ema50Data[i].time <= midSec) { ema50AtMid = ema50Data[i].value; break; }
+              }
+              const peakDown = ema50AtMid != null ? midPrice < ema50AtMid : false;
+              const peakBase = peakDown ? rangeLow : rangeHigh;
+              const peakOffset = Math.max(peakBase * 0.0035, Math.abs(exitPriceNum - entryPriceNum) * 0.9, 25);
+              const peakPrice = +(peakDown ? peakBase - peakOffset : peakBase + peakOffset).toFixed(2);
               const between = candles.filter(c => c.time > entryBar && c.time < exitBar);
               const midBar = between.length > 0
                 ? between[Math.floor((between.length - 1) / 2)].time
@@ -5366,7 +5396,7 @@
                 conn.setMarkers([
                   {
                     time: midBar,
-                    position: 'aboveBar',
+                    position: peakDown ? 'belowBar' : 'aboveBar',
                     color: isWin ? '#0ecb81' : '#f6465d',
                     shape: 'circle',
                     text: isWin ? '𝐖' : '𝐋',

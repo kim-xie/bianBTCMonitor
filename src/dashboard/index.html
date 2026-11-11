@@ -4475,7 +4475,8 @@
             const ema50 = lookupEma50(midSec);
             const peakDown = ema50 != null ? midPrice < ema50 : false;
             const peakBase = peakDown ? rangeLow : rangeHigh;
-            const peakOffset = Math.max(peakBase * 0.0035, Math.abs(exitPrice - entryPrice) * 0.9, 25);
+            // 倒V两腰缩短一半
+            const peakOffset = Math.max(peakBase * 0.00175, Math.abs(exitPrice - entryPrice) * 0.45, 12.5);
             const peakPrice = +(peakDown ? peakBase - peakOffset : peakBase + peakOffset).toFixed(2);
 
             drawable.push({
@@ -5373,7 +5374,8 @@
               }
               const peakDown = ema50AtMid != null ? midPrice < ema50AtMid : false;
               const peakBase = peakDown ? rangeLow : rangeHigh;
-              const peakOffset = Math.max(peakBase * 0.0035, Math.abs(exitPriceNum - entryPriceNum) * 0.9, 25);
+              // 倒V两腰缩短一半
+              const peakOffset = Math.max(peakBase * 0.00175, Math.abs(exitPriceNum - entryPriceNum) * 0.45, 12.5);
               const peakPrice = +(peakDown ? peakBase - peakOffset : peakBase + peakOffset).toFixed(2);
               const between = candles.filter(c => c.time > entryBar && c.time < exitBar);
               const midBar = between.length > 0

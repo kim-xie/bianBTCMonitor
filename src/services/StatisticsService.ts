@@ -32,8 +32,14 @@ export class StatisticsService {
   /**
    * 计算胜率统计
    */
-  async calculateWinRate(timeRange?: { start: Date; end: Date }): Promise<WinRateStats> {
-    const trades = await TradeModel.find({}).lean();
+  async calculateWinRate(timeRange?: { start: Date; end: Date }, orderSource?: 'ALL' | 'AUTO' | 'MANUAL'): Promise<WinRateStats> {
+    let trades = await TradeModel.find({}).lean();
+
+    if (orderSource === 'MANUAL') {
+      trades = trades.filter(t => t.orderSource === 'MANUAL');
+    } else if (orderSource === 'AUTO') {
+      trades = trades.filter(t => t.orderSource !== 'MANUAL');
+    }
 
     if (trades.length === 0) {
       return this.getDefaultStats();
@@ -163,8 +169,8 @@ export class StatisticsService {
   /**
    * 获取最近交易记录（支持按起始时间过滤，如今日起始）
    */
-  async getRecentTrades(limit: number = 100, since?: Date): Promise<ITrade[]> {
-    const query = since
+  async getRecentTrades(limit: number = 100, since?: Date, orderSource?: 'ALL' | 'AUTO' | 'MANUAL'): Promise<ITrade[]> {
+    const query: any = since
       ? {
           $or: [
             { timestamp: { $gte: since } },
@@ -172,6 +178,11 @@ export class StatisticsService {
           ]
         }
       : {};
+    if (orderSource === 'MANUAL') {
+      query.orderSource = 'MANUAL';
+    } else if (orderSource === 'AUTO') {
+      query.orderSource = { $ne: 'MANUAL' };
+    }
     return await TradeModel
       .find(query)
       .sort({ timestamp: -1 })
@@ -190,11 +201,19 @@ export class StatisticsService {
     confidenceMax?: number;        // 最大置信度
     startDate?: Date;              // 开始日期
     endDate?: Date;                // 结束日期
+    orderSource?: 'ALL' | 'AUTO' | 'MANUAL'; // 订单来源
     limit?: number;                // 结果数量限制
     sortBy?: 'timestamp' | 'confidence' | 'profitLoss';
     sortOrder?: 'asc' | 'desc';
   }): Promise<ITrade[]> {
     let query: any = {};
+
+    // 按订单来源筛选
+    if (filters?.orderSource === 'MANUAL') {
+      query.orderSource = 'MANUAL';
+    } else if (filters?.orderSource === 'AUTO') {
+      query.orderSource = { $ne: 'MANUAL' };
+    }
 
     // 按入场原因模糊查询
     if (filters?.reasoningKeyword) {

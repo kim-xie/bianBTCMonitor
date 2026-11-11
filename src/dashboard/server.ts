@@ -196,7 +196,8 @@ const binanceService = new BinanceService(proxyConfig);
 
 // API路由
 // 认证相关导入
-import { AuthRequest } from '../middleware/auth';
+import { AuthRequest, optionalAuth, authenticateToken } from '../middleware/auth';
+import { axiosInstance } from '../utils/axiosInstance';
 import UserSubscriptionModel from '../models/UserSubscription';
 
 app.get('/api/strategies', (_req, res) => {
@@ -208,9 +209,18 @@ app.get('/api/stats', async (req: AuthRequest, res) => {
     // 计算今日的开始时间（北京时间0点，跨时区一致）
     const today = getBeijingTodayStart();
 
-    const [stats, todayStats, balance, balanceHistory] = await Promise.all([
+    const [
+      stats, todayStats,
+      autoStats, todayAutoStats,
+      manualStats, todayManualStats,
+      balance, balanceHistory
+    ] = await Promise.all([
       statisticsService.calculateWinRate(),
       statisticsService.calculateWinRate({ start: today, end: new Date() }),
+      statisticsService.calculateWinRate(undefined, 'AUTO'),
+      statisticsService.calculateWinRate({ start: today, end: new Date() }, 'AUTO'),
+      statisticsService.calculateWinRate(undefined, 'MANUAL'),
+      statisticsService.calculateWinRate({ start: today, end: new Date() }, 'MANUAL'),
       calculateCurrentBalance(),
       calculateBalanceHistory()
     ]);
@@ -270,6 +280,28 @@ app.get('/api/stats', async (req: AuthRequest, res) => {
         winRate: todayStats.winRate,
         totalProfitLoss: todayStats.totalProfitLoss,
         averageConfidence: todayStats.averageConfidence
+      },
+      autoStats: {
+        ...autoStats,
+        todayStats: {
+          totalTrades: todayAutoStats.totalTrades,
+          winningTrades: todayAutoStats.winningTrades,
+          losingTrades: todayAutoStats.losingTrades,
+          winRate: todayAutoStats.winRate,
+          totalProfitLoss: todayAutoStats.totalProfitLoss,
+          averageConfidence: todayAutoStats.averageConfidence
+        }
+      },
+      manualStats: {
+        ...manualStats,
+        todayStats: {
+          totalTrades: todayManualStats.totalTrades,
+          winningTrades: todayManualStats.winningTrades,
+          losingTrades: todayManualStats.losingTrades,
+          winRate: todayManualStats.winRate,
+          totalProfitLoss: todayManualStats.totalProfitLoss,
+          averageConfidence: todayManualStats.averageConfidence
+        }
       }
     });
   } catch (error) {
@@ -283,10 +315,100 @@ app.get('/api/recent-trades', async (req, res) => {
     const todayOnly = req.query.all !== 'true';
     const since = todayOnly ? getBeijingTodayStart() : undefined;
     const limit = req.query.limit ? parseInt(req.query.limit as string) : 100;
-    const trades = await statisticsService.getRecentTrades(limit, since);
+    const orderSource = (req.query.orderSource as 'ALL' | 'AUTO' | 'MANUAL') || undefined;
+    const trades = await statisticsService.getRecentTrades(limit, since, orderSource);
     res.json(trades);
   } catch (error) {
     res.status(500).json({ error: '获取交易记录失败' });
+  }
+});
+
+/**
+ * 手动开单接口
+ * 开单金额与系统自动开单保持一致 (100 USDT)
+ * 支持用户自定义输入入场策略理由
+ */
+app.post('/api/manual-trade', optionalAuth, async (req: AuthRequest, res) => {
+  try {
+    const { direction, reasoning } = req.body;
+    if (!direction || !['UP', 'DOWN', 'LONG', 'SHORT', 'BUY', 'SELL'].includes(String(direction).toUpperCase())) {
+      res.status(400).json({ error: '无效的开单方向，必须为 LONG(做多) 或 SHORT(做空)' });
+      return;
+    }
+
+    const dirUpper = String(direction).toUpperCase();
+    const isLong = ['UP', 'LONG', 'BUY'].includes(dirUpper);
+    const tradeType: 'LONG' | 'SHORT' = isLong ? 'LONG' : 'SHORT';
+    const signal: 'BUY' | 'SELL' = isLong ? 'BUY' : 'SELL';
+    const prediction: 'UP' | 'DOWN' = isLong ? 'UP' : 'DOWN';
+    const STAKE_USDT = 100; // 与系统自动开单固定金额 (100 USDT) 严格一致
+
+    // 获取最新实时价格，优先获取最新标的指数价格
+    let entryPrice = currentPrice;
+    try {
+      const info = await binanceService.getIndexPrice('BTCUSDT');
+      if (info && info.indexPrice > 0) {
+        entryPrice = info.indexPrice;
+        currentPrice = entryPrice;
+      }
+    } catch (priceErr) {
+      console.warn('获取最新指数价格失败，使用当前内存价格:', priceErr);
+    }
+
+    const userReasoning = typeof reasoning === 'string' && reasoning.trim().length > 0
+      ? reasoning.trim()
+      : (isLong ? '手动做多策略' : '手动做空策略');
+
+    const newTrade = await TradeModel.create({
+      symbol: 'BTCUSDT',
+      timestamp: new Date(),
+      price: entryPrice,
+      signal,
+      tradeType,
+      confidence: 90,
+      investmentAmount: STAKE_USDT,
+      prediction,
+      reasoning: [userReasoning],
+      orderSource: 'MANUAL'
+    });
+
+    console.log(`⚡ [手动开单] 成功创建: ${tradeType} @ ${entryPrice.toFixed(2)} USDT, 理由: "${userReasoning}"`);
+
+    // 飞书通知（如有配置）
+    const feishuWebhook = process.env.FEISHU_WEBHOOK_URL;
+    if (feishuWebhook) {
+      try {
+        await axiosInstance.post(feishuWebhook, {
+          msg_type: 'text',
+          content: {
+            text: `⚡ 手动开单通知\n\n` +
+              `订单来源: 👤 手动开仓\n` +
+              `方向: ${tradeType === 'LONG' ? '买涨 (做多 LONG)' : '买跌 (做空 SHORT)'}\n` +
+              `开仓价格: ${entryPrice.toFixed(2)} USDT\n` +
+              `开仓金额: ${STAKE_USDT} USDT\n` +
+              `入场策略: ${userReasoning}\n` +
+              `开仓时间: ${new Date(newTrade.timestamp).toLocaleString()}\n` +
+              `持仓规则: 10分钟后自动结算`
+          }
+        });
+      } catch (feishuErr) {
+        console.error('发送飞书手动开单通知失败:', feishuErr);
+      }
+    }
+
+    // 广播新交易追加事件，触发前端高亮动效
+    io.emit('tradeInserted', newTrade);
+    // 异步更新统计与推送数据
+    updateStatistics().catch(console.error);
+
+    res.json({
+      success: true,
+      message: '手动开单成功',
+      trade: newTrade
+    });
+  } catch (error: any) {
+    console.error('手动开单处理异常:', error);
+    res.status(500).json({ error: error.message || '手动开单失败' });
   }
 });
 
@@ -304,6 +426,7 @@ app.get('/api/trades/search', async (req, res) => {
       confidenceMax,
       startDate,
       endDate,
+      orderSource,
       limit = 50,
       sortBy = 'timestamp',
       sortOrder = 'desc'
@@ -311,6 +434,10 @@ app.get('/api/trades/search', async (req, res) => {
 
     // 构建过滤器对象
     const filters: any = {};
+
+    if (orderSource && ['ALL', 'AUTO', 'MANUAL'].includes(orderSource as string)) {
+      filters.orderSource = orderSource as 'ALL' | 'AUTO' | 'MANUAL';
+    }
 
     if (reasoningKeyword) {
       filters.reasoningKeyword = reasoningKeyword as string;
@@ -675,14 +802,23 @@ const updateStatistics = async () => {
     // 计算今日的开始时间（北京时间0点，跨时区一致）
     const today = getBeijingTodayStart();
 
-    const [stats, todayStats, trades, balance] = await Promise.all([
+    const [
+      stats, todayStats,
+      autoStats, todayAutoStats,
+      manualStats, todayManualStats,
+      trades, balance
+    ] = await Promise.all([
       statisticsService.calculateWinRate(),
       statisticsService.calculateWinRate({ start: today, end: new Date() }),
+      statisticsService.calculateWinRate(undefined, 'AUTO'),
+      statisticsService.calculateWinRate({ start: today, end: new Date() }, 'AUTO'),
+      statisticsService.calculateWinRate(undefined, 'MANUAL'),
+      statisticsService.calculateWinRate({ start: today, end: new Date() }, 'MANUAL'),
       statisticsService.getRecentTrades(100, today),
       calculateCurrentBalance()
     ]);
 
-    // 将今日统计添加到stats中一起发送
+    // 将今日统计与分项统计添加到stats中一起发送
     const statsWithToday = {
       ...stats,
       todayStats: {
@@ -692,6 +828,28 @@ const updateStatistics = async () => {
         winRate: todayStats.winRate,
         totalProfitLoss: todayStats.totalProfitLoss,
         averageConfidence: todayStats.averageConfidence
+      },
+      autoStats: {
+        ...autoStats,
+        todayStats: {
+          totalTrades: todayAutoStats.totalTrades,
+          winningTrades: todayAutoStats.winningTrades,
+          losingTrades: todayAutoStats.losingTrades,
+          winRate: todayAutoStats.winRate,
+          totalProfitLoss: todayAutoStats.totalProfitLoss,
+          averageConfidence: todayAutoStats.averageConfidence
+        }
+      },
+      manualStats: {
+        ...manualStats,
+        todayStats: {
+          totalTrades: todayManualStats.totalTrades,
+          winningTrades: todayManualStats.winningTrades,
+          losingTrades: todayManualStats.losingTrades,
+          winRate: todayManualStats.winRate,
+          totalProfitLoss: todayManualStats.totalProfitLoss,
+          averageConfidence: todayManualStats.averageConfidence
+        }
       }
     };
 

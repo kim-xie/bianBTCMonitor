@@ -125,7 +125,8 @@ export class TradingSignalService {
       investmentAmount: signal.investmentAmount || this.STAKE_USDT,
       prediction: signal.prediction,
       reasoning: signal.reasoning,
-      klineCloseTime
+      klineCloseTime,
+      orderSource: 'AUTO'
     };
 
     try {
@@ -217,10 +218,12 @@ export class TradingSignalService {
 
   private async sendFeishuCloseNotification(trade: any, currentPrice: number, closeTime: Date, isCorrect: boolean, profitLoss: number, profitLossPercent: number, holdDuration: number): Promise<void> {
     try {
+      const sourceText = trade.orderSource === 'MANUAL' ? '👤 手动开仓' : '🤖 自动策略';
       const message = {
         msg_type: 'text',
         content: {
-          text: `📊 交易平仓\n\n` +
+          text: `📊 交易平仓 (${sourceText})\n\n` +
+            `订单来源: ${sourceText}\n` +
             `预测结果: ${isCorrect ? '正确' : '错误'}\n` +
             `交易类型: ${trade.tradeType === 'LONG' ? '买涨' : '买跌'}\n` +
             `开仓价格: ${trade.price.toFixed(2)} USDT\n` +

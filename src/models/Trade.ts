@@ -10,6 +10,7 @@ export interface ITrade extends Document {
   investmentAmount: number;  // 买入金额（固定本金）
   reasoning?: string[];       // 入场原因
   prediction: 'UP' | 'DOWN';
+  orderSource?: 'MANUAL' | 'AUTO'; // 订单来源：MANUAL=手动开单，AUTO=系统自动策略单
 
   // 信号所基于的5分钟K线收盘时间戳（毫秒），用于同根K线去重
   klineCloseTime?: number;
@@ -36,6 +37,7 @@ const TradeSchema: Schema = new Schema({
   investmentAmount: { type: Number, required: true, default: 100 }, // 默认买入金额100U
   reasoning: [{ type: String }], // 入场原因
   prediction: { type: String, required: true, enum: ['UP', 'DOWN'] },
+  orderSource: { type: String, enum: ['MANUAL', 'AUTO'], default: 'AUTO' },
 
   // 信号所基于的5分钟K线收盘时间戳，用于同根K线去重
   klineCloseTime: { type: Number },
@@ -57,6 +59,7 @@ const TradeSchema: Schema = new Schema({
 TradeSchema.index({ timestamp: -1 });
 TradeSchema.index({ signal: 1 });
 TradeSchema.index({ isCorrect: 1 });
+TradeSchema.index({ orderSource: 1 });
 // 同一品种同一根5分钟K线只允许一笔交易（稀疏索引：历史无该字段的旧数据不参与约束）
 TradeSchema.index({ symbol: 1, klineCloseTime: 1 }, { unique: true, sparse: true });
 

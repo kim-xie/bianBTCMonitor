@@ -124,7 +124,7 @@ async function runBacktest(_priceHistory: IPriceData[], fiveMinuteKlines: any[])
                 profit,
                 correct,
                 confidence: found.confidence,
-                reasoning: [`策略:${found.strategyId}｜${found.reason}`]
+                reasoning: [found.reason]
             });
 
         } catch (error) {

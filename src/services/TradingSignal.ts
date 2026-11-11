@@ -98,7 +98,7 @@ export class TradingSignalService {
         signal: targetSignal,
         prediction: found.direction,
         confidence: found.confidence,
-        reasoning: [`策略:${found.strategyId}｜${found.reason}`],
+        reasoning: [found.reason],
         recommendedAction: found.direction === 'UP'
           ? `建议开仓做多 (置信度: ${found.confidence}%)`
           : `建议开仓做空 (置信度: ${found.confidence}%)`,

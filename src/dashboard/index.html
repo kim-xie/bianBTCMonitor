@@ -296,6 +296,12 @@
   <script type="text/babel">
     const { useState, useEffect, useRef } = React;
 
+    // 去除入场原因中的策略ID前缀 (例如 "策略:multi-cross-engulf-long | " 或 "策略:multi-cross-engulf-short｜")
+    const stripStrategyPrefix = (str) => {
+      if (!str || typeof str !== 'string') return '';
+      return str.replace(/^策略:[^|｜]+[|｜]\s*/, '');
+    };
+
     // ==========================================
     // 数字变动翻页组件 (FlipChar / FlipNumber)
     // ==========================================
@@ -2853,7 +2859,7 @@
                       </div>
                       <div className="col-span-2 truncate">
                         <span className="text-slate-400">入场策略: </span>
-                        <span className="text-slate-200">{settlementEvent.trade.reasoning?.[0] || '历史订单'}</span>
+                        <span className="text-slate-200">{stripStrategyPrefix(settlementEvent.trade.reasoning?.[0]) || '历史订单'}</span>
                       </div>
                     </div>
 
@@ -3503,7 +3509,7 @@
                                 <td className="py-2.5 px-3 max-w-xs">
                                   <div className="text-[11px] text-slate-300 leading-snug">
                                     {trade.reasoning ? trade.reasoning.slice(0, 2).map((reason, index) => (
-                                      <div key={index} className="truncate">• {reason}</div>
+                                      <div key={index} className="truncate">• {stripStrategyPrefix(reason)}</div>
                                     )) : '-'}
                                   </div>
                                 </td>
@@ -3610,6 +3616,7 @@
       const chartRef = React.useRef(null);
       const candleSeriesRef = React.useRef(null);
       const ema50SeriesRef = React.useRef(null);
+      const ema50LastTimeRef = React.useRef(null);
       const candlesRef = React.useRef([]);
       const isInitialScrollRef = React.useRef(true);
       const prevPriceRef = React.useRef(null);
@@ -3696,13 +3703,24 @@
         return out;
       };
 
-      const applyEma50 = (candles) => {
+      const applyEma50 = (candles, fullReset = false) => {
+        if (!ema50SeriesRef.current || !candles || candles.length === 0) return;
         const ema50Data = calculateEMA(candles, 50);
-        if (ema50SeriesRef.current) ema50SeriesRef.current.setData(ema50Data);
-        setLatestEma50(ema50Data.length > 0 ? ema50Data[ema50Data.length - 1].value : null);
+        if (ema50Data.length === 0) return;
+
+        const latestPoint = ema50Data[ema50Data.length - 1];
+        setLatestEma50(latestPoint.value);
+
+        if (fullReset || !ema50LastTimeRef.current) {
+          ema50SeriesRef.current.setData(ema50Data);
+          ema50LastTimeRef.current = latestPoint.time;
+        } else {
+          ema50SeriesRef.current.update(latestPoint);
+          ema50LastTimeRef.current = latestPoint.time;
+        }
       };
 
-      // 更新图表上的当日成交平仓盈亏点标记 (盈利: 绿色W, 亏损: 红色L)
+      // 更新图表上的当日成交平仓盈亏点标记 (盈利: 极光绿向下指引箭头 WIN, 亏损: 警示红向上指引箭头 LOSS)
       const updateTradeMarkers = React.useCallback(() => {
         if (!candleSeriesRef.current) return;
 
@@ -3744,7 +3762,8 @@
           return dStr === beijingTodayStr;
         };
 
-        const markers = [];
+        // 按 5m K 线周期聚合当天平仓交易，杜绝同柱多笔重叠覆盖
+        const barTradesMap = new Map();
 
         for (const trade of tradesToUse) {
           if (!trade || !trade.closeTime) continue;
@@ -3763,22 +3782,54 @@
 
           if (!candleTimesSet.has(barTime)) continue;
 
+          if (!barTradesMap.has(barTime)) {
+            barTradesMap.set(barTime, { wins: [], losses: [] });
+          }
           const isWin = trade.profitLoss != null ? trade.profitLoss >= 0 : (trade.isCorrect === true);
-
-          markers.push({
-            time: barTime,
-            position: isWin ? 'aboveBar' : 'belowBar',
-            color: isWin ? '#10b981' : '#f43f5e',
-            shape: 'circle',
-            text: isWin ? 'W' : 'L',
-            size: 2
-          });
+          if (isWin) {
+            barTradesMap.get(barTime).wins.push(trade);
+          } else {
+            barTradesMap.get(barTime).losses.push(trade);
+          }
         }
+
+        const markers = [];
+
+        barTradesMap.forEach(({ wins, losses }, barTime) => {
+          // 盈利标记：置于柱顶之上，大号向下指引箭头，高亮荧光极光绿，加粗醒目的 𝐖
+          if (wins.length > 0) {
+            const countStr = wins.length > 1 ? ` x${wins.length}` : '';
+            markers.push({
+              time: barTime,
+              position: 'aboveBar',
+              color: '#00f59b',
+              shape: 'arrowDown',
+              text: `𝐖${countStr}`,
+              size: 3
+            });
+          }
+
+          // 亏损/止损标记：置于柱底之下，大号向上指引箭头，高亮警示鲜红，加粗醒目的 𝐋
+          if (losses.length > 0) {
+            const countStr = losses.length > 1 ? ` x${losses.length}` : '';
+            markers.push({
+              time: barTime,
+              position: 'belowBar',
+              color: '#ff2d55',
+              shape: 'arrowUp',
+              text: `𝐋${countStr}`,
+              size: 3
+            });
+          }
+        });
 
         // Lightweight Charts 强制要求 markers 必须按时间升序排列
         markers.sort((a, b) => a.time - b.time);
 
-        const markersKey = markers.map(m => `${m.time}:${m.text}`).join('|');
+        const markersKey = markers.length === 0
+          ? '__EMPTY__'
+          : markers.map(m => `${m.time}:${m.position}:${m.text}:${m.color}`).join('|');
+
         if (markersKey === lastMarkersKeyRef.current) {
           return;
         }
@@ -3851,6 +3902,7 @@
             };
             candlesRef.current[lastIdx] = updated;
             candleSeriesRef.current.update(updated);
+            applyEma50(candlesRef.current, false);
           } else {
             // 跨越5分钟周期生成新K线
             const newBar = {
@@ -3863,13 +3915,10 @@
             };
             candlesRef.current.push(newBar);
             candleSeriesRef.current.update(newBar);
+            applyEma50(candlesRef.current, true);
+            updateTradeMarkers();
             fixScrollToRight(true);
           }
-
-          if (!isUserScrolledAwayRef.current) {
-            fixScrollToRight(false);
-          }
-          applyEma50(candlesRef.current);
         }
       };
 
@@ -3915,26 +3964,61 @@
             }
           }
 
-          candlesRef.current = uniqueCandles;
-          const lastCandle = uniqueCandles[uniqueCandles.length - 1];
+          const existing = candlesRef.current || [];
+          const isFirstLoad = isInitialScrollRef.current || existing.length === 0;
 
-          if (lastCandle) {
-            currentPriceRef.current = lastCandle.close;
-            setCurrentPrice(lastCandle.close);
-          }
+          if (isFirstLoad) {
+            candlesRef.current = uniqueCandles;
+            const lastCandle = uniqueCandles[uniqueCandles.length - 1];
+            if (lastCandle) {
+              currentPriceRef.current = lastCandle.close;
+              setCurrentPrice(lastCandle.close);
+            }
+            if (candleSeriesRef.current) candleSeriesRef.current.setData(uniqueCandles);
+            applyEma50(uniqueCandles, true);
+            updateTradeMarkers();
 
-          if (candleSeriesRef.current) candleSeriesRef.current.setData(uniqueCandles);
-          applyEma50(uniqueCandles);
-          updateTradeMarkers();
-
-          // 首次加载或重绘时，锁定最新K线停靠在右侧（按固定的 12 根K线舒适边距对齐右边距）
-          if (isInitialScrollRef.current) {
+            // 首次加载或重绘时，锁定最新K线停靠在右侧（按固定的 12 根K线舒适边距对齐右边距）
             isInitialScrollRef.current = false;
             fixScrollToRight(true);
             setTimeout(() => fixScrollToRight(true), 60);
             setTimeout(() => fixScrollToRight(true), 250);
-          } else if (!isUserScrolledAwayRef.current) {
-            fixScrollToRight(false);
+          } else {
+            // 增量平滑更新：避免每15秒全量 setData 导致图表重绘闪烁与 Marker 抖动
+            const lastExisting = existing[existing.length - 1];
+            const newBars = uniqueCandles.filter(c => c.time > lastExisting.time);
+            const latestCandle = uniqueCandles[uniqueCandles.length - 1];
+
+            if (newBars.length > 0) {
+              candlesRef.current = uniqueCandles;
+              newBars.forEach(bar => {
+                if (candleSeriesRef.current) candleSeriesRef.current.update(bar);
+              });
+              applyEma50(uniqueCandles, true);
+              updateTradeMarkers();
+              if (!isUserScrolledAwayRef.current) {
+                fixScrollToRight(false);
+              }
+            } else if (latestCandle) {
+              const lastIdx = existing.length - 1;
+              const prevLast = existing[lastIdx];
+              if (
+                !prevLast ||
+                prevLast.close !== latestCandle.close ||
+                prevLast.high !== latestCandle.high ||
+                prevLast.low !== latestCandle.low ||
+                prevLast.volume !== latestCandle.volume
+              ) {
+                existing[lastIdx] = latestCandle;
+                if (candleSeriesRef.current) candleSeriesRef.current.update(latestCandle);
+                applyEma50(existing, false);
+              }
+            }
+
+            if (latestCandle) {
+              currentPriceRef.current = latestCandle.close;
+              setCurrentPrice(latestCandle.close);
+            }
           }
 
           // 若处于事件合约指数模式，额外拉取最新的指数行情与结算预估
@@ -3973,6 +4057,8 @@
           localStorage.setItem('btc_kline_source', newSource);
         } catch (e) {}
         setLoading(true);
+        isInitialScrollRef.current = true;
+        candlesRef.current = [];
         fetchKlines(newSource);
       };
 
@@ -5170,7 +5256,7 @@
                         <td className="py-2.5 px-3 max-w-xs">
                           <div className="text-[11px] text-slate-300 leading-snug">
                             {trade.reasoning ? trade.reasoning.slice(0, 2).map((reason, index) => (
-                              <div key={index} className="truncate">• {reason}</div>
+                              <div key={index} className="truncate">• {stripStrategyPrefix(reason)}</div>
                             )) : '-'}
                           </div>
                         </td>

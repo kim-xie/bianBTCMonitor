@@ -4372,8 +4372,8 @@
           ctx.fill();
 
           const label = t.isWin ? 'W' : 'L';
-          const labelY = t.peakDown ? yPeak + 5 : yPeak - 5;
-          ctx.font = 'bold 11px JetBrains Mono, monospace';
+          const labelY = t.peakDown ? yPeak + 6 : yPeak - 6;
+          ctx.font = '900 13px JetBrains Mono, monospace';
           ctx.textAlign = 'center';
           ctx.textBaseline = t.peakDown ? 'top' : 'bottom';
           ctx.lineWidth = 3;
@@ -5400,7 +5400,7 @@
                     color: isWin ? '#0ecb81' : '#f6465d',
                     shape: 'circle',
                     text: isWin ? '𝐖' : '𝐋',
-                    size: 1
+                    size: 2
                   }
                 ]);
               }

@@ -2830,10 +2830,33 @@
           setCurrentSignal(null);
         });
 
-        // 订单结算动效与语音总入口
+        // 订单结算动效与语音总入口。服务端在持仓到期当刻推送，这里立刻改掉倒计时行。
         socket.on('tradeClosed', (result) => {
-          if (!result) return;
+          if (!result || result._id == null) return;
+          const id = String(result._id);
+          if (closedTradeIdsRef.current.has(id) || closedTradeIdsRef.current.has(result._id)) return;
+          closedTradeIdsRef.current.add(id);
+          closedTradeIdsRef.current.add(result._id);
+
           const isProfit = (result.profitLoss !== undefined && result.profitLoss >= 0) || result.isCorrect === true;
+          setRecentlySettledTradeIds(prev => {
+            const next = new Map(prev);
+            next.set(id, isProfit ? 'WIN' : 'LOSS');
+            if (result._id !== id) next.set(result._id, isProfit ? 'WIN' : 'LOSS');
+            return next;
+          });
+          setTimeout(() => {
+            setRecentlySettledTradeIds(prev => {
+              const next = new Map(prev);
+              next.delete(id);
+              next.delete(result._id);
+              return next;
+            });
+          }, 4000);
+          setRecentTrades(prev => prev.map(trade => (
+            String(trade._id) === id ? { ...trade, ...result, _id: trade._id } : trade
+          )));
+
           if (isProfit) {
             triggerVictoryEffect(result);
           } else {

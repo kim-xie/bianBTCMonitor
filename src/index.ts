@@ -1,6 +1,6 @@
 import 'dotenv/config'; // 加载.env文件配置
 import mongoose from 'mongoose';
-import { TradingSignalService } from './services/TradingSignal';
+import { TradingSignalService, createExpiryScheduler, msUntilNextOpenExpiry, HOLD_DURATION_MS } from './services/TradingSignal';
 import { StatisticsService } from './services/StatisticsService';
 import { BinanceService } from './services/BinanceService';
 import PriceDataModel from './models/PriceData';
@@ -44,6 +44,10 @@ console.log('- 代理配置:', proxyConfig ? '已启用' : '未启用');
 
 const binanceService = new BinanceService(proxyConfig);
 
+// 65000 只是占位，拿到真实行情前不结单。
+let currentPrice = 65000;
+let livePriceReady = false;
+
 // 获取真实BTC价格数据
 const fetchBinancePriceData = async () => {
   try {
@@ -53,6 +57,7 @@ const fetchBinancePriceData = async () => {
 
     await PriceDataModel.create(priceData);
     console.log(`已记录价格: $${priceData.price?.toFixed(2)} (24h涨跌: ${ticker.priceChangePercent}%)`);
+    if ((priceData.price || 0) > 0) livePriceReady = true;
 
     return priceData.price || 0;
   } catch (error: any) {
@@ -76,6 +81,7 @@ const fetchBinancePriceData = async () => {
       };
 
       await PriceDataModel.create(priceData);
+      if (wsPrice > 0) livePriceReady = true;
       return wsPrice;
     } catch (wsError) {
       console.error('WebSocket获取也失败:', wsError);
@@ -104,9 +110,6 @@ const initializeHistoricalData = async () => {
     console.error('初始化历史数据失败:', error);
   }
 };
-
-// 获取当前价格
-let currentPrice = 65000;
 
 /**
  * 确保获取的是已收盘的5分钟K线
@@ -160,22 +163,37 @@ const generateTradingSignal = async () => {
   }
 };
 
-// 更新交易结果
-const updateTradeResults = async () => {
+// 更新交易结果。返回失败后的最少等待毫秒，供到期调度器避开紧循环。
+let settlingTrades = false;
+const updateTradeResults = async (): Promise<number> => {
+  if (settlingTrades) return 500;
+  settlingTrades = true;
   try {
-    const tenMinutesAgo = new Date(Date.now() - 10 * 60 * 1000);
+    if (!livePriceReady || !(currentPrice > 0)) return 1000;
+    const tenMinutesAgo = new Date(Date.now() - HOLD_DURATION_MS);
     const pendingTrades = await TradeModel.find({
       timestamp: { $lte: tenMinutesAgo },
       isCorrect: { $exists: false }
     });
 
+    let failed = 0;
     for (const trade of pendingTrades) {
-      await tradingSignalService.updateTradeResult(trade._id, currentPrice);
+      const outcome = await tradingSignalService.updateTradeResult(String(trade._id), currentPrice);
+      if (outcome.status === 'error') failed++;
     }
+    return failed > 0 ? 2000 : 0;
   } catch (error) {
     console.error('更新交易结果失败:', error);
+    return 2000;
+  } finally {
+    settlingTrades = false;
   }
 };
+
+const settlementScheduler = createExpiryScheduler({
+  nextDelayMs: () => msUntilNextOpenExpiry(),
+  onDue: () => updateTradeResults()
+});
 
 // 显示统计信息
 const showStatistics = async () => {
@@ -327,7 +345,9 @@ const main = async () => {
 
   // 设置WebSocket实时价格监听
   binanceService.addPriceListener((price: number) => {
+    if (!(price > 0)) return;
     currentPrice = price;
+    livePriceReady = true;
     console.log(`WebSocket实时价格更新: $${price.toFixed(2)}`);
   });
 
@@ -338,8 +358,14 @@ const main = async () => {
     }
   }, 5000); // 每5秒获取价格数据（当WebSocket断开时）
 
-  setInterval(generateTradingSignal, 60000); // 每分钟生成交易信号
-  setInterval(updateTradeResults, 30000); // 每30秒更新交易结果
+  setInterval(async () => {
+    await generateTradingSignal();
+    settlementScheduler.arm().catch((error) => console.error('安排结单失败:', error));
+  }, 60000); // 每分钟生成交易信号，并给新持仓排上到期结单
+  settlementScheduler.arm().catch((error) => console.error('安排结单失败:', error));
+  setInterval(() => {
+    settlementScheduler.arm().catch((error) => console.error('安排结单失败:', error));
+  }, 30000); // 发现其它进程写入的持仓；结单本身对准到期时刻
   setInterval(showStatistics, 300000 * 2); // 每10分钟显示统计
   setInterval(cleanupOldData, 3600000); // 每小时清理数据
 };

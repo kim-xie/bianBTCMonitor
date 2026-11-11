@@ -500,8 +500,7 @@ app.get('/api/all-trades', async (_req, res) => {
 });
 
 // 临时清空数据接口（用于重置）
-// 认证和订阅相关导入
-import { authenticateToken } from '../middleware/auth';
+// 订阅相关导入
 import { checkSubscriptionStatus } from '../middleware/subscriptionGuard';
 
 // 应用订阅状态检查中间件到所有API路由

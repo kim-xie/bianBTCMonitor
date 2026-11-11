@@ -5,7 +5,7 @@ import { Server } from 'socket.io';
 import cors from 'cors';
 import mongoose from 'mongoose';
 import path from 'path';
-import { TradingSignalService } from '../services/TradingSignal';
+import { TradingSignalService, createExpiryScheduler, msUntilNextOpenExpiry, HOLD_DURATION_MS } from '../services/TradingSignal';
 import { StatisticsService } from '../services/StatisticsService';
 import { BinanceService } from '../services/BinanceService';
 import PriceDataModel, { IPriceData } from '../models/PriceData';
@@ -400,6 +400,8 @@ app.post('/api/manual-trade', optionalAuth, async (req: AuthRequest, res) => {
     io.emit('tradeInserted', newTrade);
     // 异步更新统计与推送数据
     updateStatistics().catch(console.error);
+    // 新持仓按开仓时间 + 10 分钟准时结单，不等下一轮轮询
+    settlementScheduler.arm().catch((error) => console.error('安排结单失败:', error));
 
     res.json({
       success: true,
@@ -609,11 +611,14 @@ io.on('connection', (socket: any) => {
 
 // 实时价格更新（全量为币安事件合约标的指数）
 let currentPrice = 78000;
+// 78000 只是占位。拿到真实行情前不结单，避免用占位价结算盈亏。
+let livePriceReady = false;
 
 // 监听币安WebSocket实时价格流，毫秒级广播给前端
 binanceService.addPriceListener((price: number) => {
   if (price && price > 0) {
     currentPrice = price;
+    livePriceReady = true;
     io.emit('priceUpdate', {
       price: currentPrice,
       timestamp: new Date().toISOString()
@@ -627,6 +632,7 @@ const updatePrice = async () => {
     const info = await binanceService.getIndexPrice('BTCUSDT');
     if (info && info.indexPrice > 0) {
       currentPrice = info.indexPrice;
+      livePriceReady = true;
 
       const priceData: Partial<IPriceData> = {
         symbol: 'BTCUSDT',
@@ -663,7 +669,8 @@ const updatePrice = async () => {
   }
 };
 
-// 启动价格更新定时器：每2秒轮询事件合约标的指数入库并实时广播
+// 启动价格更新定时器：先拉一次，再每2秒轮询。到期结单要等这次真实行情。
+updatePrice();
 setInterval(updatePrice, 2000);
 
 /**
@@ -876,16 +883,25 @@ const scheduleSignalCheck = () => {
       await generateTradingSignal();
     } finally {
       scheduleSignalCheck();
+      settlementScheduler.arm().catch((error) => console.error('安排结单失败:', error));
     }
   }, wait);
 };
 scheduleSignalCheck();
 setInterval(updateStatistics, 10000); // 每10秒更新一次统计
 
-// 处理交易结果更新（10分钟后）
-const updateTradeResults = async () => {
+// 持仓倒计时走到 0 的同一时刻结单。返回值是失败后的最少等待毫秒。
+let settlingTrades = false;
+const updateTradeResults = async (): Promise<number> => {
+  if (settlingTrades) return 500;
+  settlingTrades = true;
   try {
-    const tenMinutesAgo = new Date(Date.now() - 10 * 60 * 1000);
+    if (!livePriceReady || !(currentPrice > 0)) {
+      console.log('实时价格尚未就绪，暂不结单');
+      return 1000;
+    }
+
+    const tenMinutesAgo = new Date(Date.now() - HOLD_DURATION_MS);
     const pendingTrades = await TradeModel.find({
       timestamp: { $lte: tenMinutesAgo },
       isCorrect: { $exists: false }
@@ -893,11 +909,15 @@ const updateTradeResults = async () => {
 
     console.log(`检查平仓: 找到${pendingTrades.length}笔待平仓交易`);
 
+    let failed = 0;
     for (const trade of pendingTrades) {
-      console.log(`处理交易 ${trade._id}: 开仓时间 ${trade.timestamp}, 当前价格 ${currentPrice}`);
-      const result = await tradingSignalService.updateTradeResult(trade._id, currentPrice);
-      if (result) {
-        emitTradeClosed({ ...result, _id: trade._id });
+      const overdueMs = Date.now() - (new Date(trade.timestamp).getTime() + HOLD_DURATION_MS);
+      console.log(`处理交易 ${trade._id}: 开仓时间 ${trade.timestamp}, 超时 ${overdueMs}ms, 当前价格 ${currentPrice}`);
+      const outcome = await tradingSignalService.updateTradeResult(String(trade._id), currentPrice);
+      if (outcome.status === 'closed') {
+        emitTradeClosed(outcome.trade);
+      } else if (outcome.status === 'error') {
+        failed++;
       }
     }
 
@@ -930,12 +950,34 @@ const updateTradeResults = async () => {
         });
       })
     ]);
+    return failed > 0 ? 2000 : 0;
   } catch (error) {
     console.error('更新交易结果失败:', error);
+    return 2000;
+  } finally {
+    settlingTrades = false;
   }
 };
 
-setInterval(updateTradeResults, 60000); // 每分钟检查一次
+// 页面倒计时按开仓时间本地递减，结单必须对准同一时刻，不能再等固定轮询。
+const settlementScheduler = createExpiryScheduler({
+  nextDelayMs: () => msUntilNextOpenExpiry(),
+  onDue: () => updateTradeResults()
+});
+
+let settlementWatchStarted = false;
+const startSettlementWatch = () => {
+  if (settlementWatchStarted) return;
+  settlementWatchStarted = true;
+  settlementScheduler.arm().catch((error) => console.error('安排结单失败:', error));
+  // 只用来发现其它入口新写入的持仓；真正结单仍对准到期时刻
+  setInterval(() => {
+    settlementScheduler.arm().catch((error) => console.error('安排结单失败:', error));
+  }, 30000);
+};
+
+mongoose.connection.on('connected', startSettlementWatch);
+if (mongoose.connection.readyState === 1) startSettlementWatch();
 
 // 定期更新并广播资金状态
 setInterval(async () => {

@@ -162,57 +162,81 @@ export class TradingSignalService {
   }
 
   /**
-   * 更新交易结果（严格按照10分钟持仓）
+   * 更新交易结果（严格按照10分钟持仓）。
+   * 用条件更新抢占未结订单，避免两个进程在同一到期时刻各结一次。
    */
-  async updateTradeResult(tradeId: string, currentPrice: number): Promise<any> {
+  async updateTradeResult(tradeId: string, currentPrice: number): Promise<SettleOutcome> {
     try {
-      const trade = await TradeModel.findById(tradeId);
-      if (!trade) return null;
+      if (!(currentPrice > 0) || !Number.isFinite(currentPrice)) {
+        return { status: 'error' };
+      }
 
-      // 严格按照10分钟计算平仓时间
-      const closeTime = new Date(trade.timestamp.getTime() + 10 * 60 * 1000); // 10分钟后
-      const holdDuration = 10; // 固定10分钟持仓时间
+      const trade = await TradeModel.findOne({ _id: tradeId, isCorrect: { $exists: false } });
+      if (!trade) return { status: 'skipped' };
 
-      // 确定实际方向
+      // 账上的平仓时间对齐开仓后整 10 分钟，而不是轮询跑到的时刻
+      const closeTime = new Date(trade.timestamp.getTime() + HOLD_DURATION_MS);
+      const holdDuration = HOLD_DURATION_MS / 60000;
+
       const actualDirection = currentPrice > trade.price ? 'UP' : 'DOWN';
       const isCorrect = actualDirection === trade.prediction;
 
-      // 基于预测正确性计算盈亏：预测正确盈利80%，预测错误亏损全部本金
+      // 预测正确盈利本金的 80%，预测错误亏损全部本金
       let profitLoss = 0;
       let profitLossPercent = 0;
 
       if (isCorrect) {
-        // 预测正确：盈利买入金额的80%
         profitLoss = trade.investmentAmount * 0.8;
         profitLossPercent = 80;
       } else {
-        // 预测错误：亏损全部本金
         profitLoss = -trade.investmentAmount;
         profitLossPercent = -100;
       }
 
-      await TradeModel.findByIdAndUpdate(tradeId, {
-        closeTime,
-        closePrice: currentPrice,
-        holdDuration,
-        actualDirection,
-        isCorrect,
-        profitLoss,
-        profitLossPercent
-      });
+      const updated = await TradeModel.findOneAndUpdate(
+        { _id: tradeId, isCorrect: { $exists: false } },
+        {
+          closeTime,
+          closePrice: currentPrice,
+          holdDuration,
+          actualDirection,
+          isCorrect,
+          profitLoss,
+          profitLossPercent
+        },
+        { new: true }
+      );
+      if (!updated) return { status: 'skipped' };
 
       console.log(`交易${tradeId}已平仓: ${isCorrect ? '正确' : '错误'}, ` +
         `投资金额: ${trade.investmentAmount}, ` +
         `盈亏: ${profitLoss.toFixed(2)} (${profitLossPercent.toFixed(2)}%), ` +
         `持仓时间: ${holdDuration.toFixed(1)}分钟`);
 
-      // 发送飞书平仓通知
       await this.sendFeishuCloseNotification(trade, currentPrice, closeTime, isCorrect, profitLoss, profitLossPercent, holdDuration);
 
-      return { profitLoss, isCorrect, tradeType: trade.tradeType, signal: trade.signal };
+      return {
+        status: 'closed',
+        trade: {
+          _id: updated._id,
+          profitLoss,
+          profitLossPercent,
+          isCorrect,
+          tradeType: trade.tradeType,
+          signal: trade.signal,
+          price: trade.price,
+          closePrice: currentPrice,
+          closeTime,
+          reasoning: trade.reasoning,
+          timestamp: trade.timestamp,
+          investmentAmount: trade.investmentAmount,
+          orderSource: trade.orderSource,
+          prediction: trade.prediction
+        }
+      };
     } catch (error) {
       console.error('更新交易结果时出错:', error);
-      return null;
+      return { status: 'error' };
     }
   }
 
@@ -243,6 +267,105 @@ export class TradingSignalService {
       console.error('发送飞书平仓通知时出错:', error);
     }
   }
+}
+
+export const HOLD_DURATION_MS = 10 * 60 * 1000;
+const MAX_TIMEOUT_MS = 2_147_483_647;
+
+export interface ClosedTradeResult {
+  _id: unknown;
+  profitLoss: number;
+  profitLossPercent: number;
+  isCorrect: boolean;
+  tradeType: 'LONG' | 'SHORT';
+  signal: 'BUY' | 'SELL';
+  price: number;
+  closePrice: number;
+  closeTime: Date;
+  reasoning?: string[];
+  timestamp: Date;
+  investmentAmount: number;
+  orderSource?: 'MANUAL' | 'AUTO';
+  prediction: 'UP' | 'DOWN';
+}
+
+export type SettleOutcome =
+  | { status: 'closed'; trade: ClosedTradeResult }
+  | { status: 'skipped' }
+  | { status: 'error' };
+
+export function delayUntilHoldExpiry(openedAtMs: number, nowMs: number): number {
+  if (!Number.isFinite(openedAtMs) || !Number.isFinite(nowMs)) return 0;
+  return Math.max(0, openedAtMs + HOLD_DURATION_MS - nowMs);
+}
+
+/** 距离最早一笔未平仓到期还有多少毫秒；没有未平仓时返回 null。now 在查询之后取，避免查询耗时被算进等待。 */
+export async function msUntilNextOpenExpiry(now?: number): Promise<number | null> {
+  const nextOpen = await TradeModel.findOne({ isCorrect: { $exists: false } })
+    .sort({ timestamp: 1 })
+    .select('timestamp')
+    .lean();
+  if (!nextOpen?.timestamp) return null;
+  return delayUntilHoldExpiry(new Date(nextOpen.timestamp).getTime(), now ?? Date.now());
+}
+
+/**
+ * 把下一次结单对准最早一笔持仓的到期时刻。
+ * onDue 返回的毫秒数是失败后的最少等待，避免到期检查失败时紧循环。
+ */
+export function createExpiryScheduler(options: {
+  nextDelayMs: () => Promise<number | null>;
+  onDue: () => Promise<number>;
+}): { arm: (notBeforeMs?: number) => Promise<void> } {
+  let timer: ReturnType<typeof setTimeout> | null = null;
+  let token = 0;
+  let scheduledFor = -1;
+
+  const arm = async (notBeforeMs = 0) => {
+    const current = ++token;
+    let delay: number | null;
+    try {
+      delay = await options.nextDelayMs();
+    } catch (error) {
+      console.error('查询下一笔结单时间失败:', error);
+      if (current !== token) return;
+      if (timer) {
+        clearTimeout(timer);
+        timer = null;
+      }
+      timer = setTimeout(() => {
+        timer = null;
+        arm(0).catch((err) => console.error('安排结单失败:', err));
+      }, 2000);
+      return;
+    }
+
+    if (current !== token) return;
+    if (timer) {
+      clearTimeout(timer);
+      timer = null;
+    }
+    if (delay == null) return;
+
+    const wait = Math.min(MAX_TIMEOUT_MS, Math.max(notBeforeMs, delay, 0));
+    const fireAt = Date.now() + wait;
+    if (wait >= 1000 && Math.abs(fireAt - scheduledFor) > 1000) {
+      scheduledFor = fireAt;
+      console.log(`下一笔持仓将在 ${Math.round(wait / 1000)} 秒后结单`);
+    }
+
+    timer = setTimeout(() => {
+      timer = null;
+      options.onDue()
+        .then((retryMs) => arm(Math.max(0, retryMs || 0)))
+        .catch((error) => {
+          console.error('到期结单失败:', error);
+          return arm(2000);
+        });
+    }, wait);
+  };
+
+  return { arm };
 }
 
 function toCandles(klines: any[]): Candle[] {

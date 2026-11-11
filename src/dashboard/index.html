@@ -2938,23 +2938,6 @@
                 </span>
                 <span className="text-slate-600">|</span>
                 <span className="text-slate-400 text-[11px]">SYS.NODE: btc-oracle-01</span>
-                <span className="text-slate-600">|</span>
-                <button
-                  onClick={() => {
-                    try {
-                      window.speechSynthesis.resume();
-                      playSoundEffect('victory');
-                      speak('BTC Oracle 语音播报运行正常');
-                    } catch (e) {
-                      console.warn(e);
-                    }
-                  }}
-                  className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded bg-cyan-500/10 hover:bg-cyan-500/25 text-cyan-300 border border-cyan-500/30 text-[11px] font-mono font-bold transition-all shadow-sm shadow-cyan-500/10"
-                  title="点击激活并测试浏览器语音播报"
-                >
-                  <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-pulse"></span>
-                  <span>🔊 语音测试</span>
-                </button>
               </div>
               <div className="flex items-center gap-2">
                 <span className="text-emerald-400 font-bold text-lg md:text-xl font-mono">&gt;</span>
@@ -3634,6 +3617,7 @@
       const countdownRef = React.useRef('--:--');
       const countdownBadgeElRef = React.useRef(null);
       const isUserScrolledAwayRef = React.useRef(false);
+      const lastMarkersKeyRef = React.useRef('');
 
       // 当日平仓盈亏点标记开关 (默认开启，持久化到 localStorage)
       const [showTradeMarkers, setShowTradeMarkers] = useState(() => {
@@ -3723,13 +3707,19 @@
         if (!candleSeriesRef.current) return;
 
         if (!showTradeMarkers) {
-          candleSeriesRef.current.setMarkers([]);
+          if (lastMarkersKeyRef.current !== '__EMPTY__') {
+            candleSeriesRef.current.setMarkers([]);
+            lastMarkersKeyRef.current = '__EMPTY__';
+          }
           return;
         }
 
         const tradesToUse = Array.isArray(trades) ? trades : [];
         if (tradesToUse.length === 0) {
-          candleSeriesRef.current.setMarkers([]);
+          if (lastMarkersKeyRef.current !== '__EMPTY__') {
+            candleSeriesRef.current.setMarkers([]);
+            lastMarkersKeyRef.current = '__EMPTY__';
+          }
           return;
         }
 
@@ -3787,6 +3777,12 @@
 
         // Lightweight Charts 强制要求 markers 必须按时间升序排列
         markers.sort((a, b) => a.time - b.time);
+
+        const markersKey = markers.map(m => `${m.time}:${m.text}`).join('|');
+        if (markersKey === lastMarkersKeyRef.current) {
+          return;
+        }
+        lastMarkersKeyRef.current = markersKey;
 
         try {
           candleSeriesRef.current.setMarkers(markers);
@@ -3874,7 +3870,6 @@
             fixScrollToRight(false);
           }
           applyEma50(candlesRef.current);
-          updateTradeMarkers();
         }
       };
 

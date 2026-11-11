@@ -4172,6 +4172,8 @@
       const countdownBadgeElRef = React.useRef(null);
       const isUserScrolledAwayRef = React.useRef(false);
       const lastMarkersKeyRef = React.useRef('');
+      // 当日平仓 W/L 开平仓连线（细虚线倒V）系列，便于增量刷新时整批清理
+      const tradeLineSeriesRef = React.useRef([]);
 
       // 当日平仓盈亏点标记开关 (默认开启，持久化到 localStorage)
       const [showTradeMarkers, setShowTradeMarkers] = useState(() => {
@@ -4267,31 +4269,44 @@
         }
       };
 
-      // 更新图表上的当日成交平仓盈亏点标记 (盈利: 极光绿向下指引箭头 WIN, 亏损: 警示红向上指引箭头 LOSS)
+      // 清理开平仓细虚线倒V系列
+      const clearTradeLineSeries = React.useCallback(() => {
+        if (!chartRef.current) {
+          tradeLineSeriesRef.current = [];
+          return;
+        }
+        for (const s of tradeLineSeriesRef.current) {
+          try { chartRef.current.removeSeries(s); } catch (e) {}
+        }
+        tradeLineSeriesRef.current = [];
+      }, []);
+
+      // 更新图表上的当日成交平仓盈亏标记：开仓价/平仓价细虚线连成倒V，顶点标注 W/L
       const updateTradeMarkers = React.useCallback(() => {
-        if (!candleSeriesRef.current) return;
+        if (!candleSeriesRef.current || !chartRef.current) return;
+
+        const clearAll = () => {
+          clearTradeLineSeries();
+          try { candleSeriesRef.current.setMarkers([]); } catch (e) {}
+          lastMarkersKeyRef.current = '__EMPTY__';
+        };
 
         if (!showTradeMarkers) {
-          if (lastMarkersKeyRef.current !== '__EMPTY__') {
-            candleSeriesRef.current.setMarkers([]);
-            lastMarkersKeyRef.current = '__EMPTY__';
-          }
+          if (lastMarkersKeyRef.current !== '__EMPTY__') clearAll();
           return;
         }
 
         const tradesToUse = Array.isArray(trades) ? trades : [];
         if (tradesToUse.length === 0) {
-          if (lastMarkersKeyRef.current !== '__EMPTY__') {
-            candleSeriesRef.current.setMarkers([]);
-            lastMarkersKeyRef.current = '__EMPTY__';
-          }
+          if (lastMarkersKeyRef.current !== '__EMPTY__') clearAll();
           return;
         }
 
         const candles = candlesRef.current || [];
         if (candles.length === 0) return;
 
-        const candleTimesSet = new Set(candles.map(c => c.time));
+        const candleStart = candles[0].time;
+        const candleEnd = candles[candles.length - 1].time + 300;
 
         // 判定北京时间当天
         const now = new Date();
@@ -4309,85 +4324,105 @@
           return dStr === beijingTodayStr;
         };
 
-        // 按 5m K 线周期聚合当天平仓交易，杜绝同柱多笔重叠覆盖
-        const barTradesMap = new Map();
-
+        // 收集可绘制的当日已平仓交易（需要开平仓价与时间）
+        const drawable = [];
         for (const trade of tradesToUse) {
-          if (!trade || !trade.closeTime) continue;
+          if (!trade || !trade.closeTime || trade.closePrice == null || trade.price == null || !trade.timestamp) continue;
           const isClosed = trade.closePrice != null || trade.profitLoss != null || trade.isCorrect !== undefined;
           if (!isClosed) continue;
-
-          // 仅展示当天平仓成交的订单
           if (!isToday(trade.closeTime)) continue;
 
-          const exitMs = new Date(trade.closeTime).getTime();
-          if (isNaN(exitMs)) continue;
-          const exitSec = Math.floor(exitMs / 1000);
+          const entrySec = Math.floor(new Date(trade.timestamp).getTime() / 1000);
+          const exitSec = Math.floor(new Date(trade.closeTime).getTime() / 1000);
+          if (isNaN(entrySec) || isNaN(exitSec) || exitSec <= entrySec) continue;
+          // 开仓或平仓至少一端落在当前已加载K线范围内
+          if (exitSec < candleStart || entrySec > candleEnd) continue;
 
-          let hit = candles.find(c => c.time <= exitSec && exitSec < c.time + 300);
-          let barTime = hit ? hit.time : Math.floor(exitSec / 300) * 300;
+          const entryPrice = Number(trade.price);
+          const exitPrice = Number(trade.closePrice);
+          if (!isFinite(entryPrice) || !isFinite(exitPrice)) continue;
 
-          if (!candleTimesSet.has(barTime)) continue;
-
-          if (!barTradesMap.has(barTime)) {
-            barTradesMap.set(barTime, { wins: [], losses: [] });
-          }
           const isWin = trade.profitLoss != null ? trade.profitLoss >= 0 : (trade.isCorrect === true);
-          if (isWin) {
-            barTradesMap.get(barTime).wins.push(trade);
-          } else {
-            barTradesMap.get(barTime).losses.push(trade);
-          }
+          drawable.push({
+            id: trade._id || `${entrySec}-${exitSec}-${entryPrice}`,
+            entrySec,
+            exitSec,
+            entryPrice,
+            exitPrice,
+            isWin
+          });
         }
 
-        const markers = [];
+        // 按开仓时间排序，保证稳定绘制顺序
+        drawable.sort((a, b) => a.entrySec - b.entrySec || a.exitSec - b.exitSec);
 
-        barTradesMap.forEach(({ wins, losses }, barTime) => {
-          // 圆形背景标记：加粗 𝐖，搭配小巧精致的圆形背景 (size: 2，币安官方主题绿/红 #0ecb81 / #f6465d)
-          if (wins.length > 0) {
-            const countStr = wins.length > 1 ? ` x${wins.length}` : '';
-            markers.push({
-              time: barTime,
-              position: 'aboveBar',
-              color: '#0ecb81',
-              shape: 'circle',
-              text: `𝐖${countStr}`,
-              size: 2
-            });
-          }
-
-          // 圆形背景标记：加粗 𝐋，搭配小巧精致的圆形背景
-          if (losses.length > 0) {
-            const countStr = losses.length > 1 ? ` x${losses.length}` : '';
-            markers.push({
-              time: barTime,
-              position: 'belowBar',
-              color: '#f6465d',
-              shape: 'circle',
-              text: `𝐋${countStr}`,
-              size: 2
-            });
-          }
-        });
-
-        // Lightweight Charts 强制要求 markers 必须按时间升序排列
-        markers.sort((a, b) => a.time - b.time);
-
-        const markersKey = markers.length === 0
+        const markersKey = drawable.length === 0
           ? '__EMPTY__'
-          : markers.map(m => `${m.time}:${m.position}:${m.text}:${m.color}`).join('|');
+          : drawable.map(t => `${t.id}:${t.entrySec}:${t.exitSec}:${t.entryPrice}:${t.exitPrice}:${t.isWin ? 'W' : 'L'}`).join('|');
 
         if (markersKey === lastMarkersKeyRef.current) {
           return;
         }
         lastMarkersKeyRef.current = markersKey;
 
+        // 先清旧线与K线柱上旧标记，再按交易重绘细虚线倒V
+        clearTradeLineSeries();
+        try { candleSeriesRef.current.setMarkers([]); } catch (e) {}
+
+        if (drawable.length === 0) return;
+
         try {
-          candleSeriesRef.current.setMarkers(markers);
+          const LineStyle = (typeof LightweightCharts !== 'undefined' && LightweightCharts.LineStyle)
+            ? LightweightCharts.LineStyle
+            : { Dashed: 2 };
+
+          for (const t of drawable) {
+            const color = t.isWin ? '#0ecb81' : '#f6465d';
+            // 顶点取开平仓价与区间K线最高价之上，形成倒V
+            let rangeHigh = Math.max(t.entryPrice, t.exitPrice);
+            for (const c of candles) {
+              if (c.time + 300 <= t.entrySec) continue;
+              if (c.time >= t.exitSec) break;
+              if (c.high > rangeHigh) rangeHigh = c.high;
+            }
+            const peakOffset = Math.max(rangeHigh * 0.0012, Math.abs(t.exitPrice - t.entryPrice) * 0.35, 8);
+            const peakPrice = +(rangeHigh + peakOffset).toFixed(2);
+            let midSec = Math.floor((t.entrySec + t.exitSec) / 2);
+            // 保证三点时间严格递增，避免 lightweight-charts 丢点
+            if (midSec <= t.entrySec) midSec = t.entrySec + 1;
+            if (midSec >= t.exitSec) midSec = t.exitSec - 1;
+            if (midSec <= t.entrySec || midSec >= t.exitSec) continue;
+
+            const lineSeries = chartRef.current.addLineSeries({
+              color: t.isWin ? 'rgba(14,203,129,0.85)' : 'rgba(246,70,93,0.85)',
+              lineWidth: 1,
+              lineStyle: LineStyle.Dashed,
+              priceLineVisible: false,
+              lastValueVisible: false,
+              crosshairMarkerVisible: false,
+              title: ''
+            });
+            lineSeries.setData([
+              { time: t.entrySec, value: t.entryPrice },
+              { time: midSec, value: peakPrice },
+              { time: t.exitSec, value: t.exitPrice }
+            ]);
+            lineSeries.setMarkers([
+              {
+                time: midSec,
+                position: 'aboveBar',
+                color,
+                shape: 'circle',
+                text: t.isWin ? '𝐖' : '𝐋',
+                size: 1
+              }
+            ]);
+            tradeLineSeriesRef.current.push(lineSeries);
+          }
         } catch (e) {
-          console.error('设置平仓盈亏标记失败:', e);
+          console.error('设置平仓盈亏连线标记失败:', e);
         }
-      }, [showTradeMarkers, trades]);
+      }, [showTradeMarkers, trades, clearTradeLineSeries]);
 
       // 监听开关或交易数据变化，及时刷新标记
       useEffect(() => {
@@ -4826,6 +4861,8 @@
           countdownBadgeElRef.current = null;
           badge.remove();
           window.removeEventListener('resize', handleResize);
+          tradeLineSeriesRef.current = [];
+          lastMarkersKeyRef.current = '';
           chart.remove();
         };
       }, []);
@@ -5025,7 +5062,7 @@
                     ? 'bg-cyan-950/60 border-cyan-500/60 text-cyan-300 shadow-cyan-950/50'
                     : 'bg-slate-900/60 border-slate-700/70 text-slate-400 hover:text-slate-200 hover:border-slate-600'
                 }`}
-                title={showTradeMarkers ? '点击关闭平仓盈亏点标记' : '点击在图表上标记今日平仓盈亏点 (盈利: 绿色W, 亏损: 红色L)'}
+                title={showTradeMarkers ? '点击关闭开平仓细虚线 W/L 标记' : '点击用开仓价/平仓价细虚线连成倒V，顶点标注今日平仓盈亏 (绿W/红L)'}
               >
                 <span className="flex items-center gap-1.5">
                   <span className={`w-2 h-2 rounded-full ${showTradeMarkers ? 'bg-cyan-400 animate-pulse shadow-sm shadow-cyan-400' : 'bg-slate-600'}`}></span>
@@ -5216,19 +5253,50 @@
             const ema50Series = chart.addLineSeries({ color: '#f59e0b', lineWidth: 1, priceLineVisible: false, lastValueVisible: false });
             ema50Series.setData(ema50Data);
             priceLines.forEach(pl => series.createPriceLine(pl));
-            if (exitTime && trade.closePrice) {
-              const conn = chart.addLineSeries({
-                color: (trade.profitLoss || 0) >= 0 ? 'rgba(16,185,129,0.45)' : 'rgba(244,63,94,0.45)',
-                lineWidth: 1,
-                lineStyle: LightweightCharts.LineStyle.Dotted,
-                priceLineVisible: false,
-                lastValueVisible: false,
-                crosshairMarkerVisible: false
-              });
-              conn.setData([{ time: entryTime, value: Number(trade.price) }, { time: exitTime, value: Number(trade.closePrice) }]);
-            }
             const barSec = 300;
             const hasExit = !!(exitTime && trade.closePrice);
+            const entryPriceNum = Number(trade.price);
+            const exitPriceNum = hasExit ? Number(trade.closePrice) : null;
+            const isWin = trade.profitLoss != null ? trade.profitLoss >= 0 : (trade.isCorrect === true);
+            // 开仓价/平仓价细虚线连成倒V，顶点标注 W/L
+            if (hasExit && exitPriceNum != null && exitTime > entryTime) {
+              let rangeHigh = Math.max(entryPriceNum, exitPriceNum);
+              for (const c of candles) {
+                if (c.time + 300 <= entryTime) continue;
+                if (c.time >= exitTime) break;
+                if (c.high > rangeHigh) rangeHigh = c.high;
+              }
+              const peakOffset = Math.max(rangeHigh * 0.0012, Math.abs(exitPriceNum - entryPriceNum) * 0.35, 8);
+              const peakPrice = +(rangeHigh + peakOffset).toFixed(2);
+              let midSec = Math.floor((entryTime + exitTime) / 2);
+              if (midSec <= entryTime) midSec = entryTime + 1;
+              if (midSec >= exitTime) midSec = exitTime - 1;
+              if (midSec > entryTime && midSec < exitTime) {
+                const conn = chart.addLineSeries({
+                  color: isWin ? 'rgba(14,203,129,0.85)' : 'rgba(246,70,93,0.85)',
+                  lineWidth: 1,
+                  lineStyle: LightweightCharts.LineStyle.Dashed,
+                  priceLineVisible: false,
+                  lastValueVisible: false,
+                  crosshairMarkerVisible: false
+                });
+                conn.setData([
+                  { time: entryTime, value: entryPriceNum },
+                  { time: midSec, value: peakPrice },
+                  { time: exitTime, value: exitPriceNum }
+                ]);
+                conn.setMarkers([
+                  {
+                    time: midSec,
+                    position: 'aboveBar',
+                    color: isWin ? '#0ecb81' : '#f6465d',
+                    shape: 'circle',
+                    text: isWin ? '𝐖' : '𝐋',
+                    size: 1
+                  }
+                ]);
+              }
+            }
             const t1 = entryBar != null ? entryBar : entryTime;
             const t2 = hasExit ? (exitBar != null ? exitBar : exitTime) : null;
             const mid = t2 != null ? (t1 + t2) / 2 : t1;
@@ -5247,7 +5315,7 @@
               ...(hasExit ? [{
                 time: exitBar != null ? exitBar : exitTime,
                 position: trade.tradeType === 'LONG' ? 'aboveBar' : 'belowBar',
-                color: (trade.profitLoss || 0) >= 0 ? '#10b981' : '#f43f5e',
+                color: isWin ? '#10b981' : '#f43f5e',
                 shape: 'circle',
                 text: '平'
               }] : [])

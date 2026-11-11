@@ -4454,7 +4454,8 @@
               if (c.time >= exitSec) break;
               if (c.high > rangeHigh) rangeHigh = c.high;
             }
-            const peakOffset = Math.max(rangeHigh * 0.0012, Math.abs(exitPrice - entryPrice) * 0.35, 8);
+            // 顶点抬高，倒V两腰更长更醒目
+            const peakOffset = Math.max(rangeHigh * 0.0035, Math.abs(exitPrice - entryPrice) * 0.9, 25);
             const peakPrice = +(rangeHigh + peakOffset).toFixed(2);
 
             drawable.push({
@@ -5341,7 +5342,8 @@
                 if (c.time >= exitTime) break;
                 if (c.high > rangeHigh) rangeHigh = c.high;
               }
-              const peakOffset = Math.max(rangeHigh * 0.0012, Math.abs(exitPriceNum - entryPriceNum) * 0.35, 8);
+              // 顶点抬高，倒V两腰更长更醒目
+              const peakOffset = Math.max(rangeHigh * 0.0035, Math.abs(exitPriceNum - entryPriceNum) * 0.9, 25);
               const peakPrice = +(rangeHigh + peakOffset).toFixed(2);
               const between = candles.filter(c => c.time > entryBar && c.time < exitBar);
               const midBar = between.length > 0

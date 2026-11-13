@@ -8,7 +8,7 @@ import path from 'path';
 import { TradingSignalService, createExpiryScheduler, msUntilNextOpenExpiry, HOLD_DURATION_MS } from '../services/TradingSignal';
 import { StatisticsService } from '../services/StatisticsService';
 import { BinanceService } from '../services/BinanceService';
-import { loadClosedSpotComboCandles, settlementPriceForTrade } from '../services/spotComboFeed';
+import { loadClosedIndexComboCandles, settlementPriceForTrade } from '../services/spotComboFeed';
 import PriceDataModel, { IPriceData } from '../models/PriceData';
 import TradeModel, { ensureTradeIndexes } from '../models/Trade';
 import { listStrategyDefinitions } from '../strategies/registry';
@@ -680,62 +680,6 @@ updatePrice();
 setInterval(updatePrice, 2000);
 
 /**
- * 确保获取的是已收盘的5分钟K线
- */
-async function getClosedFiveMinuteKlines() {
-  // 获取币安事件合约BTC指数K线数据（多取一些，确保能筛出已收盘的K线）
-  const klines = await binanceService.getIndexPriceKlines('BTCUSDT', '5m', 400);
-
-  console.log(`📊 获取到${klines.length}根币安事件合约5分钟指数K线`);
-
-  // 当前UTC时间
-  const now = new Date().getTime();
-  console.log(`🕐 当前时间: ${new Date(now).toLocaleString()}`);
-
-  // 筛选已收盘的K线 - 使用closeTime字段确保准确性
-  const closedKlines = klines.filter(kline => {
-    // 使用K线的实际结束时间（closeTime）而不是计算值
-    const endTime = kline.closeTime;
-    // 结束时间小于当前时间，说明已收盘
-    return endTime < now;
-  });
-
-  if (closedKlines.length === 0) {
-    console.log('⚠️  没有找到已收盘的5分钟K线，尝试放宽条件...');
-
-    // 显示最后几根K线的状态用于调试
-    console.log('🔍 最后3根K线的状态:');
-    for (let i = Math.max(0, klines.length - 3); i < klines.length; i++) {
-      const kline = klines[i];
-      const endTime = kline.closeTime;
-      const isClosed = endTime < now;
-      const status = isClosed ? '✅ 已收盘' : '⏳ 进行中';
-      const timeDiff = isClosed ? '' : ` (${Math.floor((now - endTime) / 1000)}秒前结束)`;
-      console.log(`   K线${i + 1}: ${status}, closeTime: ${new Date(endTime).toLocaleString()}${timeDiff}`);
-    }
-
-    // 如果没有找到完全已收盘的K线，找那些即将结束的K线（允许最多1分钟未完成）
-    const almostClosedKlines = klines.filter(kline => {
-      const endTime = kline.closeTime;
-      const timeDiff = now - endTime;
-      return timeDiff <= 60 * 1000 && timeDiff > 0; // 1分钟内结束的K线
-    });
-
-    if (almostClosedKlines.length > 0) {
-      console.log(`✅ 找到${almostClosedKlines.length}根即将结束的K线，使用它们`);
-      return almostClosedKlines.slice(-1); // 返回最新的那根
-    }
-
-    // 如果还是没有，返回最新的K线（即使还在进行中）
-    console.log('❌ 无法找到合适的K线，返回最新的K线（可能正在进行中）');
-    return [klines[klines.length - 1]];
-  }
-
-  // 返回最近的已收盘K线
-  return closedKlines;
-}
-
-/**
  * 确保获取的是已收盘的10分钟K线
  */
 async function getClosedTenMinuteKlines() {
@@ -794,21 +738,14 @@ async function getClosedTenMinuteKlines() {
 // 交易信号生成和更新
 const generateTradingSignal = async () => {
   try {
-    let fiveMinuteKlines: any[] = [];
+    let indexCandles: any[] = [];
     try {
-      fiveMinuteKlines = await getClosedFiveMinuteKlines();
+      indexCandles = await loadClosedIndexComboCandles(binanceService);
     } catch (error) {
-      console.error('指数K线获取失败，本轮趋势策略不判断:', error);
+      console.error('指数K线获取失败，本轮策略不判断:', error);
     }
 
-    let spotCandles: any[] = [];
-    try {
-      spotCandles = await loadClosedSpotComboCandles(binanceService);
-    } catch (error) {
-      console.error('事后组合现货K线获取失败，本轮跳过三条仅监控规则:', error);
-    }
-
-    const signals = await tradingSignalService.generateSignal('BTCUSDT', fiveMinuteKlines, [], spotCandles);
+    const signals = await tradingSignalService.generateSignal('BTCUSDT', indexCandles);
     for (const signal of signals) {
       io.emit('tradingSignal', signal);
       const monitor = signal.postHoc ? ' 「事后组合 · 未通过 · 仅监控」不下单' : '';
@@ -930,7 +867,7 @@ const updateTradeResults = async (): Promise<number> => {
           trade,
           livePriceReady ? currentPrice : 0,
           Date.now(),
-          (interval, limit, startTime, endTime) => binanceService.getSpotKlines(interval, limit, startTime, endTime)
+          (interval, limit, startTime, endTime) => binanceService.getIndexPriceKlines('BTCUSDT', interval, limit, startTime, endTime)
         );
       } catch (error) {
         console.error(`交易 ${trade._id} 结算价获取失败:`, error);

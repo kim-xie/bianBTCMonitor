@@ -27,11 +27,11 @@ export interface Candle {
   close: number;
   closeTime?: number;
   openTime?: number;
-  /** 现货成交量。指数 K 线没有真实成交量，趋势策略不读这个字段。 */
+  /** 成交量。指数价格 K 线通常没有真实成交量，趋势策略不读这个字段。 */
   volume?: number;
-  /** 现货主动买入量 taker_buy_base。 */
+  /** 主动买入量 taker_buy_base。指数价格 K 线通常没有这一项。 */
   takerBuyBase?: number;
-  /** 溢价指数 5 分钟收盘。null 表示这一根现货没有对齐到溢价。 */
+  /** 溢价指数 5 分钟收盘，按 openTime 对齐到指数价格 K 线。null 表示这根没有对齐到溢价。 */
   prem?: number | null;
 }
 
@@ -49,7 +49,7 @@ export interface StrategyDefinition {
   name: string;
   enabled: boolean;
   summary: string;
-  /** index：事件合约指数 K 线。spot：现货 K 线，事后组合还会读 volume、takerBuyBase、prem。 */
+  /** 价格 K 线来源。当前每条策略都是 index：事件合约指数价格 K 线。 */
   dataSource: StrategyDataSource;
   postHoc?: boolean;
   officialStatus?: 'FAIL';
@@ -101,8 +101,8 @@ export function calculateEma50(closes: number[]): number | null {
 /**
  * 策略定义。
  * 旧的均线反包、二次反包、连涨连跌都已下线，不在此列表中，也不会被调用。
- * 前四条仍是趋势策略，继续用指数 K 线，开仓条件没有改。
- * 后三条是事后组合，官方 FAIL，只监控。enabled 为 false 时 evaluate 不会执行。
+ * 七条策略的价格都用事件合约指数 K 线。开仓条件没有改。
+ * 后三条是事后组合，官方 FAIL，只监控。溢价仍按 openTime 对齐到指数 K 线。enabled 为 false 时 evaluate 不会执行。
  */
 export const strategies: StrategyDefinition[] = [
   {
@@ -142,7 +142,7 @@ export const strategies: StrategyDefinition[] = [
     name: monitorLabel(AND_PREM_TBR_NAME),
     enabled: true,
     summary: AND_PREM_TBR_SUMMARY,
-    dataSource: 'spot',
+    dataSource: 'index',
     postHoc: true,
     officialStatus: 'FAIL',
     evaluate: evaluateAndPremTbr
@@ -152,7 +152,7 @@ export const strategies: StrategyDefinition[] = [
     name: monitorLabel(AND_3SAME_PREM_NAME),
     enabled: true,
     summary: AND_3SAME_PREM_SUMMARY,
-    dataSource: 'spot',
+    dataSource: 'index',
     postHoc: true,
     officialStatus: 'FAIL',
     evaluate: evaluateAnd3SamePrem
@@ -162,7 +162,7 @@ export const strategies: StrategyDefinition[] = [
     name: monitorLabel(AND_3SAME_HIGHVOL_NAME),
     enabled: true,
     summary: AND_3SAME_HIGHVOL_SUMMARY,
-    dataSource: 'spot',
+    dataSource: 'index',
     postHoc: true,
     officialStatus: 'FAIL',
     evaluate: evaluateAnd3SameHighvol
@@ -187,7 +187,7 @@ export function listStrategyDefinitions(): Array<Pick<StrategyDefinition, 'id' |
 
 /**
  * 每条启用的策略单独判断。同一根 K 线可以同时走出多条信号。
- * 不传 dataSource 时只跑指数趋势策略，避免事后组合误用指数价格。
+ * 不传 dataSource 时跑全部指数策略，包括事后组合。
  */
 export function evaluateStrategies(candles: Candle[], dataSource: StrategyDataSource = 'index'): StrategySignal[] {
   if (!candles.length) return [];

@@ -116,25 +116,20 @@ export class TradingSignalService {
   }
 
   /**
-   * 指数 K 线只跑四条趋势策略。spotKlines 是现货 + 溢价，只跑三条事后组合。
+   * 七条策略都跑指数价格 K 线。事后组合还读同一序列上对齐好的溢价、成交量和主动买量。
    * 每条策略单独记一笔，同一根 K 线可以有多条。
    */
   async generateSignal(
     symbol: string = 'BTCUSDT',
     fiveMinuteKlines: any[] = [],
-    _tenMinuteKlines: any[] = [],
-    spotKlines: any[] = []
+    _tenMinuteKlines: any[] = []
   ): Promise<TradingSignal[]> {
     try {
       this.cleanupExpiredKlines();
       const indexCandles = fiveMinuteKlines.length ? toCandles(fiveMinuteKlines) : [];
-      const spotCandles = spotKlines.length ? toCandles(spotKlines) : [];
-      if (!indexCandles.length && !spotCandles.length) return [];
+      if (!indexCandles.length) return [];
 
-      const found = [
-        ...evaluateStrategies(indexCandles, 'index'),
-        ...evaluateStrategies(spotCandles, 'spot')
-      ];
+      const found = evaluateStrategies(indexCandles, 'index');
       if (!found.length) {
         console.log('没有策略信号，不开仓');
         return [];
@@ -142,9 +137,7 @@ export class TradingSignalService {
 
       const saved: TradingSignal[] = [];
       for (const hit of found) {
-        const definition = getStrategyDefinition(hit.strategyId);
-        const candles = definition?.dataSource === 'spot' ? spotCandles : indexCandles;
-        const recorded = await this.recordHit(symbol, hit, candles);
+        const recorded = await this.recordHit(symbol, hit, indexCandles);
         if (recorded) saved.push(recorded);
       }
       return saved;

@@ -34,7 +34,7 @@ export const ATR_FADE_THRESHOLD = 1.5;
 export const HIGHVOL_LOOKBACK = 200;
 /** |close_i-close_{i-3}|/ATR14 的连涨连跌阈值。 */
 export const FADE_3SAME_ATR = 1.5;
-/** 现货主动买比。volume=0 或缺失则无信号。 */
+/** 主动买比，读指数 K 线上的 taker_buy_base / volume。volume=0 或缺失则无信号。 */
 export const TBR_HIGH = 0.70;
 export const TBR_LOW = 0.30;
 /** 溢价 z 用前 288 根（不含当前）的均值和样本标准差。 */
@@ -49,7 +49,7 @@ export const AND_PREM_TBR_SUMMARY = [
   FAIL_NOTE,
   '同一根已收盘 5 分钟 K 线里，prem_z_fade 和 tbr_extreme_fade 都触发，而且方向相同。',
   '溢价 z：USDT-M 溢价指数 5 分钟收盘，减去前 288 根均值，再除以前 288 根样本标准差（都不含当前）。z≥3 做空，z≤-3 做多。缺 bar 或标准差为 0 则无信号。',
-  '主动买比：现货 taker_buy_base / volume。≥0.70 做空，≤0.30 做多。volume 为 0 或缺失则无信号。',
+  '主动买比：指数 K 线的 taker_buy_base / volume。≥0.70 做空，≤0.30 做多。volume 为 0 或缺失则无信号。指数价格 K 线通常没有真实成交量，这时这条组合保持沉默。',
   '方向相反、或只有一边触发，都不出这个组合。前 300 根不出信号。',
   '回测全样本 N=480，胜率 59.38%，期望 +0.069R；样本外 N=198（不足 200），胜率 61.62%。'
 ].join('');

@@ -4,7 +4,7 @@ import { COMBO_WARMUP_BARS } from '../strategies/comboFade';
 import { HOLD_DURATION_MS } from './TradingSignal';
 
 /** 288 根溢价窗口 + 300 根预热之后还要留下已收盘的信号根。币安单次上限高于 600。 */
-export const SPOT_COMBO_FETCH_LIMIT = 600;
+export const INDEX_COMBO_FETCH_LIMIT = 600;
 
 export interface AlignableKline {
   openTime: number;
@@ -19,12 +19,12 @@ export interface AlignableKline {
 }
 
 /**
- * 现货 5 分钟 K 线和溢价指数按 openTime 对齐。
+ * 指数价格 5 分钟 K 线和溢价指数按 openTime 对齐。
  * 只保留 closeTime 早于 now 的已收盘 K 线。某一侧缺这根，prem 记为 null，该时刻依赖溢价的规则不出信号。
- * 这里不用指数价格 K 线：指数没有真实 volume / taker buy，价格也和现货不同。
+ * 指数价格 K 线通常没有真实 volume / taker buy。主动买比读到 0 或缺失时不出信号。
  */
-export function alignClosedSpotAndPremium(
-  spot: AlignableKline[],
+export function alignClosedIndexAndPremium(
+  indexBars: AlignableKline[],
   premium: AlignableKline[],
   nowMs: number
 ): Candle[] {
@@ -35,7 +35,7 @@ export function alignClosedSpotAndPremium(
     if (Number.isFinite(prem)) premByOpen.set(bar.openTime, prem);
   }
 
-  return spot
+  return indexBars
     .filter(bar => bar.closeTime < nowMs)
     .slice()
     .sort((left, right) => left.openTime - right.openTime)
@@ -57,17 +57,17 @@ export function alignClosedSpotAndPremium(
     });
 }
 
-export async function loadClosedSpotComboCandles(binance: BinanceService, nowMs = Date.now()): Promise<Candle[]> {
-  const spot = await binance.getSpotKlines('5m', SPOT_COMBO_FETCH_LIMIT);
+export async function loadClosedIndexComboCandles(binance: BinanceService, nowMs = Date.now()): Promise<Candle[]> {
+  const indexBars = await binance.getIndexPriceKlines('BTCUSDT', '5m', INDEX_COMBO_FETCH_LIMIT);
   let premium: BinanceKline[] = [];
   try {
-    premium = await binance.getPremiumIndexKlines('5m', SPOT_COMBO_FETCH_LIMIT);
+    premium = await binance.getPremiumIndexKlines('5m', INDEX_COMBO_FETCH_LIMIT);
   } catch (error) {
     console.error('溢价指数K线获取失败，依赖溢价的事后组合本轮无信号:', error);
   }
-  const candles = alignClosedSpotAndPremium(spot, premium, nowMs);
+  const candles = alignClosedIndexAndPremium(indexBars, premium, nowMs);
   if (candles.length <= COMBO_WARMUP_BARS) {
-    console.log(`事后组合已收盘现货K线只有 ${candles.length} 根，不足 ${COMBO_WARMUP_BARS} 根预热，本轮不出信号`);
+    console.log(`事后组合已收盘指数K线只有 ${candles.length} 根，不足 ${COMBO_WARMUP_BARS} 根预热，本轮不出信号`);
   }
   return candles;
 }
@@ -75,8 +75,8 @@ export async function loadClosedSpotComboCandles(binance: BinanceService, nowMs 
 type SpotKlineLoader = (interval: string, limit: number, startTime?: number, endTime?: number) => Promise<Array<{ closeTime: number; close: string | number }>>;
 
 /**
- * 趋势策略沿用调用方给的实时价格。
- * 事后组合的结算价是信号 K 线之后第 2 根现货 5 分钟收盘，也就是 10 分钟后的那根收盘。不用指数价。
+ * 趋势策略沿用调用方给的实时指数价格。
+ * 事后组合的结算价是信号 K 线之后第 2 根指数 5 分钟收盘，也就是 10 分钟后的那根收盘。
  */
 export async function settlementPriceForTrade(
   trade: { strategyId?: string; klineCloseTime?: number | null },

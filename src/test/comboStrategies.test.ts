@@ -7,7 +7,7 @@ import assert from 'assert';
 import fs from 'fs';
 import { execFileSync } from 'child_process';
 import { BinanceService } from '../services/BinanceService';
-import { alignClosedSpotAndPremium, settlementPriceForTrade, SPOT_COMBO_FETCH_LIMIT } from '../services/spotComboFeed';
+import { alignClosedIndexAndPremium, settlementPriceForTrade, INDEX_COMBO_FETCH_LIMIT } from '../services/spotComboFeed';
 import { HOLD_DURATION_MS, TradingSignalService, formatFeishuOpenText, TradeGateway, TradeWrite } from '../services/TradingSignal';
 import TradeModel, { isLegacyKlineUniqueIndex } from '../models/Trade';
 import {
@@ -340,19 +340,19 @@ print(repr(var ** 0.5))
   assert.equal(evaluateAnd3SamePrem(noVolume)?.direction, 'DOWN');
   assert.equal(evaluateAnd3SameHighvol(noVolume)?.direction, 'DOWN');
 
-  const spotSignals = evaluateStrategies(bothPrice, 'spot');
-  assert.deepEqual(spotSignals.map(signal => signal.strategyId).sort(), [
+  const indexSignals = evaluateStrategies(bothPrice);
+  assert.deepEqual(indexSignals.map(signal => signal.strategyId).sort(), [
     AND_3SAME_HIGHVOL_ID,
     AND_3SAME_PREM_ID,
     AND_PREM_TBR_ID
   ].sort());
-  assert.equal(evaluateStrategies(bothPrice).length, 0, '默认只跑指数趋势策略，不能把现货组合算进去');
-  assert.ok(spotSignals.every(signal => signal.postHoc === true));
+  assert.equal(evaluateStrategies(bothPrice, 'spot').length, 0, '现货数据源已不再挂任何策略');
+  assert.ok(indexSignals.every(signal => signal.postHoc === true));
 
   for (const id of [AND_PREM_TBR_ID, AND_3SAME_PREM_ID, AND_3SAME_HIGHVOL_ID]) {
     const definition = getStrategyDefinition(id);
     assert.ok(definition);
-    assert.equal(definition?.dataSource, 'spot');
+    assert.equal(definition?.dataSource, 'index');
     assert.equal(definition?.postHoc, true);
     assert.equal(definition?.officialStatus, 'FAIL');
     assert.equal(definition?.enabled, true);
@@ -371,7 +371,13 @@ print(repr(var ** 0.5))
   assert.ok(getStrategyDefinition(AND_3SAME_HIGHVOL_ID)?.summary.includes('57.79%'));
 
   const indexIds = ['multi-cross-engulf-long', 'multi-cross-engulf-short', 'strong-rally-pullback-long', 'strong-drop-pullback-short'];
-  assert.deepEqual(strategies.filter(strategy => strategy.dataSource === 'index').map(strategy => strategy.id), indexIds);
+  assert.deepEqual(strategies.map(strategy => strategy.id), [
+    ...indexIds,
+    AND_PREM_TBR_ID,
+    AND_3SAME_PREM_ID,
+    AND_3SAME_HIGHVOL_ID
+  ]);
+  assert.ok(strategies.every(strategy => strategy.dataSource === 'index'));
   assert.equal(getStrategyDefinition('multi-cross-engulf-long')?.evaluate, evaluateMultiCrossEngulfLong);
   assert.equal(getStrategyDefinition('multi-cross-engulf-short')?.evaluate, evaluateMultiCrossEngulfShort);
   assert.equal(getStrategyDefinition('strong-rally-pullback-long')?.evaluate, evaluateStrongRallyPullbackLong);
@@ -408,12 +414,12 @@ print(repr(var ** 0.5))
   for (const item of listed.filter(definition => definition.postHoc)) {
     assert.ok(item.name.includes(POST_HOC_MARK));
     assert.equal(item.officialStatus, 'FAIL');
-    assert.equal(item.dataSource, 'spot');
+    assert.equal(item.dataSource, 'index');
   }
 
   const memory = new MemoryTrades();
   const service = new TradingSignalService(memory);
-  const saved = await service.generateSignal('BTCUSDT', [], [], bothPrice);
+  const saved = await service.generateSignal('BTCUSDT', bothPrice);
   assert.equal(saved.length, 3, `应记下 3 条，实际 ${saved.map(item => item.strategyId).join(',')}`);
   assert.equal(new Set(memory.docs.map(doc => doc.klineCloseTime)).size, 1, '三条都在同一根K线');
   assert.equal(new Set(memory.docs.map(doc => `${doc.symbol}|${doc.strategyId}|${doc.klineCloseTime}`)).size, 3);
@@ -422,21 +428,21 @@ print(repr(var ** 0.5))
   assert.ok(memory.docs.every(doc => doc.orderSource === 'AUTO'));
   assert.ok(saved.every(signal => signal.postHoc && signal.strategyName?.includes(POST_HOC_MARK)));
   assert.ok(saved.every(signal => signal.recommendedAction.includes('不下单') && signal.recommendedAction.includes(POST_HOC_MARK)));
-  const again = await service.generateSignal('BTCUSDT', [], [], bothPrice);
+  const again = await service.generateSignal('BTCUSDT', bothPrice);
   assert.equal(again.length, 0, '同一策略同一根K线不能再记一笔');
   assert.equal(memory.docs.length, 3);
   memory.docs.length = 0;
-  const blockedBySlot = await service.generateSignal('BTCUSDT', [], [], bothPrice);
+  const blockedBySlot = await service.generateSignal('BTCUSDT', bothPrice);
   assert.equal(blockedBySlot.length, 0, '内存里的K线槽位按策略记住这根K线，清掉记录也不会再记');
   assert.equal(memory.docs.length, 0);
 
   const premMemory = new MemoryTrades();
-  const withoutPremium = await new TradingSignalService(premMemory).generateSignal('BTCUSDT', [], [], noPrem);
+  const withoutPremium = await new TradingSignalService(premMemory).generateSignal('BTCUSDT', noPrem);
   assert.deepEqual(withoutPremium.map(signal => signal.strategyId), [AND_3SAME_HIGHVOL_ID]);
   const withoutVolume = clone(bothPrice);
   withoutVolume[300].volume = 0;
   const volumeMemory = new MemoryTrades();
-  const volumeSaved = await new TradingSignalService(volumeMemory).generateSignal('BTCUSDT', [], [], withoutVolume);
+  const volumeSaved = await new TradingSignalService(volumeMemory).generateSignal('BTCUSDT', withoutVolume);
   assert.ok(!volumeSaved.some(signal => signal.strategyId === AND_PREM_TBR_ID));
   assert.equal(volumeSaved.length, 2);
 
@@ -466,7 +472,7 @@ print(repr(var ** 0.5))
       orderSource: 'AUTO'
     });
   }
-  const cappedSaved = await new TradingSignalService(capped).generateSignal('BTCUSDT', [], [], bothPrice);
+  const cappedSaved = await new TradingSignalService(capped).generateSignal('BTCUSDT', bothPrice);
   assert.ok(!cappedSaved.some(signal => signal.strategyId === AND_PREM_TBR_ID), '达到单策略上限的规则不能再记');
   assert.ok(cappedSaved.some(signal => signal.strategyId === AND_3SAME_PREM_ID));
   assert.ok(cappedSaved.some(signal => signal.strategyId === AND_3SAME_HIGHVOL_ID), '别的策略不能被这条的持仓上限挤掉');
@@ -486,7 +492,7 @@ print(repr(var ** 0.5))
     strategyName: monitorLabel(AND_3SAME_HIGHVOL_NAME),
     orderSource: 'AUTO'
   });
-  const blockedSaved = await new TradingSignalService(blocked).generateSignal('BTCUSDT', [], [], bothPrice);
+  const blockedSaved = await new TradingSignalService(blocked).generateSignal('BTCUSDT', bothPrice);
   assert.ok(!blockedSaved.some(signal => signal.strategyId === AND_3SAME_HIGHVOL_ID));
   assert.ok(blockedSaved.some(signal => signal.strategyId === AND_PREM_TBR_ID), '同向限制按策略分开');
 
@@ -498,7 +504,7 @@ print(repr(var ** 0.5))
   assert.equal(feishu.includes('建议开仓'), false);
 
   const now = bothPrice[bothPrice.length - 1].closeTime as number + 10;
-  const aligned = alignClosedSpotAndPremium(
+  const aligned = alignClosedIndexAndPremium(
     [
       { openTime: 0, open: '1', high: '2', low: '0.5', close: '1.5', closeTime: 100, volume: '10', takerBuyBaseAssetVolume: '7' },
       { openTime: FIVE_MIN_MS, open: '1.5', high: '2', low: '1', close: '1.8', closeTime: now, volume: '11', takerBuyBaseAssetVolume: '1' }
@@ -509,19 +515,19 @@ print(repr(var ** 0.5))
     ],
     now
   );
-  assert.equal(aligned.length, 1, '未收盘的现货 K 线不能参与');
+  assert.equal(aligned.length, 1, '未收盘的指数 K 线不能参与');
   assert.equal(aligned[0].close, 1.5);
   assert.equal(aligned[0].volume, 10);
   assert.equal(aligned[0].takerBuyBase, 7);
   assert.equal(aligned[0].prem, 0.15);
-  const missingPremium = alignClosedSpotAndPremium(
+  const missingPremium = alignClosedIndexAndPremium(
     [{ openTime: 5, open: 1, high: 1, low: 1, close: 1, closeTime: 10, volume: 3, takerBuyBase: 1 }],
     [],
     11
   );
   assert.equal(missingPremium[0].prem, null);
   assert.equal(missingPremium[0].volume, 3);
-  assert.ok(SPOT_COMBO_FETCH_LIMIT >= 600);
+  assert.ok(INDEX_COMBO_FETCH_LIMIT >= 600);
 
   assert.equal(typeof (BinanceService.prototype as unknown as { placeOrder?: unknown }).placeOrder, 'undefined');
   assert.equal(typeof BinanceService.prototype.getSpotKlines, 'function');
@@ -539,12 +545,16 @@ print(repr(var ** 0.5))
     assert.equal(/\/order|newOrder|placeOrder|createOrder|api\/v3\/order|fapi\/v1\/order/.test(source), false, `${file} 出现了下单接口`);
   }
   const feed = fs.readFileSync('src/services/spotComboFeed.ts', 'utf8');
-  assert.ok(feed.includes('getSpotKlines'));
+  assert.ok(feed.includes('getIndexPriceKlines'));
   assert.ok(feed.includes('getPremiumIndexKlines'));
-  assert.equal(feed.includes('getIndexPriceKlines'), false);
+  assert.equal(feed.includes('getSpotKlines'), false);
   assert.equal(/getKlines\(/.test(feed), false);
-  assert.ok(fs.readFileSync('src/index.ts', 'utf8').includes("getKlines('5m', 400)"));
-  assert.ok(fs.readFileSync('src/dashboard/server.ts', 'utf8').includes("getIndexPriceKlines('BTCUSDT', '5m', 400)"));
+  for (const file of ['src/index.ts', 'src/dashboard/server.ts']) {
+    const source = fs.readFileSync(file, 'utf8');
+    assert.ok(source.includes('loadClosedIndexComboCandles'), `${file} 应使用指数 K 线`);
+    assert.equal(source.includes('getSpotKlines'), false, `${file} 不应再拉现货`);
+    assert.ok(source.includes("getIndexPriceKlines('BTCUSDT'"), `${file} 结算应使用指数 K 线`);
+  }
 
   const dashboard = fs.readFileSync('src/dashboard/index.html', 'utf8');
   for (const text of [POST_HOC_MARK, AND_PREM_TBR_NAME, AND_3SAME_PREM_NAME, AND_3SAME_HIGHVOL_NAME, '官方 FAIL', '不下单']) {

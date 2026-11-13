@@ -3,7 +3,7 @@ import mongoose from 'mongoose';
 import { TradingSignalService, createExpiryScheduler, msUntilNextOpenExpiry, HOLD_DURATION_MS } from './services/TradingSignal';
 import { StatisticsService } from './services/StatisticsService';
 import { BinanceService } from './services/BinanceService';
-import { loadClosedSpotComboCandles, settlementPriceForTrade } from './services/spotComboFeed';
+import { loadClosedIndexComboCandles, settlementPriceForTrade } from './services/spotComboFeed';
 import PriceDataModel from './models/PriceData';
 import TradeModel, { ensureTradeIndexes } from './models/Trade';
 import { axiosInstance } from './utils/axiosInstance';
@@ -119,52 +119,17 @@ const initializeHistoricalData = async () => {
   }
 };
 
-/**
- * 确保获取的是已收盘的5分钟K线
- */
-async function getClosedFiveMinuteKlines() {
-  // 获取K线数据（多取一些，确保能筛出已收盘的K线）
-  const klines = await binanceService.getKlines('5m', 400);
-
-  // 当前UTC时间
-  const now = new Date().getTime();
-
-  // 筛选已收盘的K线
-  const closedKlines = klines.filter(kline => {
-    // K线开始时间（毫秒）
-    const startTime = kline.openTime;
-    // 5分钟K线的结束时间（开始时间 + 5分钟）
-    const endTime = startTime + 5 * 60 * 1000;
-    // 结束时间小于当前时间，说明已收盘
-    return endTime < now;
-  });
-
-  if (closedKlines.length === 0) {
-    throw new Error('没有找到已收盘的5分钟K线');
-  }
-
-  // 返回最近的已收盘K线
-  return closedKlines;
-}
-
-// 生成交易信号。趋势策略继续用指数 K 线；三条事后组合单独拉现货和溢价。
+// 生成交易信号。趋势策略和事后组合都用指数价格 K 线，溢价按 openTime 对齐。
 const generateTradingSignal = async () => {
   try {
-    let fiveMinuteKlines: any[] = [];
+    let indexCandles: any[] = [];
     try {
-      fiveMinuteKlines = await getClosedFiveMinuteKlines();
+      indexCandles = await loadClosedIndexComboCandles(binanceService);
     } catch (error) {
-      console.error('指数K线获取失败，本轮趋势策略不判断:', error);
+      console.error('指数K线获取失败，本轮策略不判断:', error);
     }
 
-    let spotCandles: any[] = [];
-    try {
-      spotCandles = await loadClosedSpotComboCandles(binanceService);
-    } catch (error) {
-      console.error('事后组合现货K线获取失败，本轮跳过三条仅监控规则:', error);
-    }
-
-    const signals = await tradingSignalService.generateSignal('BTCUSDT', fiveMinuteKlines, [], spotCandles);
+    const signals = await tradingSignalService.generateSignal('BTCUSDT', indexCandles);
 
     for (const signal of signals) {
       console.log(`\n=== 交易信号生成 ===`);
@@ -203,7 +168,7 @@ const updateTradeResults = async (): Promise<number> => {
           trade,
           livePriceReady ? currentPrice : 0,
           Date.now(),
-          (interval, limit, startTime, endTime) => binanceService.getSpotKlines(interval, limit, startTime, endTime)
+          (interval, limit, startTime, endTime) => binanceService.getIndexPriceKlines('BTCUSDT', interval, limit, startTime, endTime)
         );
       } catch (error) {
         console.error(`交易 ${trade._id} 结算价获取失败:`, error);

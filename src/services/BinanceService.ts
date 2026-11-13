@@ -243,7 +243,7 @@ export class BinanceService {
   /**
    * USDT-M 溢价指数 5 分钟 K 线。close 就是 prem。
    * 接口: GET https://fapi.binance.com/fapi/v1/premiumIndexKlines
-   * 事后组合用它和现货按 openTime 对齐。不要拿指数价格 K 线代替。
+   * 事后组合把它和指数价格 K 线按 openTime 对齐。这是溢价序列，不是价格数据源。
    */
   async getPremiumIndexKlines(interval: string = '5m', limit: number = 600, startTime?: number, endTime?: number): Promise<BinanceKline[]> {
     const maxRetries = 3;

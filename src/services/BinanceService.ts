@@ -241,6 +241,49 @@ export class BinanceService {
   }
 
   /**
+   * USDT-M 溢价指数 5 分钟 K 线。close 就是 prem。
+   * 接口: GET https://fapi.binance.com/fapi/v1/premiumIndexKlines
+   * 事后组合用它和现货按 openTime 对齐。不要拿指数价格 K 线代替。
+   */
+  async getPremiumIndexKlines(interval: string = '5m', limit: number = 600, startTime?: number, endTime?: number): Promise<BinanceKline[]> {
+    const maxRetries = 3;
+    for (let i = 0; i < maxRetries; i++) {
+      try {
+        const response = await this.fapiAxiosInstance.get('/premiumIndexKlines', {
+          params: {
+            symbol: this.SYMBOL,
+            interval,
+            limit,
+            ...(startTime && { startTime }),
+            ...(endTime && { endTime })
+          }
+        });
+
+        return response.data.map((kline: any[]) => ({
+          openTime: kline[0],
+          open: kline[1],
+          high: kline[2],
+          low: kline[3],
+          close: kline[4],
+          volume: kline[5] || '0',
+          closeTime: kline[6],
+          quoteAssetVolume: kline[7] || '0',
+          numberOfTrades: kline[8] || 0,
+          takerBuyBaseAssetVolume: kline[9] || '0',
+          takerBuyQuoteAssetVolume: kline[10] || '0',
+          ignore: kline[11] || '0'
+        }));
+      } catch (error: any) {
+        console.error(`获取溢价指数K线失败 (尝试 ${i + 1}/${maxRetries}):`, error.message);
+        if (i < maxRetries - 1) {
+          await new Promise(resolve => setTimeout(resolve, 1500 * (i + 1)));
+        }
+      }
+    }
+    throw new Error('无法获取溢价指数K线，所有重试都失败了');
+  }
+
+  /**
    * 获取币安事件合约标的指数K线数据 (Index Price Klines)
    * 接口: GET https://fapi.binance.com/fapi/v1/indexPriceKlines
    */

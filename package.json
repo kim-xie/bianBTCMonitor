@@ -14,7 +14,8 @@
     "dashboard": "ts-node-dev src/dashboard/server.ts",
     "reset-data": "ts-node scripts/reset-data.ts",
     "backtest": "ts-node src/scripts/backtest.ts",
-    "verify": "node scripts/verify-runtime.js"
+    "verify": "node scripts/verify-runtime.js",
+    "test:combos": "TS_NODE_COMPILER_OPTIONS='{\"module\":\"commonjs\",\"moduleResolution\":\"node\"}' ts-node --transpile-only src/test/comboStrategies.test.ts"
   },
   "dependencies": {
     "axios": "^1.5.0",

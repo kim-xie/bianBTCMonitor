@@ -3,8 +3,9 @@ import mongoose from 'mongoose';
 import { TradingSignalService, createExpiryScheduler, msUntilNextOpenExpiry, HOLD_DURATION_MS } from './services/TradingSignal';
 import { StatisticsService } from './services/StatisticsService';
 import { BinanceService } from './services/BinanceService';
+import { loadClosedSpotComboCandles, settlementPriceForTrade } from './services/spotComboFeed';
 import PriceDataModel from './models/PriceData';
-import TradeModel from './models/Trade';
+import TradeModel, { ensureTradeIndexes } from './models/Trade';
 import { axiosInstance } from './utils/axiosInstance';
 
 const MONGODB_URI = process.env.MONGODB_URI || 'mongodb://localhost:27017/btc-trading';
@@ -19,7 +20,14 @@ mongoose.connect(MONGODB_URI, {
   retryReads: true,
   maxPoolSize: 10 // 增加连接池大小
 })
-  .then(() => console.log('MongoDB连接成功'))
+  .then(async () => {
+    console.log('MongoDB连接成功');
+    try {
+      await ensureTradeIndexes();
+    } catch (error) {
+      console.error('交易索引迁移失败。旧的 symbol+klineCloseTime 唯一索引会挡住同一根K线上的多条策略:', error);
+    }
+  })
   .catch(err => console.error('MongoDB连接失败:', err));
 
 // 服务实例
@@ -139,17 +147,29 @@ async function getClosedFiveMinuteKlines() {
   return closedKlines;
 }
 
-// 生成交易信号
+// 生成交易信号。趋势策略继续用指数 K 线；三条事后组合单独拉现货和溢价。
 const generateTradingSignal = async () => {
   try {
-    // 获取5mK线数据
-    const fiveMinuteKlines = await getClosedFiveMinuteKlines();
+    let fiveMinuteKlines: any[] = [];
+    try {
+      fiveMinuteKlines = await getClosedFiveMinuteKlines();
+    } catch (error) {
+      console.error('指数K线获取失败，本轮趋势策略不判断:', error);
+    }
 
-    // 10分钟K线策略已下线
-    const signal = await tradingSignalService.generateSignal('BTCUSDT', fiveMinuteKlines, []);
+    let spotCandles: any[] = [];
+    try {
+      spotCandles = await loadClosedSpotComboCandles(binanceService);
+    } catch (error) {
+      console.error('事后组合现货K线获取失败，本轮跳过三条仅监控规则:', error);
+    }
 
-    if (signal) {
+    const signals = await tradingSignalService.generateSignal('BTCUSDT', fiveMinuteKlines, [], spotCandles);
+
+    for (const signal of signals) {
       console.log(`\n=== 交易信号生成 ===`);
+      console.log(`策略: ${signal.strategyName || signal.strategyId || ''}`);
+      if (signal.postHoc) console.log('状态: 「事后组合 · 未通过 · 仅监控」官方 FAIL，不下单');
       console.log(`信号: ${signal.signal}`);
       console.log(`预测: ${signal.prediction}`);
       console.log(`价格: $${signal.currentPrice.toFixed(2)}`);
@@ -169,7 +189,6 @@ const updateTradeResults = async (): Promise<number> => {
   if (settlingTrades) return 500;
   settlingTrades = true;
   try {
-    if (!livePriceReady || !(currentPrice > 0)) return 1000;
     const tenMinutesAgo = new Date(Date.now() - HOLD_DURATION_MS);
     const pendingTrades = await TradeModel.find({
       timestamp: { $lte: tenMinutesAgo },
@@ -178,7 +197,24 @@ const updateTradeResults = async (): Promise<number> => {
 
     let failed = 0;
     for (const trade of pendingTrades) {
-      const outcome = await tradingSignalService.updateTradeResult(String(trade._id), currentPrice);
+      let price: number | null = null;
+      try {
+        price = await settlementPriceForTrade(
+          trade,
+          livePriceReady ? currentPrice : 0,
+          Date.now(),
+          (interval, limit, startTime, endTime) => binanceService.getSpotKlines(interval, limit, startTime, endTime)
+        );
+      } catch (error) {
+        console.error(`交易 ${trade._id} 结算价获取失败:`, error);
+        failed++;
+        continue;
+      }
+      if (price == null || !(price > 0)) {
+        failed++;
+        continue;
+      }
+      const outcome = await tradingSignalService.updateTradeResult(String(trade._id), price);
       if (outcome.status === 'error') failed++;
     }
     return failed > 0 ? 2000 : 0;

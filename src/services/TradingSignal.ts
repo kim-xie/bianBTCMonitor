@@ -1,6 +1,7 @@
-import TradeModel, { ITrade } from '../models/Trade';
+import TradeModel from '../models/Trade';
 import { axiosInstance } from '../utils/axiosInstance';
-import { Candle, evaluateStrategies } from '../strategies/registry';
+import { Candle, StrategySignal, evaluateStrategies, getStrategyDefinition } from '../strategies/registry';
+import { POST_HOC_MARK } from '../strategies/comboFade';
 
 export interface TradingSignal {
   timestamp: Date;
@@ -12,19 +13,89 @@ export interface TradingSignal {
   reasoning: string[];
   recommendedAction: string;
   investmentAmount?: number; // 买入金额
+  strategyId?: string;
+  strategyName?: string;
+  /** 事后组合。官方 FAIL，只记录和通知，不下单。 */
+  postHoc?: boolean;
 }
+
+export interface TradeWrite {
+  symbol: string;
+  timestamp: Date;
+  price: number;
+  signal: 'BUY' | 'SELL';
+  tradeType: 'LONG' | 'SHORT';
+  confidence: number;
+  investmentAmount: number;
+  prediction: 'UP' | 'DOWN';
+  reasoning?: string[];
+  klineCloseTime?: number;
+  strategyId?: string;
+  strategyName?: string;
+  orderSource: 'AUTO';
+}
+
+/** 记录层。测试可以换掉，生产走 Mongo。 */
+export interface TradeGateway {
+  countOpen(symbol: string, strategyId: string): Promise<number>;
+  hasRecentSameDirection(symbol: string, strategyId: string, signal: 'BUY' | 'SELL', since: Date): Promise<boolean>;
+  create(doc: TradeWrite): Promise<'ok' | 'duplicate'>;
+}
+
+const mongoTrades: TradeGateway = {
+  async countOpen(symbol, strategyId) {
+    return TradeModel.countDocuments({
+      symbol,
+      strategyId,
+      isCorrect: { $exists: false }
+    });
+  },
+  async hasRecentSameDirection(symbol, strategyId, signal, since) {
+    const found = await TradeModel.findOne({
+      symbol,
+      strategyId,
+      signal,
+      isCorrect: { $exists: false },
+      timestamp: { $gte: since }
+    });
+    return found != null;
+  },
+  async create(doc) {
+    try {
+      await TradeModel.create(doc);
+      return 'ok';
+    } catch (error: any) {
+      if (error && error.code === 11000) return 'duplicate';
+      throw error;
+    }
+  }
+};
 
 export class TradingSignalService {
   private readonly FEISHU_WEBHOOK_URL = process.env.FEISHU_WEBHOOK_URL || '';
   private readonly CONFIDENCE_THRESHOLD = 80;
+  /**
+   * 每条策略各自最多 5 笔未平仓。
+   * 不能再按全市场一共 5 笔封顶：原有 4 条再加上 3 条事后组合，全局名额会被先触发的规则占满。
+   */
   private readonly MAX_OPEN_POSITIONS = 5;
   private readonly STAKE_USDT = 100;
+  private readonly trades: TradeGateway;
 
-  private usedFiveMinuteKlines: Set<number> = new Set();
+  private usedFiveMinuteKlines: Set<string> = new Set();
 
-  private markKlineAsUsed(closeTime: number): boolean {
-    if (this.usedFiveMinuteKlines.has(closeTime)) return false;
-    this.usedFiveMinuteKlines.add(closeTime);
+  constructor(trades: TradeGateway = mongoTrades) {
+    this.trades = trades;
+  }
+
+  private slotKey(strategyId: string, closeTime: number): string {
+    return `${strategyId}:${closeTime}`;
+  }
+
+  private markKlineAsUsed(strategyId: string, closeTime: number): boolean {
+    const key = this.slotKey(strategyId, closeTime);
+    if (this.usedFiveMinuteKlines.has(key)) return false;
+    this.usedFiveMinuteKlines.add(key);
     return true;
   }
 
@@ -35,87 +106,117 @@ export class TradingSignalService {
     const now = Date.now();
     const oneHourAgo = now - 60 * 60 * 1000;
 
-    // 只保留最近一小时的K线记录
-    this.usedFiveMinuteKlines.forEach(klineTime => {
-      if (klineTime < oneHourAgo) {
-        this.usedFiveMinuteKlines.delete(klineTime);
+    // 只保留最近一小时的K线记录。键是「策略:收盘时间」。
+    this.usedFiveMinuteKlines.forEach(key => {
+      const closeTime = Number(key.slice(key.lastIndexOf(':') + 1));
+      if (closeTime < oneHourAgo) {
+        this.usedFiveMinuteKlines.delete(key);
       }
     });
   }
 
   /**
-   * 只跑 src/strategies/registry.ts 里 enabled 的策略。没有信号就不开仓。
+   * 指数 K 线只跑四条趋势策略。spotKlines 是现货 + 溢价，只跑三条事后组合。
+   * 每条策略单独记一笔，同一根 K 线可以有多条。
    */
-  async generateSignal(symbol: string = 'BTCUSDT', fiveMinuteKlines: any[] = [], _tenMinuteKlines: any[] = []): Promise<TradingSignal | null> {
+  async generateSignal(
+    symbol: string = 'BTCUSDT',
+    fiveMinuteKlines: any[] = [],
+    _tenMinuteKlines: any[] = [],
+    spotKlines: any[] = []
+  ): Promise<TradingSignal[]> {
     try {
       this.cleanupExpiredKlines();
-      if (!fiveMinuteKlines.length) return null;
+      const indexCandles = fiveMinuteKlines.length ? toCandles(fiveMinuteKlines) : [];
+      const spotCandles = spotKlines.length ? toCandles(spotKlines) : [];
+      if (!indexCandles.length && !spotCandles.length) return [];
 
-      const candles = toCandles(fiveMinuteKlines);
-      const found = evaluateStrategies(candles);
-      if (!found) {
+      const found = [
+        ...evaluateStrategies(indexCandles, 'index'),
+        ...evaluateStrategies(spotCandles, 'spot')
+      ];
+      if (!found.length) {
         console.log('没有策略信号，不开仓');
-        return null;
-      }
-      if (found.confidence < this.CONFIDENCE_THRESHOLD) {
-        console.log(`置信度 ${found.confidence}% 低于 ${this.CONFIDENCE_THRESHOLD}%，不开仓`);
-        return null;
+        return [];
       }
 
-      const last = candles[candles.length - 1];
-      const klineCloseTime = last.closeTime || Date.now();
-      if (!this.markKlineAsUsed(klineCloseTime)) {
-        console.log(`5分钟K线 ${new Date(klineCloseTime).toLocaleString()} 已处理，跳过`);
-        return null;
+      const saved: TradingSignal[] = [];
+      for (const hit of found) {
+        const definition = getStrategyDefinition(hit.strategyId);
+        const candles = definition?.dataSource === 'spot' ? spotCandles : indexCandles;
+        const recorded = await this.recordHit(symbol, hit, candles);
+        if (recorded) saved.push(recorded);
       }
-
-      const openPositions = await TradeModel.countDocuments({
-        symbol,
-        isCorrect: { $exists: false }
-      });
-      if (openPositions >= this.MAX_OPEN_POSITIONS) {
-        console.log(`持仓 ${openPositions} 笔已达上限，不开仓`);
-        return null;
-      }
-
-      const targetSignal = found.direction === 'UP' ? 'BUY' : 'SELL';
-      const hasRecentSameDirection = await TradeModel.findOne({
-        symbol,
-        signal: targetSignal,
-        isCorrect: { $exists: false },
-        timestamp: { $gte: new Date(Date.now() - 10 * 60 * 1000) }
-      });
-      if (hasRecentSameDirection) {
-        console.log(`最近 10 分钟已有同向未平仓 ${targetSignal}，跳过`);
-        return null;
-      }
-
-      const currentPrice = last.close;
-      const signal: TradingSignal = {
-        timestamp: new Date(),
-        symbol,
-        currentPrice,
-        signal: targetSignal,
-        prediction: found.direction,
-        confidence: found.confidence,
-        reasoning: [found.reason],
-        recommendedAction: found.direction === 'UP'
-          ? `建议开仓做多 (置信度: ${found.confidence}%)`
-          : `建议开仓做空 (置信度: ${found.confidence}%)`,
-        investmentAmount: this.STAKE_USDT
-      };
-
-      const saved = await this.saveTrade(signal, klineCloseTime);
-      if (saved) await this.sendFeishuNotification(signal, klineCloseTime);
-      return signal;
+      return saved;
     } catch (error) {
       console.error('生成交易信号时出错:', error);
-      return null;
+      return [];
     }
   }
 
+  private async recordHit(symbol: string, found: StrategySignal, candles: Candle[]): Promise<TradingSignal | null> {
+    const definition = getStrategyDefinition(found.strategyId);
+    const postHoc = found.postHoc === true || definition?.postHoc === true;
+    const strategyName = definition?.name || found.strategyId;
+    if (found.confidence < this.CONFIDENCE_THRESHOLD) {
+      console.log(`策略 ${strategyName} 置信度 ${found.confidence}% 低于 ${this.CONFIDENCE_THRESHOLD}%，跳过`);
+      return null;
+    }
+
+    const last = candles[candles.length - 1];
+    if (!last) return null;
+    const klineCloseTime = last.closeTime || Date.now();
+    const targetSignal: 'BUY' | 'SELL' = found.direction === 'UP' ? 'BUY' : 'SELL';
+
+    const openPositions = await this.trades.countOpen(symbol, found.strategyId);
+    if (openPositions >= this.MAX_OPEN_POSITIONS) {
+      console.log(`策略 ${strategyName} 持仓 ${openPositions} 笔已达上限，跳过`);
+      return null;
+    }
+
+    const hasRecentSameDirection = await this.trades.hasRecentSameDirection(
+      symbol,
+      found.strategyId,
+      targetSignal,
+      new Date(Date.now() - 10 * 60 * 1000)
+    );
+    if (hasRecentSameDirection) {
+      console.log(`策略 ${strategyName} 最近 10 分钟已有同向未平仓 ${targetSignal}，跳过`);
+      return null;
+    }
+
+    if (!this.markKlineAsUsed(found.strategyId, klineCloseTime)) {
+      console.log(`策略 ${strategyName} 的5分钟K线 ${new Date(klineCloseTime).toLocaleString()} 已处理，跳过`);
+      return null;
+    }
+
+    const signal: TradingSignal = {
+      timestamp: new Date(),
+      symbol,
+      currentPrice: last.close,
+      signal: targetSignal,
+      prediction: found.direction,
+      confidence: found.confidence,
+      reasoning: [found.reason],
+      recommendedAction: postHoc
+        ? `${POST_HOC_MARK}只记录，不下单 (置信度: ${found.confidence}%)`
+        : (found.direction === 'UP'
+          ? `建议开仓做多 (置信度: ${found.confidence}%)`
+          : `建议开仓做空 (置信度: ${found.confidence}%)`),
+      investmentAmount: this.STAKE_USDT,
+      strategyId: found.strategyId,
+      strategyName,
+      postHoc
+    };
+
+    const saved = await this.saveTrade(signal, klineCloseTime);
+    if (!saved) return null;
+    await this.sendFeishuNotification(signal, klineCloseTime);
+    return signal;
+  }
+
   private async saveTrade(signal: TradingSignal, klineCloseTime: number): Promise<boolean> {
-    const tradeData: Partial<ITrade> = {
+    const tradeData: TradeWrite = {
       symbol: signal.symbol,
       timestamp: signal.timestamp,
       price: signal.currentPrice,
@@ -126,19 +227,17 @@ export class TradingSignalService {
       prediction: signal.prediction,
       reasoning: signal.reasoning,
       klineCloseTime,
+      strategyId: signal.strategyId,
+      strategyName: signal.strategyName,
       orderSource: 'AUTO'
     };
 
-    try {
-      await TradeModel.create(tradeData);
-      return true;
-    } catch (error: any) {
-      if (error && error.code === 11000) {
-        console.log(`K线 ${new Date(klineCloseTime).toLocaleString()} 已有交易，跳过`);
-        return false;
-      }
-      throw error;
+    const result = await this.trades.create(tradeData);
+    if (result === 'duplicate') {
+      console.log(`策略 ${signal.strategyName || signal.strategyId} 在 K线 ${new Date(klineCloseTime).toLocaleString()} 已有交易，跳过`);
+      return false;
     }
+    return true;
   }
 
   private async sendFeishuNotification(signal: TradingSignal, klineCloseTime: number): Promise<void> {
@@ -147,13 +246,7 @@ export class TradingSignalService {
       await axiosInstance.post(this.FEISHU_WEBHOOK_URL, {
         msg_type: 'text',
         content: {
-          text: `交易信号\n\n` +
-            `方向: ${signal.prediction === 'UP' ? '上涨' : '下跌'}\n` +
-            `价格: ${signal.currentPrice.toFixed(2)} USDT\n` +
-            `金额: ${signal.investmentAmount} USDT\n` +
-            `置信度: ${signal.confidence}%\n` +
-            `K线: ${new Date(klineCloseTime).toLocaleString()}\n` +
-            `${signal.reasoning.join('\n')}`
+          text: formatFeishuOpenText(signal, klineCloseTime)
         }
       });
     } catch (error) {
@@ -242,11 +335,17 @@ export class TradingSignalService {
 
   private async sendFeishuCloseNotification(trade: any, currentPrice: number, closeTime: Date, isCorrect: boolean, profitLoss: number, profitLossPercent: number, holdDuration: number): Promise<void> {
     try {
-      const sourceText = trade.orderSource === 'MANUAL' ? '👤 手动开仓' : '🤖 自动策略';
+      const definition = trade.strategyId ? getStrategyDefinition(trade.strategyId) : undefined;
+      const postHoc = definition?.postHoc === true;
+      const sourceText = trade.orderSource === 'MANUAL' ? '👤 手动开仓' : (postHoc ? '「事后组合 · 未通过 · 仅监控」' : '🤖 自动策略');
+      const strategyLine = trade.strategyName ? `策略: ${trade.strategyName}\n` : '';
+      const monitorLine = postHoc ? `状态: ${POST_HOC_MARK}\n官方: FAIL\n不下单。这不是已通过的实盘规则。\n` : '';
       const message = {
         msg_type: 'text',
         content: {
           text: `📊 交易平仓 (${sourceText})\n\n` +
+            strategyLine +
+            monitorLine +
             `订单来源: ${sourceText}\n` +
             `预测结果: ${isCorrect ? '正确' : '错误'}\n` +
             `交易类型: ${trade.tradeType === 'LONG' ? '买涨' : '买跌'}\n` +
@@ -368,17 +467,62 @@ export function createExpiryScheduler(options: {
   return { arm };
 }
 
+export function formatFeishuOpenText(signal: TradingSignal, klineCloseTime: number): string {
+  const lines = [
+    signal.postHoc ? `交易信号 ${POST_HOC_MARK}` : '交易信号',
+    ''
+  ];
+  if (signal.strategyName) lines.push(`策略: ${signal.strategyName}`);
+  if (signal.strategyId) lines.push(`策略键: ${signal.strategyId}`);
+  if (signal.postHoc) {
+    lines.push(`状态: ${POST_HOC_MARK}`);
+    lines.push('官方: FAIL');
+    lines.push('不下单。这不是已通过的实盘规则，只监控。');
+  }
+  lines.push(
+    `方向: ${signal.prediction === 'UP' ? '上涨' : '下跌'}`,
+    `价格: ${signal.currentPrice.toFixed(2)} USDT`,
+    `金额: ${signal.investmentAmount} USDT`,
+    `置信度: ${signal.confidence}%`,
+    `K线: ${new Date(klineCloseTime).toLocaleString()}`,
+    signal.reasoning.join('\n')
+  );
+  return lines.join('\n');
+}
+
+function finiteOrUndefined(value: unknown): number | undefined {
+  if (value == null || value === '') return undefined;
+  const number = typeof value === 'number' ? value : +String(value);
+  return Number.isFinite(number) ? number : undefined;
+}
+
 function toCandles(klines: any[]): Candle[] {
   return klines.map(kline => {
     const closeTime = kline.closeTime == null
       ? undefined
       : (typeof kline.closeTime === 'number' ? kline.closeTime : new Date(kline.closeTime).getTime());
+    const openTime = kline.openTime == null
+      ? undefined
+      : (typeof kline.openTime === 'number' ? kline.openTime : new Date(kline.openTime).getTime());
+    const hasPrem = kline != null && Object.prototype.hasOwnProperty.call(kline, 'prem');
+    let prem: number | null | undefined;
+    if (!hasPrem) prem = undefined;
+    else if (kline.prem == null || kline.prem === '') prem = null;
+    else {
+      const parsed = +kline.prem;
+      prem = Number.isFinite(parsed) ? parsed : null;
+    }
+    const taker = kline.takerBuyBase != null ? kline.takerBuyBase : kline.takerBuyBaseAssetVolume;
     return {
       open: +kline.open,
       high: +kline.high,
       low: +kline.low,
       close: +kline.close,
-      closeTime
+      closeTime,
+      openTime,
+      volume: finiteOrUndefined(kline.volume),
+      takerBuyBase: finiteOrUndefined(taker),
+      prem
     };
   });
 }

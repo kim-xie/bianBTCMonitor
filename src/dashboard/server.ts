@@ -8,8 +8,9 @@ import path from 'path';
 import { TradingSignalService, createExpiryScheduler, msUntilNextOpenExpiry, HOLD_DURATION_MS } from '../services/TradingSignal';
 import { StatisticsService } from '../services/StatisticsService';
 import { BinanceService } from '../services/BinanceService';
+import { loadClosedSpotComboCandles, settlementPriceForTrade } from '../services/spotComboFeed';
 import PriceDataModel, { IPriceData } from '../models/PriceData';
-import TradeModel from '../models/Trade';
+import TradeModel, { ensureTradeIndexes } from '../models/Trade';
 import { listStrategyDefinitions } from '../strategies/registry';
 
 /**
@@ -81,6 +82,11 @@ const MONGODB_URI = process.env.MONGODB_URI || 'mongodb://localhost:27017/btc-tr
 mongoose.connect(MONGODB_URI)
   .then(async () => {
     console.log('MongoDB连接成功');
+    try {
+      await ensureTradeIndexes();
+    } catch (error) {
+      console.error('交易索引迁移失败。旧的 symbol+klineCloseTime 唯一索引会挡住同一根K线上的多条策略:', error);
+    }
     // 初始化资金状态
     await calculateCurrentBalance();
     console.log(`初始资金状态: ${currentBalance.toFixed(2)}U`);
@@ -788,14 +794,25 @@ async function getClosedTenMinuteKlines() {
 // 交易信号生成和更新
 const generateTradingSignal = async () => {
   try {
-    // 获取5mK线数据
-    const fiveMinuteKlines = await getClosedFiveMinuteKlines();
-    // 10分钟K线策略已下线
-    const signal = await tradingSignalService.generateSignal('BTCUSDT', fiveMinuteKlines, []);
+    let fiveMinuteKlines: any[] = [];
+    try {
+      fiveMinuteKlines = await getClosedFiveMinuteKlines();
+    } catch (error) {
+      console.error('指数K线获取失败，本轮趋势策略不判断:', error);
+    }
 
-    if (signal) {
+    let spotCandles: any[] = [];
+    try {
+      spotCandles = await loadClosedSpotComboCandles(binanceService);
+    } catch (error) {
+      console.error('事后组合现货K线获取失败，本轮跳过三条仅监控规则:', error);
+    }
+
+    const signals = await tradingSignalService.generateSignal('BTCUSDT', fiveMinuteKlines, [], spotCandles);
+    for (const signal of signals) {
       io.emit('tradingSignal', signal);
-      console.log(`生成交易信号: ${signal.signal} - 置信度: ${signal.confidence}%`);
+      const monitor = signal.postHoc ? ' 「事后组合 · 未通过 · 仅监控」不下单' : '';
+      console.log(`生成交易信号: ${signal.strategyName || signal.strategyId || ''} ${signal.signal} - 置信度: ${signal.confidence}%${monitor}`);
     }
   } catch (error) {
     console.error('生成交易信号失败:', error);
@@ -896,11 +913,6 @@ const updateTradeResults = async (): Promise<number> => {
   if (settlingTrades) return 500;
   settlingTrades = true;
   try {
-    if (!livePriceReady || !(currentPrice > 0)) {
-      console.log('实时价格尚未就绪，暂不结单');
-      return 1000;
-    }
-
     const tenMinutesAgo = new Date(Date.now() - HOLD_DURATION_MS);
     const pendingTrades = await TradeModel.find({
       timestamp: { $lte: tenMinutesAgo },
@@ -912,8 +924,25 @@ const updateTradeResults = async (): Promise<number> => {
     let failed = 0;
     for (const trade of pendingTrades) {
       const overdueMs = Date.now() - (new Date(trade.timestamp).getTime() + HOLD_DURATION_MS);
-      console.log(`处理交易 ${trade._id}: 开仓时间 ${trade.timestamp}, 超时 ${overdueMs}ms, 当前价格 ${currentPrice}`);
-      const outcome = await tradingSignalService.updateTradeResult(String(trade._id), currentPrice);
+      let price: number | null = null;
+      try {
+        price = await settlementPriceForTrade(
+          trade,
+          livePriceReady ? currentPrice : 0,
+          Date.now(),
+          (interval, limit, startTime, endTime) => binanceService.getSpotKlines(interval, limit, startTime, endTime)
+        );
+      } catch (error) {
+        console.error(`交易 ${trade._id} 结算价获取失败:`, error);
+        failed++;
+        continue;
+      }
+      console.log(`处理交易 ${trade._id}: 开仓时间 ${trade.timestamp}, 超时 ${overdueMs}ms, 结算价格 ${price ?? '等待K线'}`);
+      if (price == null || !(price > 0)) {
+        failed++;
+        continue;
+      }
+      const outcome = await tradingSignalService.updateTradeResult(String(trade._id), price);
       if (outcome.status === 'closed') {
         emitTradeClosed(outcome.trade);
       } else if (outcome.status === 'error') {

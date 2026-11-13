@@ -12,8 +12,10 @@ export interface ITrade extends Document {
   prediction: 'UP' | 'DOWN';
   orderSource?: 'MANUAL' | 'AUTO'; // 订单来源：MANUAL=手动开单，AUTO=系统自动策略单
 
-  // 信号所基于的5分钟K线收盘时间戳（毫秒），用于同根K线去重
+  // 信号所基于的5分钟K线收盘时间戳（毫秒），和 strategyId 一起去重
   klineCloseTime?: number;
+  strategyId?: string;
+  strategyName?: string;
 
   // 平仓相关字段
   closeTime?: Date;          // 平仓时间
@@ -39,8 +41,10 @@ const TradeSchema: Schema = new Schema({
   prediction: { type: String, required: true, enum: ['UP', 'DOWN'] },
   orderSource: { type: String, enum: ['MANUAL', 'AUTO'], default: 'AUTO' },
 
-  // 信号所基于的5分钟K线收盘时间戳，用于同根K线去重
+  // 信号所基于的5分钟K线收盘时间戳，和 strategyId 一起去重
   klineCloseTime: { type: Number },
+  strategyId: { type: String },
+  strategyName: { type: String },
 
   // 平仓相关字段
   closeTime: { type: Date },
@@ -60,7 +64,37 @@ TradeSchema.index({ timestamp: -1 });
 TradeSchema.index({ signal: 1 });
 TradeSchema.index({ isCorrect: 1 });
 TradeSchema.index({ orderSource: 1 });
-// 同一品种同一根5分钟K线只允许一笔交易（稀疏索引：历史无该字段的旧数据不参与约束）
-TradeSchema.index({ symbol: 1, klineCloseTime: 1 }, { unique: true, sparse: true });
+// 同一品种、同一策略、同一根5分钟K线只允许一笔。
+// 部分索引只约束带 strategyId 的新单，历史单和手动单不受影响。
+// 旧的 {symbol, klineCloseTime} 唯一索引会让同一根K线只能留一条策略，启动时由 ensureTradeIndexes 删掉。
+TradeSchema.index(
+  { symbol: 1, strategyId: 1, klineCloseTime: 1 },
+  {
+    unique: true,
+    partialFilterExpression: {
+      strategyId: { $type: 'string' },
+      klineCloseTime: { $type: 'number' }
+    }
+  }
+);
+
+export function isLegacyKlineUniqueIndex(index: { unique?: boolean; key?: Record<string, unknown> }): boolean {
+  if (index.unique !== true || !index.key) return false;
+  const key = index.key;
+  const fields = Object.keys(key);
+  return fields.length === 2 && key.symbol === 1 && key.klineCloseTime === 1 && !('strategyId' in key);
+}
+
+/** 删掉旧的「一根K线只能有一笔」唯一索引，再确保按策略分开的唯一索引存在。 */
+export async function ensureTradeIndexes(): Promise<void> {
+  const collection = mongoose.model<ITrade>('Trade').collection;
+  const indexes = await collection.indexes();
+  for (const index of indexes) {
+    if (!isLegacyKlineUniqueIndex(index) || !index.name) continue;
+    await collection.dropIndex(index.name);
+    console.log(`已删除旧唯一索引 ${index.name}。同一根K线可以按策略分别记录`);
+  }
+  await mongoose.model<ITrade>('Trade').createIndexes();
+}
 
 export default mongoose.model<ITrade>('Trade', TradeSchema);

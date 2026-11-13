@@ -2,6 +2,23 @@ import { evaluateMultiCrossEngulfLong, MULTI_CROSS_ENGULF_LONG_ID, MULTI_CROSS_E
 import { evaluateMultiCrossEngulfShort, MULTI_CROSS_ENGULF_SHORT_ID, MULTI_CROSS_ENGULF_SHORT_NAME, MULTI_CROSS_ENGULF_SHORT_SUMMARY } from './multiCrossEngulfShort';
 import { evaluateStrongRallyPullbackLong, STRONG_RALLY_PULLBACK_LONG_ID, STRONG_RALLY_PULLBACK_LONG_NAME, STRONG_RALLY_PULLBACK_LONG_SUMMARY } from './strongRallyPullbackLong';
 import { evaluateStrongDropPullbackShort, STRONG_DROP_PULLBACK_SHORT_ID, STRONG_DROP_PULLBACK_SHORT_NAME, STRONG_DROP_PULLBACK_SHORT_SUMMARY } from './strongDropPullbackShort';
+import {
+  AND_3SAME_HIGHVOL_ID,
+  AND_3SAME_HIGHVOL_NAME,
+  AND_3SAME_HIGHVOL_SUMMARY,
+  AND_3SAME_PREM_ID,
+  AND_3SAME_PREM_NAME,
+  AND_3SAME_PREM_SUMMARY,
+  AND_PREM_TBR_ID,
+  AND_PREM_TBR_NAME,
+  AND_PREM_TBR_SUMMARY,
+  evaluateAnd3SameHighvol,
+  evaluateAnd3SamePrem,
+  evaluateAndPremTbr,
+  monitorLabel
+} from './comboFade';
+
+export type StrategyDataSource = 'index' | 'spot';
 
 export interface Candle {
   open: number;
@@ -9,6 +26,13 @@ export interface Candle {
   low: number;
   close: number;
   closeTime?: number;
+  openTime?: number;
+  /** 现货成交量。指数 K 线没有真实成交量，趋势策略不读这个字段。 */
+  volume?: number;
+  /** 现货主动买入量 taker_buy_base。 */
+  takerBuyBase?: number;
+  /** 溢价指数 5 分钟收盘。null 表示这一根现货没有对齐到溢价。 */
+  prem?: number | null;
 }
 
 export interface StrategySignal {
@@ -16,6 +40,8 @@ export interface StrategySignal {
   direction: 'UP' | 'DOWN';
   confidence: number;
   reason: string;
+  /** 事后组合。官方 FAIL，只监控，不下单。 */
+  postHoc?: boolean;
 }
 
 export interface StrategyDefinition {
@@ -23,6 +49,10 @@ export interface StrategyDefinition {
   name: string;
   enabled: boolean;
   summary: string;
+  /** index：事件合约指数 K 线。spot：现货 K 线，事后组合还会读 volume、takerBuyBase、prem。 */
+  dataSource: StrategyDataSource;
+  postHoc?: boolean;
+  officialStatus?: 'FAIL';
   evaluate(candles: Candle[]): StrategySignal | null;
 }
 
@@ -69,9 +99,10 @@ export function calculateEma50(closes: number[]): number | null {
 }
 
 /**
- * 唯一的策略定义。
+ * 策略定义。
  * 旧的均线反包、二次反包、连涨连跌都已下线，不在此列表中，也不会被调用。
- * enabled 为 false 时 evaluate 不会执行，因此不开仓。
+ * 前四条仍是趋势策略，继续用指数 K 线，开仓条件没有改。
+ * 后三条是事后组合，官方 FAIL，只监控。enabled 为 false 时 evaluate 不会执行。
  */
 export const strategies: StrategyDefinition[] = [
   {
@@ -79,6 +110,7 @@ export const strategies: StrategyDefinition[] = [
     name: MULTI_CROSS_ENGULF_LONG_NAME,
     enabled: true,
     summary: MULTI_CROSS_ENGULF_LONG_SUMMARY,
+    dataSource: 'index',
     evaluate: evaluateMultiCrossEngulfLong
   },
   {
@@ -86,6 +118,7 @@ export const strategies: StrategyDefinition[] = [
     name: MULTI_CROSS_ENGULF_SHORT_NAME,
     enabled: true,
     summary: MULTI_CROSS_ENGULF_SHORT_SUMMARY,
+    dataSource: 'index',
     evaluate: evaluateMultiCrossEngulfShort
   },
   {
@@ -93,6 +126,7 @@ export const strategies: StrategyDefinition[] = [
     name: STRONG_RALLY_PULLBACK_LONG_NAME,
     enabled: true,
     summary: STRONG_RALLY_PULLBACK_LONG_SUMMARY,
+    dataSource: 'index',
     evaluate: evaluateStrongRallyPullbackLong
   },
   {
@@ -100,19 +134,68 @@ export const strategies: StrategyDefinition[] = [
     name: STRONG_DROP_PULLBACK_SHORT_NAME,
     enabled: true,
     summary: STRONG_DROP_PULLBACK_SHORT_SUMMARY,
+    dataSource: 'index',
     evaluate: evaluateStrongDropPullbackShort
+  },
+  {
+    id: AND_PREM_TBR_ID,
+    name: monitorLabel(AND_PREM_TBR_NAME),
+    enabled: true,
+    summary: AND_PREM_TBR_SUMMARY,
+    dataSource: 'spot',
+    postHoc: true,
+    officialStatus: 'FAIL',
+    evaluate: evaluateAndPremTbr
+  },
+  {
+    id: AND_3SAME_PREM_ID,
+    name: monitorLabel(AND_3SAME_PREM_NAME),
+    enabled: true,
+    summary: AND_3SAME_PREM_SUMMARY,
+    dataSource: 'spot',
+    postHoc: true,
+    officialStatus: 'FAIL',
+    evaluate: evaluateAnd3SamePrem
+  },
+  {
+    id: AND_3SAME_HIGHVOL_ID,
+    name: monitorLabel(AND_3SAME_HIGHVOL_NAME),
+    enabled: true,
+    summary: AND_3SAME_HIGHVOL_SUMMARY,
+    dataSource: 'spot',
+    postHoc: true,
+    officialStatus: 'FAIL',
+    evaluate: evaluateAnd3SameHighvol
   }
 ];
 
-export function listStrategyDefinitions(): Array<Pick<StrategyDefinition, 'id' | 'name' | 'enabled' | 'summary'>> {
-  return strategies.map(({ id, name, enabled, summary }) => ({ id, name, enabled, summary }));
+export function getStrategyDefinition(id: string): StrategyDefinition | undefined {
+  return strategies.find(strategy => strategy.id === id);
 }
 
-export function evaluateStrategies(candles: Candle[]): StrategySignal | null {
+export function listStrategyDefinitions(): Array<Pick<StrategyDefinition, 'id' | 'name' | 'enabled' | 'summary' | 'dataSource' | 'postHoc' | 'officialStatus'>> {
+  return strategies.map(({ id, name, enabled, summary, dataSource, postHoc, officialStatus }) => ({
+    id,
+    name,
+    enabled,
+    summary,
+    dataSource,
+    postHoc: postHoc === true,
+    officialStatus
+  }));
+}
+
+/**
+ * 每条启用的策略单独判断。同一根 K 线可以同时走出多条信号。
+ * 不传 dataSource 时只跑指数趋势策略，避免事后组合误用指数价格。
+ */
+export function evaluateStrategies(candles: Candle[], dataSource: StrategyDataSource = 'index'): StrategySignal[] {
+  if (!candles.length) return [];
+  const signals: StrategySignal[] = [];
   for (const strategy of strategies) {
-    if (!strategy.enabled) continue;
+    if (!strategy.enabled || strategy.dataSource !== dataSource) continue;
     const signal = strategy.evaluate(candles);
-    if (signal) return signal;
+    if (signal) signals.push(signal);
   }
-  return null;
+  return signals;
 }

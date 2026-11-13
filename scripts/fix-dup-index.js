@@ -29,12 +29,34 @@ mongoose.connect(process.env.MONGODB_URI).then(async () => {
     }
     console.log(groups.length ? `清理完成：共${groups.length}组重复，删除${removed}笔` : '无重复数据，无需清理');
 
-    // 3. 重建唯一稀疏索引
+    // 3. 删掉「一根K线只能有一笔」的旧唯一索引，改成按策略分开
+    const existing = await col.indexes();
+    for (const index of existing) {
+        const key = index.key || {};
+        const fields = Object.keys(key);
+        const legacy = index.unique === true
+            && fields.length === 2
+            && key.symbol === 1
+            && key.klineCloseTime === 1
+            && !Object.prototype.hasOwnProperty.call(key, 'strategyId');
+        if (!legacy || !index.name) continue;
+        await col.dropIndex(index.name);
+        console.log(`已删除旧唯一索引 ${index.name}`);
+    }
     try {
-        await col.createIndex({ symbol: 1, klineCloseTime: 1 }, { unique: true, sparse: true });
-        console.log('✅ 唯一索引 symbol_1_klineCloseTime_1 创建成功');
+        await col.createIndex(
+            { symbol: 1, strategyId: 1, klineCloseTime: 1 },
+            {
+                unique: true,
+                partialFilterExpression: {
+                    strategyId: { $type: 'string' },
+                    klineCloseTime: { $type: 'number' }
+                }
+            }
+        );
+        console.log('✅ 唯一索引 symbol + strategyId + klineCloseTime 创建成功');
     } catch (e) {
-        console.error('❌ 索引创建失败（可能仍存在重复数据）:', e.message);
+        console.error('❌ 索引创建失败（可能仍存在同一策略的重复数据）:', e.message);
         process.exitCode = 1;
     }
 

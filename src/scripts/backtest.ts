@@ -93,13 +93,14 @@ async function runBacktest(_priceHistory: IPriceData[], fiveMinuteKlines: any[])
         try {
             // 准备当前K线和之前的价格数据
             const currentKlines = fiveMinuteKlines.slice(0, i + 1);
-            const found = evaluateStrategies(currentKlines.map((kline: any) => ({
+            const foundList = evaluateStrategies(currentKlines.map((kline: any) => ({
                 open: +kline.open,
                 high: +kline.high,
                 low: +kline.low,
                 close: +kline.close
             })));
 
+            for (const found of foundList) {
             if (!found || found.confidence < 80) {
                 continue;
             }
@@ -126,6 +127,7 @@ async function runBacktest(_priceHistory: IPriceData[], fiveMinuteKlines: any[])
                 confidence: found.confidence,
                 reasoning: [found.reason]
             });
+            }
 
         } catch (error) {
             console.error(`回测过程中出错: ${error}`);

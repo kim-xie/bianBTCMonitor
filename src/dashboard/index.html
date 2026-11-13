@@ -455,6 +455,26 @@
           };
         }
 
+        const postHocRules = [
+          { id: 'and_prem_tbr', name: '溢价逆势 ∩ 主动买比极端逆势' },
+          { id: 'and_3same_prem', name: '连涨 3 根逆势 ∩ 溢价逆势' },
+          { id: 'and_3same_highvol', name: '连涨 3 根逆势 ∩ 高波动 ATR 逆势' }
+        ];
+        const postHoc = postHocRules.find(rule => trade.strategyId === rule.id || r.includes(rule.id) || r.includes(rule.name));
+        if (postHoc) {
+          return {
+            id: postHoc.id,
+            category: '事后组合',
+            type: 'posthoc',
+            name: `「事后组合 · 未通过 · 仅监控」${postHoc.name}`,
+            direction: isLong ? 'BUY' : 'SELL',
+            desc: '「事后组合 · 未通过 · 仅监控」官方 FAIL。只记录和通知，不向币安下单。',
+            status: 'monitor',
+            statusLabel: '事后组合 · 未通过 · 仅监控',
+            keyword: postHoc.name
+          };
+        }
+
         if (r.includes('策略:strong-drop-pullback-short') || r.includes('强势下跌，弱回调反包做空')) {
           return {
             id: 'strong-drop-pullback-short',
@@ -769,7 +789,7 @@
         const shortWins = shortTrades.filter(t => t.isCorrect).length;
 
         // 最佳策略
-        const bestStrategy = [...strategyList].sort((a,b) => b.totalPnl - a.totalPnl)[0];
+        const bestStrategy = [...strategyList].filter(item => item.type !== 'posthoc').sort((a,b) => b.totalPnl - a.totalPnl)[0];
 
         return {
           total,
@@ -804,6 +824,8 @@
                   <span className="text-slate-400">HOST: btc-oracle-sg-01</span>
                   <span className="text-slate-600">|</span>
                   <span className="text-cyan-400 font-medium">CORE: 四条趋势策略</span>
+                  <span className="text-slate-600">|</span>
+                  <span className="text-amber-300 font-medium">「事后组合 · 未通过 · 仅监控」</span>
                 </div>
                 <div className="flex items-center gap-2">
                   <span className="text-emerald-400 font-bold text-lg font-mono">&gt;</span>
@@ -967,6 +989,10 @@
             </div>
           </div>
 
+          <div className="p-3 rounded-xl bg-amber-500/10 border border-amber-500/40 text-[12px] text-amber-200 font-mono leading-relaxed">
+            「事后组合 · 未通过 · 仅监控」溢价逆势 ∩ 主动买比极端逆势、连涨 3 根逆势 ∩ 溢价逆势、连涨 3 根逆势 ∩ 高波动 ATR 逆势。三条都是看完回测才拼出来的，官方状态 FAIL。只在面板和飞书里记账，不向币安下单，也不能当成已通过的实盘规则。
+          </div>
+
           {/* 策略大类与多空对比卡片 (Terminal 3列系统面板) */}
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4 font-mono">
             {/* 趋势策略概览 */}
@@ -981,7 +1007,7 @@
                 </span>
               </div>
               <p className="text-[11px] text-slate-400 mb-3 leading-relaxed">
-                当前有四条趋势策略：两次做多，两次做空。做空是多次下穿反包，以及强势下跌后的弱回调反包。旧的均线反包只留在历史订单里。
+                当前有四条趋势策略：两次做多，两次做空。做空是多次下穿反包，以及强势下跌后的弱回调反包。旧的均线反包只留在历史订单里。三条事后组合不在这个趋势系统里。
               </p>
               <div className="grid grid-cols-3 gap-2 py-2.5 border-y border-slate-800 text-center">
                 <div>
@@ -1094,6 +1120,7 @@
                 >
                   <option value="all">状态: 全部</option>
                   <option value="active">状态: 运行中 (Active)</option>
+                  <option value="monitor">状态: 「事后组合 · 未通过 · 仅监控」</option>
                   <option value="disabled">状态: 已下线 (Disabled)</option>
                 </select>
 
@@ -1105,6 +1132,7 @@
                   <option value="all">分类: 全部体系</option>
                   <option value="trend">分类: 趋势策略</option>
                   <option value="reversal">分类: 反转策略</option>
+                  <option value="posthoc">分类: 「事后组合 · 未通过 · 仅监控」</option>
                 </select>
               </div>
             </div>
@@ -1157,6 +1185,10 @@
                             <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-500/10 text-emerald-400 border border-emerald-500/30">
                               <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-ping"></span>
                               [ACTIVE]
+                            </span>
+                          ) : item.status === 'monitor' ? (
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold bg-amber-500/15 text-amber-300 border border-amber-500/40">
+                              [「事后组合 · 未通过 · 仅监控」]
                             </span>
                           ) : (
                             <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-medium bg-slate-800/60 text-slate-400 border border-slate-700/60">
@@ -1227,7 +1259,7 @@
 
                               onSelectStrategy({
                                 reasoningKeyword: item.keyword || '',
-                                strategy: (item.category === '趋势策略' || item.category === '反转策略') ? item.category : '',
+                                strategy: (item.category === '趋势策略' || item.category === '反转策略' || item.category === '事后组合') ? item.category : '',
                                 tradeType: item.direction === 'BUY' ? 'LONG' : (item.direction === 'SELL' ? 'SHORT' : ''),
                                 startDate,
                                 endDate
@@ -1262,7 +1294,7 @@
               </span>
             </div>
             <p className="text-[11px] text-slate-400 mb-3 leading-relaxed">
-              均线反包、二次反包、连涨连跌已全部下线。现在有四条策略：多次上穿后在 EMA50 上方附近反包做多；多次下穿后在 EMA50 下方附近反包做空；至少 3 根强势阳线之后弱回调反包做多；至少 3 根强势阴线之后弱回调反包做空。
+              均线反包、二次反包、连涨连跌已全部下线。趋势策略仍是四条，数据源仍是指数 K 线：多次上穿后在 EMA50 上方附近反包做多；多次下穿后在 EMA50 下方附近反包做空；至少 3 根强势阳线之后弱回调反包做多；至少 3 根强势阴线之后弱回调反包做空。另外三条「事后组合 · 未通过 · 仅监控」用现货和溢价指数，官方状态 FAIL，只监控，不向币安下单。
             </p>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-slate-300">
               {strategyDefs.length === 0 && (
@@ -1271,9 +1303,12 @@
                 </div>
               )}
               {strategyDefs.map(def => (
-                <div key={def.id} className="p-3 rounded bg-[#05080c] border border-slate-800">
-                  <div className={`font-bold mb-1 ${def.enabled ? 'text-emerald-400' : 'text-amber-400'}`}>
-                    [{def.enabled ? 'ENABLED' : 'DISABLED'}] {def.name}
+                <div key={def.id} className={`p-3 rounded bg-[#05080c] border ${def.postHoc ? 'border-amber-500/50' : 'border-slate-800'}`}>
+                  {def.postHoc && (
+                    <div className="text-amber-300 font-bold mb-1">「事后组合 · 未通过 · 仅监控」官方 FAIL，不下单</div>
+                  )}
+                  <div className={`font-bold mb-1 ${def.postHoc ? 'text-amber-300' : (def.enabled ? 'text-emerald-400' : 'text-amber-400')}`}>
+                    [{def.postHoc ? 'MONITOR_ONLY' : (def.enabled ? 'ENABLED' : 'DISABLED')}] {def.name}
                   </div>
                   <p className="text-slate-400 leading-relaxed text-[11px]">{def.summary}</p>
                 </div>
@@ -2814,15 +2849,18 @@
           // 动态加入最近信号列表，保持队列最多3个
           setRecentSignals(prev => {
             const filtered = prev.filter(s => {
-              if (signal.timestamp && s.timestamp) {
+              const sameStrategy = (s.strategyId || '') === (signal.strategyId || '');
+              if (signal.timestamp && s.timestamp && sameStrategy) {
                 return new Date(s.timestamp).getTime() !== new Date(signal.timestamp).getTime();
               }
               return true;
             });
             return [signal, ...filtered].slice(0, 3);
           });
-          // 语音播报新信号
-          speak(signal.signal === 'BUY' ? '您有新的做多订单' : '您有新的做空订单');
+          // 事后组合只做监控播报，不能说成已经下单
+          speak(signal.postHoc
+            ? `事后组合，未通过，仅监控，${signal.signal === 'BUY' ? '做多' : '做空'}信号，不下单`
+            : (signal.signal === 'BUY' ? '您有新的做多订单' : '您有新的做空订单'));
         });
 
         // 持仓结束（平仓）时清除当前信号
@@ -4064,6 +4102,11 @@
                                 </td>
                                 <td className="py-2.5 px-3 max-w-xs">
                                   <div className="text-[11px] text-slate-300 leading-snug">
+                                    {trade.strategyName && (
+                                      <div className={`truncate text-[10px] mb-0.5 ${String(trade.strategyName).includes('事后组合') ? 'text-amber-300' : 'text-slate-400'}`}>
+                                        {trade.strategyName}
+                                      </div>
+                                    )}
                                     {trade.reasoning ? trade.reasoning.slice(0, 2).map((reason, index) => (
                                       <div key={index} className="truncate">• {stripStrategyPrefix(reason)}</div>
                                     )) : '-'}
@@ -5780,6 +5823,7 @@
                   <option value="">全部策略</option>
                   <option value="趋势策略">趋势策略</option>
                   <option value="反转策略">反转策略</option>
+                  <option value="事后组合">「事后组合 · 未通过 · 仅监控」</option>
                 </select>
               </div>
 
@@ -6013,6 +6057,11 @@
                         </td>
                         <td className="py-2.5 px-3 max-w-xs">
                           <div className="text-[11px] text-slate-300 leading-snug">
+                            {trade.strategyName && (
+                              <div className={`truncate text-[10px] mb-0.5 ${String(trade.strategyName).includes('事后组合') ? 'text-amber-300' : 'text-slate-400'}`}>
+                                {trade.strategyName}
+                              </div>
+                            )}
                             {trade.reasoning ? trade.reasoning.slice(0, 2).map((reason, index) => (
                               <div key={index} className="truncate">• {stripStrategyPrefix(reason)}</div>
                             )) : '-'}

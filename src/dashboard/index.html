@@ -2359,6 +2359,7 @@
       // 动效控制状态
       const initialLoadedRef = React.useRef(false);
       const knownTradeIdsRef = React.useRef(new Set());
+      const spokenOpenTradeIdsRef = React.useRef(new Set());
       const closedTradeIdsRef = React.useRef(new Set());
       const [newlyInsertedTradeIds, setNewlyInsertedTradeIds] = useState(new Set());
       const [recentlySettledTradeIds, setRecentlySettledTradeIds] = useState(new Map()); // id -> 'WIN' | 'LOSS'
@@ -2511,13 +2512,25 @@
       // 语音播报工具（基于原生 Web Speech API，防抖去重、防 Chrome 假死与自动唤醒）
       const lastSpokenRef = React.useRef({ text: '', time: 0 });
 
-      const speak = (text) => {
+      const speak = (text, options) => {
+        let finished = false;
+        const done = () => {
+          if (finished) return;
+          finished = true;
+          if (options && typeof options.onDone === 'function') options.onDone();
+        };
         try {
-          if (!text || typeof window === 'undefined' || !('speechSynthesis' in window)) return;
+          if (!text || typeof window === 'undefined' || !('speechSynthesis' in window)) {
+            done();
+            return;
+          }
 
           // 防 2.5 秒内对相同文案重复播报（如 socket 与 polling 同时到达产生干扰）
+          // 开仓提示另按交易 _id 去重，同方向的两笔新单不受这层文案去重挡住。
           const now = Date.now();
-          if (lastSpokenRef.current.text === text && (now - lastSpokenRef.current.time) < 2500) {
+          const bypassTextDedupe = options && options.bypassTextDedupe;
+          if (!bypassTextDedupe && lastSpokenRef.current.text === text && (now - lastSpokenRef.current.time) < 2500) {
+            done();
             return;
           }
           lastSpokenRef.current = { text, time: now };
@@ -2543,10 +2556,12 @@
           };
           utter.onend = () => {
             console.log('[BTC Voice] 语音播报完成:', text);
+            done();
           };
           utter.onerror = (err) => {
             console.warn('[BTC Voice] 语音播报异常:', err);
             try { window.speechSynthesis.resume(); } catch (_) {}
+            done();
           };
 
           // 保持全局引用防止垃圾回收过早终止
@@ -2560,7 +2575,59 @@
           window.speechSynthesis.speak(utter);
         } catch (e) {
           console.warn('语音播报失败:', e);
+          done();
         }
+      };
+
+      const markOpenTradeSpoken = (id) => {
+        if (id == null || id === '') return;
+        spokenOpenTradeIdsRef.current.add(id);
+        spokenOpenTradeIdsRef.current.add(String(id));
+      };
+
+      const hasSpokenOpenTrade = (id) => {
+        if (id == null || id === '') return false;
+        return spokenOpenTradeIdsRef.current.has(id) || spokenOpenTradeIdsRef.current.has(String(id));
+      };
+
+      const isPostHocOpenTrade = (trade) => {
+        if (!trade || trade.orderSource === 'MANUAL') return false;
+        if (trade.postHoc === true) return true;
+        const strategyName = String(trade.strategyName || '');
+        if (strategyName.includes('事后组合')) return true;
+        const strategyId = String(trade.strategyId || '');
+        if (strategyId === 'and_prem_tbr' || strategyId === 'and_3same_prem' || strategyId === 'and_3same_highvol') return true;
+        const reason = Array.isArray(trade.reasoning) ? trade.reasoning.join('\n') : String(trade.reasoning || '');
+        return reason.includes('事后组合');
+      };
+
+      const openTradePrompt = (trade) => {
+        const isBuy = trade.tradeType === 'LONG' || trade.signal === 'BUY';
+        const side = isBuy ? '做多' : '做空';
+        if (isPostHocOpenTrade(trade)) {
+          return `事后组合，未通过，仅监控，${side}信号，不下单`;
+        }
+        return `您有新的${side}订单`;
+      };
+
+      // 同一笔开仓只播一次。一批里有多笔时排队，避免后一句立刻 cancel 掉前一句。
+      const speakOpenTrades = (trades) => {
+        const lines = [];
+        (trades || []).forEach((trade) => {
+          if (!trade || trade._id == null || trade._id === '') return;
+          if (hasSpokenOpenTrade(trade._id)) return;
+          markOpenTradeSpoken(trade._id);
+          lines.push(openTradePrompt(trade));
+        });
+        const playNext = () => {
+          const text = lines.shift();
+          if (!text) return;
+          speak(text, {
+            bypassTextDedupe: true,
+            onDone: lines.length > 0 ? playNext : undefined
+          });
+        };
+        playNext();
       };
 
       // 触发胜利动效（全屏火花纸屑 + HUD弹窗 + 音效 + 语音播报）
@@ -2666,6 +2733,7 @@
           initialLoadedRef.current = true;
           newTrades.forEach(t => {
             knownTradeIdsRef.current.add(t._id);
+            markOpenTradeSpoken(t._id);
             if (t.closeTime) {
               closedTradeIdsRef.current.add(t._id);
             }
@@ -2690,12 +2758,11 @@
             return updated;
           });
           playSoundEffect('insert');
-          // 获取最新开仓订单进行语音播报
-          const newestTrade = newTrades.find(t => t._id === insertedIds[0]);
-          if (newestTrade) {
-            const isBuy = newestTrade.tradeType === 'LONG' || newestTrade.signal === 'BUY';
-            speak(isBuy ? '您有新的做多订单' : '您有新的做空订单');
-          }
+          // 开仓语音只走这里：交易已经进流水后再播，并按 _id 只播一次。
+          const insertedTrades = insertedIds
+            .map(id => newTrades.find(t => t._id === id || String(t._id) === String(id)))
+            .filter(Boolean);
+          speakOpenTrades(insertedTrades);
           setTimeout(() => {
             setNewlyInsertedTradeIds(prev => {
               const next = new Set(prev);
@@ -2813,10 +2880,9 @@
             });
             return [signal, ...filtered].slice(0, 3);
           });
-          // 事后组合只做监控播报，不能说成已经下单
-          speak(signal.postHoc
-            ? `事后组合，未通过，仅监控，${signal.signal === 'BUY' ? '做多' : '做空'}信号，不下单`
-            : (signal.signal === 'BUY' ? '您有新的做多订单' : '您有新的做空订单'));
+          // 不在信号到达时播开仓语音。信号对象没有交易 _id，文案又和流水那句不同，
+          // 2.5 秒文案去重挡不住，会和 processTradesUpdates 各说一遍。
+          // 事后组合、趋势单、手动单都等交易落库后由 speakOpenTrades 播一次。
         });
 
         // 持仓结束（平仓）时清除当前信号

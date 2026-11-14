@@ -1942,7 +1942,7 @@
      * 开单金额严格与系统自动单一致 (100 USDT)
      * 支持用户手动输入或一键选择入场策略
      */
-    const ManualOrderModal = ({ isOpen, onClose, currentPrice, onSuccess }) => {
+    const ManualOrderModal = ({ isOpen, onClose, onSuccess }) => {
       const [direction, setDirection] = useState('LONG'); // 'LONG' | 'SHORT'
       const [reasoning, setReasoning] = useState('');
       const [submitting, setSubmitting] = useState(false);
@@ -1950,11 +1950,6 @@
       const [successMsg, setSuccessMsg] = useState('');
 
       if (!isOpen) return null;
-
-      const formatPrice = (val) => {
-        if (val == null || isNaN(val)) return '--';
-        return Number(val).toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-      };
 
       const presetStrategies = [
         { label: '突破追多', dir: 'LONG', text: '5分钟突破近期高点追多' },
@@ -2033,21 +2028,6 @@
               </button>
             </div>
 
-            {/* 当前实时价格提示卡 */}
-            <div className="p-3 rounded-lg bg-[#05080c] border border-cyan-500/30 mb-4 flex items-center justify-between">
-              <div>
-                <span className="text-[11px] text-slate-400 block">标的合约 / 最新实时指数价:</span>
-                <span className="text-base sm:text-lg font-black text-cyan-300">
-                  BTCUSDT &nbsp;
-                  <span className="text-emerald-400 font-bold">{formatPrice(currentPrice)}</span>
-                  <span className="text-xs text-slate-400 font-normal ml-1">USDT</span>
-                </span>
-              </div>
-              <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-500/15 text-emerald-400 border border-emerald-500/30">
-                LIVE_FEED
-              </span>
-            </div>
-
             <form onSubmit={handleSubmit} className="space-y-4">
               {/* 方向选择 */}
               <div>
@@ -2083,34 +2063,11 @@
                 </div>
               </div>
 
-              {/* 开单金额（锁定与系统一致） */}
-              <div>
-                <div className="flex items-center justify-between mb-1.5">
-                  <label className="text-xs font-bold text-slate-300 uppercase tracking-wider">
-                    02_开仓本金 (STAKE_AMOUNT)
-                  </label>
-                  <span className="text-[10px] text-cyan-400 font-semibold">
-                    [锁定: 与系统自动开单严格一致]
-                  </span>
-                </div>
-                <div className="relative">
-                  <input
-                    type="text"
-                    value="100.00 USDT"
-                    disabled
-                    className="w-full bg-[#05080c]/80 border border-slate-700 rounded-lg py-2.5 px-3.5 text-slate-300 font-bold text-sm cursor-not-allowed select-none"
-                  />
-                  <span className="absolute right-3 top-2.5 text-[10px] px-2 py-0.5 rounded bg-slate-800 text-slate-400 font-semibold border border-slate-700">
-                    固定 100U
-                  </span>
-                </div>
-              </div>
-
               {/* 入场策略输入 */}
               <div>
                 <div className="flex items-center justify-between mb-1.5">
                   <label className="text-xs font-bold text-slate-300 uppercase tracking-wider">
-                    03_入场策略 / 信号依据 (STRATEGY_REASONING)
+                    02_入场策略 / 信号依据 (STRATEGY_REASONING)
                   </label>
                   <span className="text-[10px] text-slate-400 font-normal">
                     自定义输入或点击快捷预设
@@ -2228,7 +2185,6 @@
       const [showAuthModal, setShowAuthModal] = useState(false);
       const [authMode, setAuthMode] = useState('login');
       const [showManualOrderModal, setShowManualOrderModal] = useState(false);
-      const [liveBtcPrice, setLiveBtcPrice] = useState(78000);
       const [metricsSourceFilter, setMetricsSourceFilter] = useState('ALL'); // 'ALL' | 'AUTO' | 'MANUAL'
       const [tableSourceFilter, setTableSourceFilter] = useState('ALL'); // 'ALL' | 'AUTO' | 'MANUAL'
       const confettiTriggeredTradesRef = React.useRef(new Set()); // 使用useRef存储已触发散花的交易ID，避免组件重渲染时丢失
@@ -2403,6 +2359,7 @@
       // 动效控制状态
       const initialLoadedRef = React.useRef(false);
       const knownTradeIdsRef = React.useRef(new Set());
+      const spokenOpenTradeIdsRef = React.useRef(new Set());
       const closedTradeIdsRef = React.useRef(new Set());
       const [newlyInsertedTradeIds, setNewlyInsertedTradeIds] = useState(new Set());
       const [recentlySettledTradeIds, setRecentlySettledTradeIds] = useState(new Map()); // id -> 'WIN' | 'LOSS'
@@ -2555,13 +2512,25 @@
       // 语音播报工具（基于原生 Web Speech API，防抖去重、防 Chrome 假死与自动唤醒）
       const lastSpokenRef = React.useRef({ text: '', time: 0 });
 
-      const speak = (text) => {
+      const speak = (text, options) => {
+        let finished = false;
+        const done = () => {
+          if (finished) return;
+          finished = true;
+          if (options && typeof options.onDone === 'function') options.onDone();
+        };
         try {
-          if (!text || typeof window === 'undefined' || !('speechSynthesis' in window)) return;
+          if (!text || typeof window === 'undefined' || !('speechSynthesis' in window)) {
+            done();
+            return;
+          }
 
           // 防 2.5 秒内对相同文案重复播报（如 socket 与 polling 同时到达产生干扰）
+          // 开仓提示另按交易 _id 去重，同方向的两笔新单不受这层文案去重挡住。
           const now = Date.now();
-          if (lastSpokenRef.current.text === text && (now - lastSpokenRef.current.time) < 2500) {
+          const bypassTextDedupe = options && options.bypassTextDedupe;
+          if (!bypassTextDedupe && lastSpokenRef.current.text === text && (now - lastSpokenRef.current.time) < 2500) {
+            done();
             return;
           }
           lastSpokenRef.current = { text, time: now };
@@ -2587,10 +2556,12 @@
           };
           utter.onend = () => {
             console.log('[BTC Voice] 语音播报完成:', text);
+            done();
           };
           utter.onerror = (err) => {
             console.warn('[BTC Voice] 语音播报异常:', err);
             try { window.speechSynthesis.resume(); } catch (_) {}
+            done();
           };
 
           // 保持全局引用防止垃圾回收过早终止
@@ -2604,7 +2575,59 @@
           window.speechSynthesis.speak(utter);
         } catch (e) {
           console.warn('语音播报失败:', e);
+          done();
         }
+      };
+
+      const markOpenTradeSpoken = (id) => {
+        if (id == null || id === '') return;
+        spokenOpenTradeIdsRef.current.add(id);
+        spokenOpenTradeIdsRef.current.add(String(id));
+      };
+
+      const hasSpokenOpenTrade = (id) => {
+        if (id == null || id === '') return false;
+        return spokenOpenTradeIdsRef.current.has(id) || spokenOpenTradeIdsRef.current.has(String(id));
+      };
+
+      const isPostHocOpenTrade = (trade) => {
+        if (!trade || trade.orderSource === 'MANUAL') return false;
+        if (trade.postHoc === true) return true;
+        const strategyName = String(trade.strategyName || '');
+        if (strategyName.includes('事后组合')) return true;
+        const strategyId = String(trade.strategyId || '');
+        if (strategyId === 'and_prem_tbr' || strategyId === 'and_3same_prem' || strategyId === 'and_3same_highvol') return true;
+        const reason = Array.isArray(trade.reasoning) ? trade.reasoning.join('\n') : String(trade.reasoning || '');
+        return reason.includes('事后组合');
+      };
+
+      const openTradePrompt = (trade) => {
+        const isBuy = trade.tradeType === 'LONG' || trade.signal === 'BUY';
+        const side = isBuy ? '做多' : '做空';
+        if (isPostHocOpenTrade(trade)) {
+          return `事后组合，未通过，仅监控，${side}信号，不下单`;
+        }
+        return `您有新的${side}订单`;
+      };
+
+      // 同一笔开仓只播一次。一批里有多笔时排队，避免后一句立刻 cancel 掉前一句。
+      const speakOpenTrades = (trades) => {
+        const lines = [];
+        (trades || []).forEach((trade) => {
+          if (!trade || trade._id == null || trade._id === '') return;
+          if (hasSpokenOpenTrade(trade._id)) return;
+          markOpenTradeSpoken(trade._id);
+          lines.push(openTradePrompt(trade));
+        });
+        const playNext = () => {
+          const text = lines.shift();
+          if (!text) return;
+          speak(text, {
+            bypassTextDedupe: true,
+            onDone: lines.length > 0 ? playNext : undefined
+          });
+        };
+        playNext();
       };
 
       // 触发胜利动效（全屏火花纸屑 + HUD弹窗 + 音效 + 语音播报）
@@ -2710,6 +2733,7 @@
           initialLoadedRef.current = true;
           newTrades.forEach(t => {
             knownTradeIdsRef.current.add(t._id);
+            markOpenTradeSpoken(t._id);
             if (t.closeTime) {
               closedTradeIdsRef.current.add(t._id);
             }
@@ -2734,12 +2758,11 @@
             return updated;
           });
           playSoundEffect('insert');
-          // 获取最新开仓订单进行语音播报
-          const newestTrade = newTrades.find(t => t._id === insertedIds[0]);
-          if (newestTrade) {
-            const isBuy = newestTrade.tradeType === 'LONG' || newestTrade.signal === 'BUY';
-            speak(isBuy ? '您有新的做多订单' : '您有新的做空订单');
-          }
+          // 开仓语音只走这里：交易已经进流水后再播，并按 _id 只播一次。
+          const insertedTrades = insertedIds
+            .map(id => newTrades.find(t => t._id === id || String(t._id) === String(id)))
+            .filter(Boolean);
+          speakOpenTrades(insertedTrades);
           setTimeout(() => {
             setNewlyInsertedTradeIds(prev => {
               const next = new Set(prev);
@@ -2857,10 +2880,9 @@
             });
             return [signal, ...filtered].slice(0, 3);
           });
-          // 事后组合只做监控播报，不能说成已经下单
-          speak(signal.postHoc
-            ? `事后组合，未通过，仅监控，${signal.signal === 'BUY' ? '做多' : '做空'}信号，不下单`
-            : (signal.signal === 'BUY' ? '您有新的做多订单' : '您有新的做空订单'));
+          // 不在信号到达时播开仓语音。信号对象没有交易 _id，文案又和流水那句不同，
+          // 2.5 秒文案去重挡不住，会和 processTradesUpdates 各说一遍。
+          // 事后组合、趋势单、手动单都等交易落库后由 speakOpenTrades 播一次。
         });
 
         // 持仓结束（平仓）时清除当前信号
@@ -2928,18 +2950,6 @@
 
             return newHistory;
           });
-        });
-
-        socket.on('priceUpdate', (data) => {
-          if (data && data.price) {
-            setLiveBtcPrice(data.price);
-          }
-        });
-
-        socket.on('indexPriceUpdate', (data) => {
-          if (data && data.price) {
-            setLiveBtcPrice(data.price);
-          }
         });
 
         socket.on('statsUpdate', (newStats) => {
@@ -3039,12 +3049,6 @@
       const fetchInitialData = async () => {
         try {
           const token = localStorage.getItem('token');
-          // 异步获取当前价格
-          fetch('/api/current-price')
-            .then(res => res.ok ? res.json() : null)
-            .then(pData => { if (pData && pData.price) setLiveBtcPrice(pData.price); })
-            .catch(() => {});
-
           const [statsRes, tradesRes] = await Promise.all([
             fetch('/api/stats', {
               headers: { 'Authorization': `Bearer ${token}` }
@@ -3513,14 +3517,6 @@
 
               {/* 模块视图切换选项卡与快捷操作 */}
               <div className="flex items-center justify-end gap-1.5 p-1 rounded-lg bg-[#04070b] border border-slate-700/80 font-mono flex-wrap">
-                <button
-                  onClick={() => setShowManualOrderModal(true)}
-                  className="px-3 py-1.5 text-xs rounded transition-all duration-150 font-bold tracking-wider bg-gradient-to-r from-purple-500/20 via-cyan-500/20 to-emerald-500/20 hover:from-purple-500/30 hover:to-emerald-500/30 text-cyan-300 hover:text-cyan-100 border border-cyan-400/50 shadow-md shadow-cyan-500/10 flex items-center gap-1.5 font-mono cursor-pointer mr-1"
-                  title="手动快速开单 (100 USDT)"
-                >
-                  <span className="w-2 h-2 rounded-full bg-cyan-400 animate-ping"></span>
-                  ⚡ 手动开单
-                </button>
                 {[
                   { id: 'dashboard', label: '[ 监控面板 MONITOR ]' },
                   { id: 'strategies', label: '[ 策略统计 TELEMETRY ]' },
@@ -4200,7 +4196,6 @@
           <ManualOrderModal
             isOpen={showManualOrderModal}
             onClose={() => setShowManualOrderModal(false)}
-            currentPrice={liveBtcPrice}
             onSuccess={(newTrade) => {
               if (newTrade && newTrade._id) {
                 setNewlyInsertedTradeIds(prev => new Set([...prev, newTrade._id]));

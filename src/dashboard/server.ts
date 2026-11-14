@@ -614,30 +614,6 @@ app.get('/api/backtest/index-klines', async (req, res) => {
   try {
     const symbol = (typeof req.query.symbol === 'string' && req.query.symbol) ? req.query.symbol : 'BTCUSDT';
     const interval = typeof req.query.interval === 'string' ? req.query.interval : '5m';
-    const maxRequested = Math.min(parseInt(String(req.query.limit), 10) || 1000, 3000);
-
-    // 解析时间戳（支持毫秒数字、YYYY-MM-DD 或 ISO字符串）
-    let startMs: number | undefined;
-    let endMs: number | undefined;
-
-    if (req.query.start) {
-      const parsed = isNaN(Number(req.query.start)) ? new Date(String(req.query.start)).getTime() : Number(req.query.start);
-      if (!isNaN(parsed)) startMs = parsed;
-    }
-    if (req.query.end) {
-      const parsed = isNaN(Number(req.query.end)) ? new Date(String(req.query.end)).getTime() : Number(req.query.end);
-      if (!isNaN(parsed)) endMs = parsed;
-    }
-
-    // 默认回测时间区间：若未传，则为最近7天
-    const now = Date.now();
-    if (!endMs) endMs = now;
-    if (!startMs) startMs = endMs - 7 * 24 * 3600 * 1000;
-
-    if (startMs >= endMs) {
-      res.status(400).json({ success: false, error: '开始时间必须小于结束时间' });
-      return;
-    }
 
     // 周期毫秒数映射
     const intervalToMs: Record<string, number> = {
@@ -654,6 +630,45 @@ app.get('/api/backtest/index-klines', async (req, res) => {
       '1d': 24 * 3600 * 1000
     };
     const intervalMs = intervalToMs[interval] || 5 * 60 * 1000;
+
+    const isRandom = req.query.random === 'true' || req.query.random === '1000' || req.query.isRandom === 'true';
+    const maxRequested = isRandom ? 1000 : Math.min(parseInt(String(req.query.limit), 10) || 1000, 3000);
+
+    const now = Date.now();
+    let startMs: number | undefined;
+    let endMs: number | undefined;
+
+    if (isRandom) {
+      // 随机抽取过去 90 天到最近 2 小时之间的任意一段严格连续的 1000 根 K 线
+      const targetCount = 1000;
+      const spanMs = targetCount * intervalMs;
+      const maxHistoryMs = 90 * 24 * 3600 * 1000;
+      const minStart = now - maxHistoryMs;
+      const maxStart = now - spanMs - 2 * 3600 * 1000;
+      const safeMinStart = Math.min(minStart, maxStart);
+      const pickedStart = safeMinStart + Math.floor(Math.random() * Math.max(1, maxStart - safeMinStart));
+      startMs = Math.floor(pickedStart / intervalMs) * intervalMs;
+      endMs = startMs + spanMs;
+    } else {
+      // 解析时间戳（支持毫秒数字、YYYY-MM-DD 或 ISO字符串）
+      if (req.query.start) {
+        const parsed = isNaN(Number(req.query.start)) ? new Date(String(req.query.start)).getTime() : Number(req.query.start);
+        if (!isNaN(parsed)) startMs = parsed;
+      }
+      if (req.query.end) {
+        const parsed = isNaN(Number(req.query.end)) ? new Date(String(req.query.end)).getTime() : Number(req.query.end);
+        if (!isNaN(parsed)) endMs = parsed;
+      }
+
+      // 默认回测时间区间：若未传，则为最近7天
+      if (!endMs) endMs = now;
+      if (!startMs) startMs = endMs - 7 * 24 * 3600 * 1000;
+
+      if (startMs >= endMs) {
+        res.status(400).json({ success: false, error: '开始时间必须小于结束时间' });
+        return;
+      }
+    }
 
     let klines: any[] = [];
     let dataSource = 'binance_index';
@@ -733,7 +748,7 @@ app.get('/api/backtest/index-klines', async (req, res) => {
     if (klines.length < 5) {
       dataSource = 'simulated_index';
       klines = [];
-      const totalBars = Math.min(Math.floor((endMs - startMs) / intervalMs), maxRequested);
+      const totalBars = isRandom ? 1000 : Math.min(Math.floor((endMs - startMs) / intervalMs), maxRequested);
       let basePrice = 88500;
       // 尝试使用最近一笔已知价格作为基准
       try {
@@ -766,12 +781,45 @@ app.get('/api/backtest/index-klines', async (req, res) => {
       }
     }
 
+    // 4. 严苛连续性校验：若请求随机1000根K线，消除任何微小时间跳跃，保证100%严格无缝连续
+    if (klines.length > 0) {
+      const continuousKlines: any[] = [klines[0]];
+      for (let i = 1; i < klines.length && continuousKlines.length < maxRequested; i++) {
+        const prev = continuousKlines[continuousKlines.length - 1];
+        const cur = klines[i];
+        const expectedTime = prev.openTime + intervalMs;
+        if (cur.openTime === expectedTime) {
+          continuousKlines.push(cur);
+        } else if (cur.openTime > expectedTime) {
+          // 若有极少数缺失空档，以前一根收盘价无缝平滑填充，确保连续性
+          let gapTime = expectedTime;
+          while (gapTime < cur.openTime && continuousKlines.length < maxRequested) {
+            continuousKlines.push({
+              openTime: gapTime,
+              open: prev.close,
+              high: prev.close,
+              low: prev.close,
+              close: prev.close,
+              volume: '0.00',
+              closeTime: gapTime + intervalMs - 1
+            });
+            gapTime += intervalMs;
+          }
+          if (continuousKlines.length < maxRequested) {
+            continuousKlines.push(cur);
+          }
+        }
+      }
+      klines = isRandom ? continuousKlines.slice(0, 1000) : continuousKlines;
+    }
+
     res.json({
       success: true,
       symbol,
       interval,
       source: dataSource,
       count: klines.length,
+      isRandom,
       startTime: startMs,
       endTime: endMs,
       klines

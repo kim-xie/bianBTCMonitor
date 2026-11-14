@@ -651,6 +651,51 @@
         }
       };
 
+      // 随机抽取连续 1000 根 K 线进行盲测回测 (严格保证连续性)
+      const loadRandom1000Bars = async () => {
+        setLoading(true);
+        setErrorMsg('');
+        setIsPlaying(false);
+        setActivePositions([]);
+
+        try {
+          const res = await fetch(`/api/backtest/index-klines?symbol=${symbol}&interval=${interval}&random=1000&limit=1000`);
+          const data = await res.json();
+
+          if (!data.success || !data.klines || data.klines.length === 0) {
+            setErrorMsg(data.error || '获取随机连续K线失败，请重试');
+            setLoading(false);
+            return;
+          }
+
+          const klines = data.klines;
+          const firstBar = klines[0];
+          const lastBar = klines[klines.length - 1];
+
+          // 自动同步起止时间选择器与状态条显示
+          const sDate = new Date(Number(firstBar.openTime));
+          const eDate = new Date(Number(lastBar.openTime));
+          setStartDate(toDateStr(sDate));
+          setStartTime(toTimeStr(sDate));
+          setEndDate(toDateStr(eDate));
+          setEndTime(toTimeStr(eDate));
+
+          setAllKlines(klines);
+          setDataSource(data.source || 'index_random');
+          // 初始从前20根开始，给EMA指标留下初始计算历史，同时留出整整980根可单步推演
+          setReplayIndex(Math.min(20, klines.length - 1));
+          setIsPlaying(false);
+
+          setNoticeMsg(`🎲【随机连续1000根K线载入成功】已抽取 ${klines.length} 根严格连续K线 (${toDateStr(sDate)} ${toTimeStr(sDate)} 至 ${toDateStr(eDate)} ${toTimeStr(eDate)})，连续无断点，可开始客观盲测！`);
+          setTimeout(() => setNoticeMsg(''), 6000);
+        } catch (err) {
+          console.error('拉取随机连续K线失败:', err);
+          setErrorMsg('拉取随机连续K线数据网络异常: ' + (err.message || err));
+        } finally {
+          setLoading(false);
+        }
+      };
+
       // 初始加载一次
       useEffect(() => {
         fetchIndexData();
@@ -1734,19 +1779,32 @@
                   </select>
                 </div>
 
-                {/* 确认载入按钮 (1列) */}
-                <div className="lg:col-span-1">
+                {/* 载入与随机1000根按钮组 (1列) */}
+                <div className="lg:col-span-1 flex flex-col gap-1.5 justify-end">
                   <button
-                    onClick={fetchIndexData}
+                    type="button"
+                    onClick={() => fetchIndexData()}
                     disabled={loading}
-                    className="w-full py-2.5 bg-gradient-to-r from-cyan-600 to-emerald-600 hover:from-cyan-500 hover:to-emerald-500 text-white rounded text-xs font-bold tracking-wider transition-all shadow-md shadow-cyan-900/40 disabled:opacity-50 flex items-center justify-center gap-1"
+                    className="w-full py-1.5 bg-gradient-to-r from-cyan-600 to-emerald-600 hover:from-cyan-500 hover:to-emerald-500 text-white rounded text-xs font-bold tracking-wider transition-all shadow-md shadow-cyan-900/40 disabled:opacity-50 flex items-center justify-center gap-1"
+                    title="载入当前选择的时间区间K线数据"
                   >
                     {loading ? (
                       <i className="fa-solid fa-spinner fa-spin"></i>
                     ) : (
                       <i className="fa-solid fa-bolt"></i>
                     )}
-                    <span>{loading ? '加载中' : '载入数据'}</span>
+                    <span>{loading ? '加载中' : '载入区间'}</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={loadRandom1000Bars}
+                    disabled={loading}
+                    className="w-full py-1.5 bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white rounded text-xs font-bold tracking-wider transition-all shadow-md shadow-purple-900/40 disabled:opacity-50 flex items-center justify-center gap-1"
+                    title="在历史指数数据中随机截取1000根连续K线，支持客观盲测"
+                  >
+                    <i className="fa-solid fa-dice text-amber-300"></i>
+                    <span>随机1000根</span>
                   </button>
                 </div>
               </div>
@@ -1762,15 +1820,21 @@
                   <span className="text-cyan-400 font-bold">
                     {endDate} {endTime}
                   </span>
+                  {allKlines.length === 1000 && (
+                    <span className="px-2 py-0.5 rounded bg-purple-950 text-purple-300 border border-purple-800 text-[11px] font-bold flex items-center gap-1">
+                      <i className="fa-solid fa-dice text-amber-400"></i>
+                      <span>随机1000根连续K线</span>
+                    </span>
+                  )}
                   {timeSpanInfo && (
                     <span className="px-2 py-0.5 rounded bg-cyan-950 text-cyan-300 border border-cyan-800/80 text-[11px]">
-                      跨度: {timeSpanInfo.spanText} | 预估K线: ~{timeSpanInfo.estimatedBars} 根
+                      跨度: {timeSpanInfo.spanText} | 实际K线: {allKlines.length || `~${timeSpanInfo.estimatedBars}`} 根
                     </span>
                   )}
                 </div>
 
                 {/* 快捷时间预设快捷点选 */}
-                <div className="flex items-center gap-1 text-[11px]">
+                <div className="flex items-center gap-1 text-[11px] flex-wrap">
                   <span className="text-slate-500">快捷预设:</span>
                   <button
                     type="button"
@@ -1826,6 +1890,16 @@
                     className="px-2 py-0.5 rounded bg-slate-900 hover:bg-slate-800 text-slate-300 border border-slate-800"
                   >
                     近30天
+                  </button>
+                  <button
+                    type="button"
+                    onClick={loadRandom1000Bars}
+                    disabled={loading}
+                    className="px-2.5 py-0.5 rounded bg-gradient-to-r from-purple-900/60 to-cyan-900/60 hover:from-purple-800 hover:to-cyan-800 text-purple-200 border border-purple-500/60 font-bold flex items-center gap-1 shadow-sm transition-all"
+                    title="在历史指数中随机截取1000根严格连续K线，进行无偏见盲测"
+                  >
+                    <i className="fa-solid fa-dice text-amber-400"></i>
+                    <span>🎲 随机1000根 (连续)</span>
                   </button>
                 </div>
               </div>

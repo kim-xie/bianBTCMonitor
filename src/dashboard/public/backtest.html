@@ -52,6 +52,29 @@
       box-shadow: 0 4px 20px rgba(0, 0, 0, 0.7), inset 0 0 30px rgba(6, 182, 212, 0.02);
     }
 
+    /* 让所有日期、时间原生选择器的图标在暗黑主题下变白且清晰可见 */
+    input[type="date"],
+    input[type="time"],
+    input[type="datetime-local"] {
+      color-scheme: dark;
+    }
+
+    input[type="date"]::-webkit-calendar-picker-indicator,
+    input[type="time"]::-webkit-calendar-picker-indicator,
+    input[type="datetime-local"]::-webkit-calendar-picker-indicator {
+      filter: invert(1) brightness(1.6);
+      cursor: pointer;
+      opacity: 0.85;
+      padding: 2px;
+    }
+
+    input[type="date"]::-webkit-calendar-picker-indicator:hover,
+    input[type="time"]::-webkit-calendar-picker-indicator:hover,
+    input[type="datetime-local"]::-webkit-calendar-picker-indicator:hover {
+      opacity: 1;
+      filter: invert(1) brightness(2) drop-shadow(0 0 4px #06b6d4);
+    }
+
     /* 荧光特效 */
     .glow-green {
       text-shadow: 0 0 10px rgba(16, 185, 129, 0.6);
@@ -91,6 +114,9 @@
       });
     };
 
+    // 工具函数：数字补零
+    const pad = (n) => String(n).padStart(2, '0');
+
     // 工具函数：格式化时间戳为北京时间 YYYY-MM-DD HH:mm:ss
     const formatBeijingTime = (ts) => {
       if (!ts) return '--';
@@ -99,23 +125,22 @@
       const utc = d.getTime() + d.getTimezoneOffset() * 60000;
       const bj = new Date(utc + 8 * 3600000);
       const Y = bj.getFullYear();
-      const M = String(bj.getMonth() + 1).padStart(2, '0');
-      const D = String(bj.getDate()).padStart(2, '0');
-      const h = String(bj.getHours()).padStart(2, '0');
-      const m = String(bj.getMinutes()).padStart(2, '0');
-      const s = String(bj.getSeconds()).padStart(2, '0');
+      const M = pad(bj.getMonth() + 1);
+      const D = pad(bj.getDate());
+      const h = pad(bj.getHours());
+      const m = pad(bj.getMinutes());
+      const s = pad(bj.getSeconds());
       return `${Y}-${M}-${D} ${h}:${m}:${s}`;
     };
 
-    // 工具函数：格式化 datetime-local 字符串 (YYYY-MM-DDTHH:mm)
-    const toDateTimeLocal = (date) => {
-      const pad = (n) => String(n).padStart(2, '0');
-      const Y = date.getFullYear();
-      const M = pad(date.getMonth() + 1);
-      const D = pad(date.getDate());
-      const h = pad(date.getHours());
-      const m = pad(date.getMinutes());
-      return `${Y}-${M}-${D}T${h}:${m}`;
+    // 工具函数：获取 YYYY-MM-DD 字符串
+    const toDateStr = (date) => {
+      return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
+    };
+
+    // 工具函数：获取 HH:mm 字符串
+    const toTimeStr = (date) => {
+      return `${pad(date.getHours())}:${pad(date.getMinutes())}`;
     };
 
     // 周期毫秒数映射
@@ -130,25 +155,314 @@
       '1d': 24 * 3600 * 1000
     };
 
+    // ==============================================================
+    // 交互式可视化日历范围选择器弹窗 (Calendar Range Picker Modal)
+    // ==============================================================
+    const CalendarModal = ({ isOpen, onClose, initialStartDate, initialEndDate, onApply }) => {
+      const [viewDate, setViewDate] = useState(() => new Date());
+      const [selStart, setSelStart] = useState(initialStartDate);
+      const [selEnd, setSelEnd] = useState(initialEndDate);
+      const [tempStartTime, setTempStartTime] = useState('00:00');
+      const [tempEndTime, setTempEndTime] = useState('23:59');
+
+      useEffect(() => {
+        if (isOpen) {
+          setSelStart(initialStartDate);
+          setSelEnd(initialEndDate);
+          if (initialStartDate) {
+            const [y, m] = initialStartDate.split('-').map(Number);
+            setViewDate(new Date(y, m - 1, 1));
+          }
+        }
+      }, [isOpen, initialStartDate, initialEndDate]);
+
+      if (!isOpen) return null;
+
+      const year = viewDate.getFullYear();
+      const month = viewDate.getMonth(); // 0-indexed
+
+      // 计算当月日历网格
+      const firstDay = new Date(year, month, 1);
+      const lastDay = new Date(year, month + 1, 0);
+      const daysCount = lastDay.getDate();
+      // 星期几 (0: 周日, 1: 周一, ... 6: 周六)，转为周一为第0天
+      let startDayOfWeek = firstDay.getDay() - 1;
+      if (startDayOfWeek === -1) startDayOfWeek = 6;
+
+      const calendarDays = [];
+      for (let i = 0; i < startDayOfWeek; i++) {
+        calendarDays.push(null);
+      }
+      for (let d = 1; d <= daysCount; d++) {
+        calendarDays.push(`${year}-${pad(month + 1)}-${pad(d)}`);
+      }
+
+      const handleDayClick = (dateStr) => {
+        if (!selStart || (selStart && selEnd)) {
+          setSelStart(dateStr);
+          setSelEnd('');
+        } else {
+          if (dateStr < selStart) {
+            setSelEnd(selStart);
+            setSelStart(dateStr);
+          } else {
+            setSelEnd(dateStr);
+          }
+        }
+      };
+
+      const prevMonth = () => setViewDate(new Date(year, month - 1, 1));
+      const nextMonth = () => setViewDate(new Date(year, month + 1, 1));
+
+      // 快捷预设设置
+      const applyPreset = (type) => {
+        const now = new Date();
+        const todayStr = toDateStr(now);
+
+        if (type === 'today') {
+          setSelStart(todayStr);
+          setSelEnd(todayStr);
+          setTempStartTime('00:00');
+          setTempEndTime(toTimeStr(now));
+        } else if (type === 'yesterday') {
+          const yest = new Date(now.getTime() - 86400000);
+          const yestStr = toDateStr(yest);
+          setSelStart(yestStr);
+          setSelEnd(yestStr);
+          setTempStartTime('00:00');
+          setTempEndTime('23:59');
+        } else if (type === '3d') {
+          const s = new Date(now.getTime() - 3 * 86400000);
+          setSelStart(toDateStr(s));
+          setSelEnd(todayStr);
+          setTempStartTime('00:00');
+          setTempEndTime(toTimeStr(now));
+        } else if (type === '7d') {
+          const s = new Date(now.getTime() - 7 * 86400000);
+          setSelStart(toDateStr(s));
+          setSelEnd(todayStr);
+          setTempStartTime('00:00');
+          setTempEndTime(toTimeStr(now));
+        } else if (type === '15d') {
+          const s = new Date(now.getTime() - 15 * 86400000);
+          setSelStart(toDateStr(s));
+          setSelEnd(todayStr);
+          setTempStartTime('00:00');
+          setTempEndTime(toTimeStr(now));
+        } else if (type === '30d') {
+          const s = new Date(now.getTime() - 30 * 86400000);
+          setSelStart(toDateStr(s));
+          setSelEnd(todayStr);
+          setTempStartTime('00:00');
+          setTempEndTime(toTimeStr(now));
+        } else if (type === 'thisMonth') {
+          const s = new Date(year, month, 1);
+          setSelStart(toDateStr(s));
+          setSelEnd(todayStr);
+          setTempStartTime('00:00');
+          setTempEndTime(toTimeStr(now));
+        } else if (type === 'lastMonth') {
+          const s = new Date(year, month - 1, 1);
+          const e = new Date(year, month, 0);
+          setSelStart(toDateStr(s));
+          setSelEnd(toDateStr(e));
+          setTempStartTime('00:00');
+          setTempEndTime('23:59');
+          setViewDate(s);
+        }
+      };
+
+      const handleConfirm = () => {
+        if (!selStart) {
+          alert('请先选择开始日期');
+          return;
+        }
+        const finalEnd = selEnd || selStart;
+        onApply(selStart, tempStartTime, finalEnd, tempEndTime);
+        onClose();
+      };
+
+      return (
+        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-3 font-terminal">
+          <div className="bg-[#080d14] border border-cyan-500/50 rounded-xl shadow-2xl max-w-lg w-full p-4 relative text-slate-100">
+            {/* 顶栏 */}
+            <div className="flex items-center justify-between pb-3 mb-3 border-b border-slate-800">
+              <div className="flex items-center gap-2">
+                <i className="fa-solid fa-calendar-days text-cyan-400"></i>
+                <h3 className="font-bold text-sm text-cyan-300 uppercase tracking-wider">
+                  自定义选择回测时间区间 (CALENDAR PICKER)
+                </h3>
+              </div>
+              <button
+                onClick={onClose}
+                className="text-slate-400 hover:text-white px-2 py-1 rounded hover:bg-slate-800 text-sm"
+              >
+                ✕
+              </button>
+            </div>
+
+            {/* 快捷选择标签 */}
+            <div className="flex items-center gap-1.5 flex-wrap mb-3 text-xs">
+              <span className="text-slate-500 text-[11px]">快捷范围:</span>
+              {[
+                { id: 'today', label: '今天' },
+                { id: 'yesterday', label: '昨天' },
+                { id: '3d', label: '近3天' },
+                { id: '7d', label: '近7天' },
+                { id: '15d', label: '近15天' },
+                { id: '30d', label: '近30天' },
+                { id: 'thisMonth', label: '本月' },
+                { id: 'lastMonth', label: '上个月' }
+              ].map((p) => (
+                <button
+                  key={p.id}
+                  onClick={() => applyPreset(p.id)}
+                  className="px-2 py-0.5 rounded bg-slate-900 hover:bg-slate-800 text-cyan-300 border border-slate-800 text-[11px] font-mono transition-all"
+                >
+                  {p.label}
+                </button>
+              ))}
+            </div>
+
+            {/* 日历导航 */}
+            <div className="flex items-center justify-between px-2 py-1.5 bg-slate-950 rounded border border-slate-800 mb-2 font-mono text-xs font-bold">
+              <button
+                onClick={prevMonth}
+                className="px-2 py-1 rounded bg-slate-900 hover:bg-slate-800 text-cyan-400 border border-slate-800"
+              >
+                ◀ 上个月
+              </button>
+              <span className="text-slate-200">
+                {year} 年 {pad(month + 1)} 月
+              </span>
+              <button
+                onClick={nextMonth}
+                className="px-2 py-1 rounded bg-slate-900 hover:bg-slate-800 text-cyan-400 border border-slate-800"
+              >
+                下个月 ▶
+              </button>
+            </div>
+
+            {/* 日历星期表头 */}
+            <div className="grid grid-cols-7 gap-1 text-center text-[11px] text-slate-500 mb-1 font-mono font-bold">
+              <span>一</span>
+              <span>二</span>
+              <span>三</span>
+              <span>四</span>
+              <span>五</span>
+              <span className="text-amber-500">六</span>
+              <span className="text-rose-500">日</span>
+            </div>
+
+            {/* 日历网格 */}
+            <div className="grid grid-cols-7 gap-1 text-center text-xs font-mono mb-3">
+              {calendarDays.map((dStr, idx) => {
+                if (!dStr) {
+                  return <div key={`empty-${idx}`} className="h-8"></div>;
+                }
+                const dayNum = parseInt(dStr.split('-')[2], 10);
+                const isStart = dStr === selStart;
+                const isEnd = dStr === selEnd;
+                const inRange = selStart && selEnd && dStr > selStart && dStr < selEnd;
+
+                let cls = 'bg-slate-900/60 text-slate-300 hover:bg-slate-800 hover:text-white border-transparent';
+                if (isStart) {
+                  cls = 'bg-emerald-500 text-slate-950 font-bold border-emerald-400 shadow-md shadow-emerald-500/30';
+                } else if (isEnd) {
+                  cls = 'bg-cyan-500 text-slate-950 font-bold border-cyan-400 shadow-md shadow-cyan-500/30';
+                } else if (inRange) {
+                  cls = 'bg-cyan-950/60 text-cyan-300 border-cyan-800/60';
+                }
+
+                return (
+                  <button
+                    key={dStr}
+                    onClick={() => handleDayClick(dStr)}
+                    className={`h-8 rounded flex items-center justify-center border transition-all ${cls}`}
+                  >
+                    {dayNum}
+                  </button>
+                );
+              })}
+            </div>
+
+            {/* 时刻选择与已选显示 */}
+            <div className="bg-slate-950 p-2.5 rounded border border-slate-800 mb-3 space-y-2 text-xs font-mono">
+              <div className="flex items-center justify-between flex-wrap gap-2">
+                <div className="flex items-center gap-1.5">
+                  <span className="text-slate-400">开始时间:</span>
+                  <span className="text-emerald-400 font-bold">{selStart || '--'}</span>
+                  <input
+                    type="time"
+                    value={tempStartTime}
+                    onChange={(e) => setTempStartTime(e.target.value)}
+                    className="px-1.5 py-0.5 rounded bg-slate-900 border border-slate-700 text-slate-200 text-xs"
+                  />
+                </div>
+                <div className="flex items-center gap-1.5">
+                  <span className="text-slate-400">结束时间:</span>
+                  <span className="text-cyan-400 font-bold">{selEnd || selStart || '--'}</span>
+                  <input
+                    type="time"
+                    value={tempEndTime}
+                    onChange={(e) => setTempEndTime(e.target.value)}
+                    className="px-1.5 py-0.5 rounded bg-slate-900 border border-slate-700 text-slate-200 text-xs"
+                  />
+                </div>
+              </div>
+              <div className="text-[11px] text-slate-500">
+                提示: 点击第一个日期设为开始日期，点击第二个日期设为结束日期。
+              </div>
+            </div>
+
+            {/* 底部按钮 */}
+            <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-800">
+              <button
+                onClick={onClose}
+                className="px-3 py-1.5 rounded bg-slate-900 hover:bg-slate-800 text-slate-400 border border-slate-800 text-xs"
+              >
+                取消
+              </button>
+              <button
+                onClick={handleConfirm}
+                className="px-4 py-1.5 rounded bg-cyan-600 hover:bg-cyan-500 text-slate-950 font-bold border border-cyan-400 text-xs shadow-md shadow-cyan-900/40"
+              >
+                确认应用所选时间
+              </button>
+            </div>
+          </div>
+        </div>
+      );
+    };
+
+    // ==============================================================
     // 主应用组件
+    // ==============================================================
     const BacktestApp = () => {
-      // 1. 回测参数与时间配置
+      // 1. 回测参数与自定义起止时间配置
       const [symbol, setSymbol] = useState('BTCUSDT');
       const [interval, setIntervalVal] = useState('5m');
+
+      // 自定义开始与结束日期、时分
       const [startDate, setStartDate] = useState(() => {
         const d = new Date(Date.now() - 3 * 24 * 3600 * 1000); // 默认3天前
-        return toDateTimeLocal(d);
+        return toDateStr(d);
       });
+      const [startTime, setStartTime] = useState('00:00');
+
       const [endDate, setEndDate] = useState(() => {
-        return toDateTimeLocal(new Date());
+        return toDateStr(new Date());
+      });
+      const [endTime, setEndTime] = useState(() => {
+        return toTimeStr(new Date());
       });
 
+      // 日历弹窗开关
+      const [showCalendarModal, setShowCalendarModal] = useState(false);
+
       // 自动平仓规则配置：
-      // autoCloseMinutes: 自动平仓持仓时长 (默认10分钟，与系统10分钟事件合约完全一致)
       const [autoCloseMinutes, setAutoCloseMinutes] = useState(10);
-      // tradeRule: 'event' (10分钟事件合约，预测正确+80%收益，错误-100%本金) 或 'margin' (标的点差涨跌幅)
       const [tradeRule, setTradeRule] = useState('event');
-      // 初始资金与单笔交易仓位 (USDT)
       const [initialCapital, setInitialCapital] = useState(1000);
       const [tradeAmount, setTradeAmount] = useState(100);
 
@@ -166,12 +480,11 @@
 
       // 3. 回放/推演引擎状态
       const [isReplayMode, setIsReplayMode] = useState(true);
-      const [replayIndex, setReplayIndex] = useState(0); // 当前推演到的K线索引 (0 ~ allKlines.length - 1)
+      const [replayIndex, setReplayIndex] = useState(0);
       const [isPlaying, setIsPlaying] = useState(false);
-      const [playSpeed, setPlaySpeed] = useState(1); // 播放速度倍率
+      const [playSpeed, setPlaySpeed] = useState(1);
 
       // 4. 当前持仓与交易记录
-      // activePosition: { id, type, entryIndex, targetExitIndex, entryPrice, entryTime, expectedExitTime, amount, autoCloseMinutes, holdBars, takeProfit, stopLoss }
       const [activePosition, setActivePosition] = useState(null);
       const [trades, setTrades] = useState(() => {
         try {
@@ -183,7 +496,7 @@
       });
 
       // 5. 过滤与选中高亮
-      const [tradeFilter, setTradeFilter] = useState('ALL'); // ALL, LONG, SHORT, WIN, LOSS
+      const [tradeFilter, setTradeFilter] = useState('ALL');
       const [selectedTradeId, setSelectedTradeId] = useState(null);
 
       // 图表 DOM 容器引用
@@ -199,15 +512,45 @@
       // 自动播放定时器
       const playTimerRef = useRef(null);
 
-      // 当前周期对应的单根K线毫秒数
+      // 当前周期毫秒数
       const curIntervalMs = useMemo(() => {
         return INTERVAL_TO_MS[interval] || 5 * 60 * 1000;
       }, [interval]);
 
-      // 当前设置的自动平仓所需持有K线数量 (例如 5m 周期下 10 分钟 = 2 根K线)
+      // 当前设置的自动平仓所需持有K线数量
       const holdBarsRequired = useMemo(() => {
         return Math.max(1, Math.round((autoCloseMinutes * 60 * 1000) / curIntervalMs));
       }, [autoCloseMinutes, curIntervalMs]);
+
+      // 解析时间戳 (本地时间)
+      const startMs = useMemo(() => {
+        if (!startDate) return 0;
+        const [y, m, d] = startDate.split('-').map(Number);
+        const [hh, mm] = (startTime || '00:00').split(':').map(Number);
+        return new Date(y, m - 1, d, hh || 0, mm || 0, 0).getTime();
+      }, [startDate, startTime]);
+
+      const endMs = useMemo(() => {
+        if (!endDate) return 0;
+        const [y, m, d] = endDate.split('-').map(Number);
+        const [hh, mm] = (endTime || '23:59').split(':').map(Number);
+        return new Date(y, m - 1, d, hh || 23, mm || 59, 59).getTime();
+      }, [endDate, endTime]);
+
+      // 计算跨度统计
+      const timeSpanInfo = useMemo(() => {
+        if (!startMs || !endMs || startMs >= endMs) return null;
+        const diffMs = endMs - startMs;
+        const totalMinutes = Math.floor(diffMs / 60000);
+        const days = Math.floor(totalMinutes / 1440);
+        const hours = Math.floor((totalMinutes % 1440) / 60);
+        const mins = totalMinutes % 60;
+        const estimatedBars = Math.floor(diffMs / curIntervalMs);
+        return {
+          spanText: `${days > 0 ? days + '天 ' : ''}${hours}小时 ${mins}分`,
+          estimatedBars
+        };
+      }, [startMs, endMs, curIntervalMs]);
 
       // 自动保存交易记录到 localStorage
       useEffect(() => {
@@ -218,7 +561,7 @@
         }
       }, [trades]);
 
-      // 当前可见K线列表 (推演模式下仅显示当前进度之前的K线)
+      // 当前可见K线列表
       const visibleKlines = useMemo(() => {
         if (!allKlines || allKlines.length === 0) return [];
         if (!isReplayMode) return allKlines;
@@ -238,29 +581,40 @@
         return Number(currentBar.close);
       }, [currentBar]);
 
-      // 快捷预设时间
-      const setQuickPreset = (hours) => {
+      // 快捷设置预设起止时间
+      const setQuickPresetHours = (hours) => {
         const end = new Date();
         const start = new Date(end.getTime() - hours * 3600 * 1000);
-        setStartDate(toDateTimeLocal(start));
-        setEndDate(toDateTimeLocal(end));
+        setStartDate(toDateStr(start));
+        setStartTime(toTimeStr(start));
+        setEndDate(toDateStr(end));
+        setEndTime(toTimeStr(end));
       };
 
-      // 从后端加载指数K线数据
-      const fetchIndexData = async () => {
+      const setPresetDays = (days) => {
+        const end = new Date();
+        const start = new Date(end.getTime() - days * 24 * 3600 * 1000);
+        setStartDate(toDateStr(start));
+        setStartTime('00:00');
+        setEndDate(toDateStr(end));
+        setEndTime(toTimeStr(end));
+      };
+
+      // 从后端加载指数K线数据 (支持传入指定的时间戳覆盖或使用当前状态)
+      const fetchIndexData = async (overrideStartMs, overrideEndMs) => {
         setLoading(true);
         setErrorMsg('');
         try {
-          const startMs = new Date(startDate).getTime();
-          const endMs = new Date(endDate).getTime();
+          const sMs = overrideStartMs !== undefined ? overrideStartMs : startMs;
+          const eMs = overrideEndMs !== undefined ? overrideEndMs : endMs;
 
-          if (isNaN(startMs) || isNaN(endMs) || startMs >= endMs) {
+          if (!sMs || !eMs || sMs >= eMs) {
             setErrorMsg('请选择有效的起止时间区间（开始时间需早于结束时间）');
             setLoading(false);
             return;
           }
 
-          const res = await fetch(`/api/backtest/index-klines?symbol=${symbol}&interval=${interval}&start=${startMs}&end=${endMs}&limit=2500`);
+          const res = await fetch(`/api/backtest/index-klines?symbol=${symbol}&interval=${interval}&start=${sMs}&end=${eMs}&limit=2500`);
           const data = await res.json();
 
           if (!data.success || !data.klines || data.klines.length === 0) {
@@ -274,6 +628,8 @@
           const initialReplay = Math.min(Math.max(20, Math.floor(data.klines.length * 0.1)), data.klines.length - 1);
           setReplayIndex(initialReplay);
           setIsPlaying(false);
+          setNoticeMsg(`成功载入 ${data.klines.length} 根币安标的指数K线数据！`);
+          setTimeout(() => setNoticeMsg(''), 4000);
         } catch (err) {
           console.error('加载指数数据失败:', err);
           setErrorMsg('网络请求异常，无法加载指数数据: ' + (err.message || err));
@@ -282,6 +638,7 @@
         }
       };
 
+      // 初始加载一次
       useEffect(() => {
         fetchIndexData();
       }, []);
@@ -309,9 +666,7 @@
         };
       }, [isPlaying, playSpeed, allKlines.length]);
 
-      // -------------------------------------------------------------
       // 核心平仓逻辑：严格由规则自动触发平仓，不支持任何手动平仓
-      // -------------------------------------------------------------
       const handleAutoClose = useCallback((pos, exitPriceVal, exitTimeVal, reason) => {
         const exitPrice = Number(exitPriceVal);
         const exitTime = Number(exitTimeVal);
@@ -322,16 +677,14 @@
         let isCorrect = false;
 
         if (tradeRule === 'event') {
-          // 事件合约规则：按实际方向判定，胜出固定获得 80% 收益，失败亏损全部本金
           const isWin = pos.type === 'LONG' ? (exitPrice > pos.entryPrice) : (exitPrice < pos.entryPrice);
           isCorrect = isWin;
           if (isWin) {
-            profitLoss = pos.amount * 0.8; // +80U
+            profitLoss = pos.amount * 0.8;
           } else {
-            profitLoss = -pos.amount; // -100U
+            profitLoss = -pos.amount;
           }
         } else {
-          // 标的点差模式：按实际价格涨跌幅计算盈亏
           const returnRate = pos.type === 'LONG' ? (priceDiff / pos.entryPrice) : (-priceDiff / pos.entryPrice);
           profitLoss = pos.amount * returnRate;
           isCorrect = profitLoss > 0;
@@ -348,7 +701,7 @@
           exitPrice: exitPrice,
           amount: pos.amount,
           profitLoss: Math.round(profitLoss * 100) / 100,
-          returnRate: Math.round((profitLoss / pos.amount) * 10000) / 100, // %
+          returnRate: Math.round((profitLoss / pos.amount) * 10000) / 100,
           pricePct: Math.round(pricePct * 100) / 100,
           barsHeld: Math.max(1, replayIndex - pos.entryIndex),
           reason: reason,
@@ -359,7 +712,6 @@
         setTrades((prev) => [closedTrade, ...prev]);
         setActivePosition(null);
 
-        // 提示规则自动平仓已执行
         setNoticeMsg(`【规则自动平仓完成】${reason}，平仓价: $${formatU(exitPrice, 1)}，盈亏: ${profitLoss >= 0 ? '+' : ''}${formatU(profitLoss)}U`);
         setTimeout(() => setNoticeMsg(''), 5000);
 
@@ -382,7 +734,6 @@
         const curHigh = Number(currentBar.high);
         const curLow = Number(currentBar.low);
 
-        // 1. 检查可选止盈止损自动保护
         if (pos.takeProfit && pos.takeProfit > 0) {
           const hitTP = pos.type === 'LONG' ? curHigh >= pos.takeProfit : curLow <= pos.takeProfit;
           if (hitTP) {
@@ -398,7 +749,6 @@
           }
         }
 
-        // 2. 检查规则到期自动平仓 (满设定持有K线数或时间满额)
         const isBarsExpired = replayIndex >= pos.targetExitIndex;
         const isTimeExpired = curBarTime >= pos.expectedExitTime;
 
@@ -412,19 +762,18 @@
         }
       }, [replayIndex, activePosition, currentBar, handleAutoClose]);
 
-      // 执行开仓 (开多 / 开空)
+      // 执行开仓
       const executeOpenPosition = (type) => {
         if (!currentBar) {
           alert('请先加载指数K线数据');
           return;
         }
 
-        // 若当前已有持仓，明确提示用户不可手动平仓，必须按规则等待自动平仓
         if (activePosition) {
           const remainingBars = Math.max(1, activePosition.targetExitIndex - replayIndex);
           alert(
             `【交易已被规则锁定】\n\n当前已有持仓正在按规则运行中（剩余 ${remainingBars} 根 K 线自动平仓结算）。\n` +
-            `本系统严格执行【按规则自动平仓，不支持手动平仓】的纪律要求，请通过“单步推进”或“自动播放”推进 K 线至到期自动平仓后再开新仓。`
+            `本系统严格执行【按规则自动平仓，不支持手动平仓】的纪律要求，请推进 K 线至到期自动平仓后再开新仓。`
           );
           return;
         }
@@ -435,14 +784,12 @@
         const targetExitIndex = replayIndex + holdBars;
         const expectedExitTime = entryTime + autoCloseMinutes * 60 * 1000;
 
-        // 全景自由模式下：因为所有未来K线已经加载，系统直接按规则自动寻觅未来对应K线并瞬间自动结算
         if (!isReplayMode) {
           const exitIdx = Math.min(targetExitIndex, allKlines.length - 1);
           const exitBar = allKlines[exitIdx];
           const exitClose = Number(exitBar.close);
           const exitTime = Number(exitBar.openTime);
 
-          // 临时构建持仓对象并直接自动平仓结算
           const tempPos = {
             id: 'pos_' + Date.now() + '_' + Math.random().toString(36).substr(2, 5),
             type,
@@ -464,7 +811,6 @@
           return;
         }
 
-        // 推演模式下：锁定当前持仓，跟随 K 线推演前进自动触发平仓
         const newPos = {
           id: 'pos_' + Date.now() + '_' + Math.random().toString(36).substr(2, 5),
           type,
@@ -482,7 +828,7 @@
         };
 
         setActivePosition(newPos);
-        setNoticeMsg(`【已按规则开仓】方向: ${type === 'LONG' ? '做多' : '做空'}，价格: $${formatU(price, 1)}。已锁定！系统将在 ${autoCloseMinutes} 分钟(${holdBars}根K线)后自动平仓结算。`);
+        setNoticeMsg(`【已按规则开仓】方向: ${type === 'LONG' ? '做多' : '做空'}，价格: $${formatU(price, 1)}。系统将在持满 ${autoCloseMinutes} 分钟(${holdBars}根K线)后自动平仓结算。`);
         setTimeout(() => setNoticeMsg(''), 5000);
       };
 
@@ -540,9 +886,7 @@
         URL.revokeObjectURL(url);
       };
 
-      // -------------------------------------------------------------
-      // 数据统计计算 (Metrics & Statistics)
-      // -------------------------------------------------------------
+      // 数据统计计算
       const stats = useMemo(() => {
         const totalTrades = trades.length;
         if (totalTrades === 0) {
@@ -673,9 +1017,7 @@
         };
       }, [trades, initialCapital]);
 
-      // -------------------------------------------------------------
       // K线主图表渲染与标记 (Lightweight Charts)
-      // -------------------------------------------------------------
       useEffect(() => {
         if (!chartContainerRef.current) return;
 
@@ -966,7 +1308,7 @@
 
           {/* 全局通知浮条 */}
           {noticeMsg && (
-            <div className="mb-4 p-3 rounded-lg bg-cyan-950/80 border border-cyan-400 text-cyan-200 text-xs font-mono flex items-center justify-between shadow-lg shadow-black/60 animate-bounce">
+            <div className="mb-4 p-3 rounded-lg bg-cyan-950/80 border border-cyan-400 text-cyan-200 text-xs font-mono flex items-center justify-between shadow-lg shadow-black/60">
               <div className="flex items-center gap-2">
                 <i className="fa-solid fa-bell text-amber-400"></i>
                 <span>{noticeMsg}</span>
@@ -975,7 +1317,7 @@
             </div>
           )}
 
-          {/* 2. 回测时间与指数数据配置面板 */}
+          {/* 2. 回测时间与指数数据配置面板 (核心升级：全景自定义起止时间) */}
           <section className="terminal-panel p-4 rounded-xl mb-4 border border-cyan-500/25">
             <div className="flex items-center justify-between pb-3 mb-3 border-b border-slate-800 flex-wrap gap-2">
               <div className="flex items-center gap-2">
@@ -996,124 +1338,227 @@
               </div>
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-6 gap-3 items-end">
-              {/* 标的指数 */}
-              <div>
-                <label className="block text-[11px] text-slate-400 mb-1">标的指数代码</label>
-                <div className="px-3 py-1.5 rounded bg-slate-950 border border-slate-800 text-xs font-bold text-slate-200">
-                  BTCUSDT (综合指数)
+            {/* 核心自定义时间选择框 */}
+            <div className="bg-[#05080c] p-3.5 rounded-lg border border-cyan-500/30 mb-3">
+              <div className="flex items-center justify-between pb-2 mb-3 border-b border-slate-800 flex-wrap gap-2">
+                <div className="flex items-center gap-2">
+                  <span className="w-2 h-2 rounded-full bg-cyan-400 animate-ping"></span>
+                  <span className="text-xs font-bold text-slate-200">
+                    自定义选择回测起止时间 (支持直接输入/点选日期与时分，或打开日历选择)
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setShowCalendarModal(true)}
+                  className="px-3 py-1 bg-cyan-500/20 hover:bg-cyan-500/30 border border-cyan-400 rounded text-cyan-300 text-xs font-bold flex items-center gap-1.5 transition-all shadow-sm"
+                >
+                  <i className="fa-solid fa-calendar-days text-cyan-400"></i>
+                  <span>[ 📅 打开日历快速点选范围 ]</span>
+                </button>
+              </div>
+
+              {/* 时间选择网格 */}
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-12 gap-3 items-end">
+                {/* 标的与周期配置 (3列) */}
+                <div className="lg:col-span-3 grid grid-cols-2 gap-2">
+                  <div>
+                    <label className="block text-[11px] text-slate-400 mb-1">标的指数代码</label>
+                    <div className="px-2.5 py-2 rounded bg-slate-950 border border-slate-800 text-xs font-bold text-slate-200 truncate">
+                      BTCUSDT (综合)
+                    </div>
+                  </div>
+                  <div>
+                    <label className="block text-[11px] text-slate-400 mb-1">K线周期</label>
+                    <select
+                      value={interval}
+                      onChange={(e) => setIntervalVal(e.target.value)}
+                      className="w-full px-2 py-2 rounded bg-slate-950 border border-slate-800 text-xs text-cyan-300 font-mono font-bold focus:border-cyan-400 focus:outline-none"
+                    >
+                      <option value="1m">1分钟 (1m)</option>
+                      <option value="3m">3分钟 (3m)</option>
+                      <option value="5m">5分钟 (5m 标准)</option>
+                      <option value="15m">15分钟 (15m)</option>
+                      <option value="30m">30分钟 (30m)</option>
+                      <option value="1h">1小时 (1h)</option>
+                      <option value="4h">4小时 (4h)</option>
+                      <option value="1d">日线 (1d)</option>
+                    </select>
+                  </div>
+                </div>
+
+                {/* 开始时间自定义输入 (3列) */}
+                <div className="lg:col-span-3 bg-slate-950/90 p-2 rounded border border-slate-800">
+                  <label className="block text-[11px] font-bold text-emerald-400 mb-1 flex items-center gap-1">
+                    <i className="fa-regular fa-calendar-plus text-emerald-400"></i>
+                    <span>自定义开始时间 (START)</span>
+                  </label>
+                  <div className="flex items-center gap-1.5">
+                    <input
+                      type="date"
+                      value={startDate}
+                      onChange={(e) => setStartDate(e.target.value)}
+                      className="flex-1 px-2 py-1.5 rounded bg-slate-900 border border-slate-700 text-xs text-slate-100 font-mono focus:border-emerald-400 focus:outline-none"
+                      title="点击选择开始日期"
+                    />
+                    <input
+                      type="time"
+                      value={startTime}
+                      onChange={(e) => setStartTime(e.target.value)}
+                      className="w-24 px-1.5 py-1.5 rounded bg-slate-900 border border-slate-700 text-xs text-slate-100 font-mono focus:border-emerald-400 focus:outline-none"
+                      title="开始时分"
+                    />
+                  </div>
+                </div>
+
+                {/* 结束时间自定义输入 (3列) */}
+                <div className="lg:col-span-3 bg-slate-950/90 p-2 rounded border border-slate-800">
+                  <label className="block text-[11px] font-bold text-cyan-400 mb-1 flex items-center gap-1">
+                    <i className="fa-regular fa-calendar-check text-cyan-400"></i>
+                    <span>自定义结束时间 (END)</span>
+                  </label>
+                  <div className="flex items-center gap-1.5">
+                    <input
+                      type="date"
+                      value={endDate}
+                      onChange={(e) => setEndDate(e.target.value)}
+                      className="flex-1 px-2 py-1.5 rounded bg-slate-900 border border-slate-700 text-xs text-slate-100 font-mono focus:border-cyan-400 focus:outline-none"
+                      title="点击选择结束日期"
+                    />
+                    <input
+                      type="time"
+                      value={endTime}
+                      onChange={(e) => setEndTime(e.target.value)}
+                      className="w-24 px-1.5 py-1.5 rounded bg-slate-900 border border-slate-700 text-xs text-slate-100 font-mono focus:border-cyan-400 focus:outline-none"
+                      title="结束时分"
+                    />
+                  </div>
+                </div>
+
+                {/* 规则时长配置 (2列) */}
+                <div className="lg:col-span-2">
+                  <label className="block text-[11px] text-amber-400 font-bold mb-1 flex items-center gap-1">
+                    <i className="fa-solid fa-clock-rotate-left"></i>
+                    <span>自动平仓规则</span>
+                  </label>
+                  <select
+                    value={autoCloseMinutes}
+                    onChange={(e) => setAutoCloseMinutes(Number(e.target.value))}
+                    className="w-full px-2 py-2 rounded bg-slate-950 border border-amber-500/60 text-xs text-amber-300 font-mono font-bold focus:border-amber-400 focus:outline-none"
+                  >
+                    <option value={5}>5分钟 (1根5mK线)</option>
+                    <option value={10}>10分钟 (2根5mK线/标准)</option>
+                    <option value={15}>15分钟 (3根5mK线)</option>
+                    <option value={30}>30分钟 (6根5mK线)</option>
+                    <option value={60}>60分钟 (12根5mK线)</option>
+                  </select>
+                </div>
+
+                {/* 确认载入按钮 (1列) */}
+                <div className="lg:col-span-1">
+                  <button
+                    onClick={fetchIndexData}
+                    disabled={loading}
+                    className="w-full py-2.5 bg-gradient-to-r from-cyan-600 to-emerald-600 hover:from-cyan-500 hover:to-emerald-500 text-white rounded text-xs font-bold tracking-wider transition-all shadow-md shadow-cyan-900/40 disabled:opacity-50 flex items-center justify-center gap-1"
+                  >
+                    {loading ? (
+                      <i className="fa-solid fa-spinner fa-spin"></i>
+                    ) : (
+                      <i className="fa-solid fa-bolt"></i>
+                    )}
+                    <span>{loading ? '加载中' : '载入数据'}</span>
+                  </button>
                 </div>
               </div>
 
-              {/* K线周期 */}
-              <div>
-                <label className="block text-[11px] text-slate-400 mb-1">K线周期 (Interval)</label>
-                <select
-                  value={interval}
-                  onChange={(e) => setIntervalVal(e.target.value)}
-                  className="w-full px-3 py-1.5 rounded bg-slate-950 border border-slate-800 text-xs text-cyan-300 font-mono focus:border-cyan-400 focus:outline-none"
-                >
-                  <option value="1m">1分钟 (1m)</option>
-                  <option value="3m">3分钟 (3m)</option>
-                  <option value="5m">5分钟 (5m - 推荐标准)</option>
-                  <option value="15m">15分钟 (15m)</option>
-                  <option value="30m">30分钟 (30m)</option>
-                  <option value="1h">1小时 (1h)</option>
-                  <option value="4h">4小时 (4h)</option>
-                  <option value="1d">日线 (1d)</option>
-                </select>
-              </div>
-
-              {/* 自动平仓规则时长 */}
-              <div>
-                <label className="block text-[11px] text-amber-400 font-bold mb-1 flex items-center gap-1">
-                  <i className="fa-solid fa-clock-rotate-left"></i>
-                  <span>自动平仓规则 (持仓时长)</span>
-                </label>
-                <select
-                  value={autoCloseMinutes}
-                  onChange={(e) => setAutoCloseMinutes(Number(e.target.value))}
-                  className="w-full px-3 py-1.5 rounded bg-slate-950 border border-amber-500/60 text-xs text-amber-300 font-mono font-bold focus:border-amber-400 focus:outline-none"
-                >
-                  <option value={5}>5分钟自动平仓 (持有1根5mK线)</option>
-                  <option value={10}>10分钟自动平仓 (持有2根5mK线 / 标准事件合约)</option>
-                  <option value={15}>15分钟自动平仓 (持有3根5mK线)</option>
-                  <option value={30}>30分钟自动平仓 (持有6根5mK线)</option>
-                  <option value={60}>60分钟自动平仓 (持有12根5mK线)</option>
-                </select>
-              </div>
-
-              {/* 开始时间 */}
-              <div>
-                <label className="block text-[11px] text-slate-400 mb-1">回测开始时间 (Start)</label>
-                <input
-                  type="datetime-local"
-                  value={startDate}
-                  onChange={(e) => setStartDate(e.target.value)}
-                  className="w-full px-2 py-1.5 rounded bg-slate-950 border border-slate-800 text-xs text-slate-200 font-mono focus:border-cyan-400 focus:outline-none"
-                />
-              </div>
-
-              {/* 结束时间 */}
-              <div>
-                <label className="block text-[11px] text-slate-400 mb-1">回测结束时间 (End)</label>
-                <input
-                  type="datetime-local"
-                  value={endDate}
-                  onChange={(e) => setEndDate(e.target.value)}
-                  className="w-full px-2 py-1.5 rounded bg-slate-950 border border-slate-800 text-xs text-slate-200 font-mono focus:border-cyan-400 focus:outline-none"
-                />
-              </div>
-
-              {/* 操作按钮 */}
-              <div>
-                <button
-                  onClick={fetchIndexData}
-                  disabled={loading}
-                  className="w-full px-4 py-2 bg-cyan-600/30 hover:bg-cyan-600/50 border border-cyan-400 rounded text-cyan-200 text-xs font-bold font-mono tracking-wider transition-all flex items-center justify-center gap-1.5 shadow-md shadow-cyan-900/30 disabled:opacity-50"
-                >
-                  {loading ? (
-                    <>
-                      <i className="fa-solid fa-spinner fa-spin"></i>
-                      <span>加载中...</span>
-                    </>
-                  ) : (
-                    <>
-                      <i className="fa-solid fa-bolt"></i>
-                      <span>载入指数数据</span>
-                    </>
+              {/* 自定义时间范围状态信息回显条 */}
+              <div className="mt-2.5 pt-2 border-t border-slate-800 flex items-center justify-between flex-wrap gap-2 text-xs font-mono">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className="text-slate-400 text-[11px]">当前自选起止区间:</span>
+                  <span className="text-emerald-400 font-bold">
+                    {startDate} {startTime}
+                  </span>
+                  <span className="text-slate-500">至</span>
+                  <span className="text-cyan-400 font-bold">
+                    {endDate} {endTime}
+                  </span>
+                  {timeSpanInfo && (
+                    <span className="px-2 py-0.5 rounded bg-cyan-950 text-cyan-300 border border-cyan-800/80 text-[11px]">
+                      跨度: {timeSpanInfo.spanText} | 预估K线: ~{timeSpanInfo.estimatedBars} 根
+                    </span>
                   )}
-                </button>
+                </div>
+
+                {/* 快捷时间预设快捷点选 */}
+                <div className="flex items-center gap-1 text-[11px]">
+                  <span className="text-slate-500">快捷预设:</span>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const now = new Date();
+                      setStartDate(toDateStr(now));
+                      setStartTime('00:00');
+                      setEndDate(toDateStr(now));
+                      setEndTime(toTimeStr(now));
+                    }}
+                    className="px-2 py-0.5 rounded bg-slate-900 hover:bg-slate-800 text-slate-300 border border-slate-800"
+                  >
+                    今天
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const now = new Date();
+                      const yest = new Date(now.getTime() - 86400000);
+                      setStartDate(toDateStr(yest));
+                      setStartTime('00:00');
+                      setEndDate(toDateStr(yest));
+                      setEndTime('23:59');
+                    }}
+                    className="px-2 py-0.5 rounded bg-slate-900 hover:bg-slate-800 text-slate-300 border border-slate-800"
+                  >
+                    昨天
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setPresetDays(3)}
+                    className="px-2 py-0.5 rounded bg-slate-900 hover:bg-slate-800 text-slate-300 border border-slate-800"
+                  >
+                    近3天
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setPresetDays(7)}
+                    className="px-2 py-0.5 rounded bg-slate-900 hover:bg-slate-800 text-slate-300 border border-slate-800"
+                  >
+                    近7天
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setPresetDays(15)}
+                    className="px-2 py-0.5 rounded bg-slate-900 hover:bg-slate-800 text-slate-300 border border-slate-800"
+                  >
+                    近15天
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setPresetDays(30)}
+                    className="px-2 py-0.5 rounded bg-slate-900 hover:bg-slate-800 text-slate-300 border border-slate-800"
+                  >
+                    近30天
+                  </button>
+                </div>
               </div>
             </div>
 
-            {/* 快捷时间预设按钮与规则提示 */}
-            <div className="flex items-center justify-between mt-3 pt-2 border-t border-slate-900 flex-wrap gap-2 text-xs">
-              <div className="flex items-center gap-2">
-                <span className="text-slate-500 text-[11px]">快捷时间:</span>
-                {[
-                  { label: '最近12小时', h: 12 },
-                  { label: '最近24小时', h: 24 },
-                  { label: '最近3天', h: 72 },
-                  { label: '最近7天', h: 168 },
-                  { label: '最近14天', h: 336 },
-                  { label: '最近30天', h: 720 }
-                ].map((p) => (
-                  <button
-                    key={p.h}
-                    onClick={() => setQuickPreset(p.h)}
-                    className="px-2 py-0.5 rounded bg-slate-900 hover:bg-slate-800 text-slate-300 text-[11px] border border-slate-800 transition-all font-mono"
-                  >
-                    {p.label}
-                  </button>
-                ))}
-              </div>
-
-              {/* 核心规则提示标语 */}
-              <div className="text-[11px] text-amber-300/90 font-mono flex items-center gap-1.5 bg-amber-950/30 px-2.5 py-1 rounded border border-amber-600/30">
+            {/* 规则提示横幅 */}
+            <div className="text-[11px] text-amber-300/90 font-mono flex items-center justify-between bg-amber-950/30 px-3 py-1.5 rounded border border-amber-600/30 flex-wrap gap-2">
+              <div className="flex items-center gap-1.5">
                 <i className="fa-solid fa-shield-halved text-amber-400"></i>
-                <span>系统规则：开仓后严格持满 {holdBarsRequired} 根K线 ({autoCloseMinutes}分钟) 自动平仓，严禁且不支持手动平仓</span>
+                <span>系统自动平仓规则：开仓后严格持满 {holdBarsRequired} 根K线 ({autoCloseMinutes}分钟) 自动平仓，严禁且不支持任何人工手动干预平仓</span>
               </div>
+              <span className="text-slate-400 text-[10px]">
+                提示：选择自定义起止时间后，点击右侧【载入数据】按钮即可加载对应指数K线
+              </span>
             </div>
 
             {errorMsg && (
@@ -1741,6 +2186,30 @@
               </table>
             </div>
           </section>
+
+          {/* 7. 交互式日历范围选择器弹窗 */}
+          <CalendarModal
+            isOpen={showCalendarModal}
+            onClose={() => setShowCalendarModal(false)}
+            initialStartDate={startDate}
+            initialEndDate={endDate}
+            onApply={(sDate, sTime, eDate, eTime) => {
+              setStartDate(sDate);
+              setStartTime(sTime || '00:00');
+              setEndDate(eDate);
+              setEndTime(eTime || '23:59');
+
+              const [sy, sm, sd] = sDate.split('-').map(Number);
+              const [sh, smin] = (sTime || '00:00').split(':').map(Number);
+              const sTimestamp = new Date(sy, sm - 1, sd, sh, smin, 0).getTime();
+
+              const [ey, em, ed] = eDate.split('-').map(Number);
+              const [eh, emin] = (eTime || '23:59').split(':').map(Number);
+              const eTimestamp = new Date(ey, em - 1, ed, eh, emin, 59).getTime();
+
+              fetchIndexData(sTimestamp, eTimestamp);
+            }}
+          />
         </div>
       );
     };

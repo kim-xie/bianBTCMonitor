@@ -187,6 +187,7 @@ export function listStrategyDefinitions(): Array<Pick<StrategyDefinition, 'id' |
 
 /**
  * 每条启用的策略单独判断。同一根 K 线可以同时走出多条信号。
+ * 记入哪一笔由引擎决定：同一品种、同一根收盘时间最多一笔。
  * 不传 dataSource 时只跑指数趋势策略，避免事后组合误用指数价格。
  */
 export function evaluateStrategies(candles: Candle[], dataSource: StrategyDataSource = 'index'): StrategySignal[] {

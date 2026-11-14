@@ -66,7 +66,9 @@ TradeSchema.index({ isCorrect: 1 });
 TradeSchema.index({ orderSource: 1 });
 // 同一品种、同一策略、同一根5分钟K线只允许一笔。
 // 部分索引只约束带 strategyId 的新单，历史单和手动单不受影响。
-// 旧的 {symbol, klineCloseTime} 唯一索引会让同一根K线只能留一条策略，启动时由 ensureTradeIndexes 删掉。
+// 引擎另外限制同一品种、同一根K线全局只记一笔新单。这里不能改成 {symbol, klineCloseTime} 唯一索引：
+// 生产库已有同一根K线的重复单，唯一索引会让启动失败。历史单不删不改。
+// 旧的 {symbol, klineCloseTime} 唯一索引如果还在，启动时由 ensureTradeIndexes 删掉。
 TradeSchema.index(
   { symbol: 1, strategyId: 1, klineCloseTime: 1 },
   {
@@ -92,7 +94,7 @@ export async function ensureTradeIndexes(): Promise<void> {
   for (const index of indexes) {
     if (!isLegacyKlineUniqueIndex(index) || !index.name) continue;
     await collection.dropIndex(index.name);
-    console.log(`已删除旧唯一索引 ${index.name}。同一根K线可以按策略分别记录`);
+    console.log(`已删除旧唯一索引 ${index.name}。历史重复单保留；新单由引擎限制同一根K线只记一笔`);
   }
   await mongoose.model<ITrade>('Trade').createIndexes();
 }

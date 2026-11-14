@@ -1,7 +1,7 @@
 import TradeModel from '../models/Trade';
 import { axiosInstance } from '../utils/axiosInstance';
-import { Candle, StrategySignal, evaluateStrategies, getStrategyDefinition } from '../strategies/registry';
-import { POST_HOC_MARK } from '../strategies/comboFade';
+import { Candle, StrategySignal, evaluateStrategies, getStrategyDefinition, strategies } from '../strategies/registry';
+import { AND_3SAME_HIGHVOL_ID, AND_3SAME_PREM_ID, AND_PREM_TBR_ID, POST_HOC_MARK } from '../strategies/comboFade';
 
 export interface TradingSignal {
   timestamp: Date;
@@ -39,7 +39,27 @@ export interface TradeWrite {
 export interface TradeGateway {
   countOpen(symbol: string, strategyId: string): Promise<number>;
   hasRecentSameDirection(symbol: string, strategyId: string, signal: 'BUY' | 'SELL', since: Date): Promise<boolean>;
+  /** 这个品种这根 K 线是否已经有任意策略的交易。有则不能再记一笔。 */
+  hasTradeOnKline(symbol: string, klineCloseTime: number): Promise<boolean>;
   create(doc: TradeWrite): Promise<'ok' | 'duplicate'>;
+}
+
+/**
+ * 同一根 K 线、同一方向有多条信号时，只留全样本胜率更高的一条。
+ * 三条事后组合按回测胜率排在趋势策略前面：
+ * and_prem_tbr 59.38%，and_3same_prem 57.28%，and_3same_highvol 56.83%。
+ * 趋势策略保持 strategies 里的原顺序。数字越小越优先。
+ */
+const KLINE_WIN_RATE_FIRST: readonly string[] = [AND_PREM_TBR_ID, AND_3SAME_PREM_ID, AND_3SAME_HIGHVOL_ID];
+
+export function klineTradeRank(strategyId: string): number {
+  const comboRank = KLINE_WIN_RATE_FIRST.indexOf(strategyId);
+  if (comboRank >= 0) return comboRank;
+  const trendRank = strategies
+    .filter(strategy => strategy.dataSource === 'index')
+    .findIndex(strategy => strategy.id === strategyId);
+  if (trendRank >= 0) return KLINE_WIN_RATE_FIRST.length + trendRank;
+  return KLINE_WIN_RATE_FIRST.length + strategies.length;
 }
 
 const mongoTrades: TradeGateway = {
@@ -58,6 +78,10 @@ const mongoTrades: TradeGateway = {
       isCorrect: { $exists: false },
       timestamp: { $gte: since }
     });
+    return found != null;
+  },
+  async hasTradeOnKline(symbol, klineCloseTime) {
+    const found = await TradeModel.findOne({ symbol, klineCloseTime });
     return found != null;
   },
   async create(doc) {
@@ -83,17 +107,19 @@ export class TradingSignalService {
   private readonly trades: TradeGateway;
 
   private usedFiveMinuteKlines: Set<string> = new Set();
+  /** 本进程已经为一根 K 线落过一笔。键是 symbol:klineCloseTime。 */
+  private usedBars: Set<string> = new Set();
 
   constructor(trades: TradeGateway = mongoTrades) {
     this.trades = trades;
   }
 
-  private slotKey(strategyId: string, closeTime: number): string {
-    return `${strategyId}:${closeTime}`;
+  private slotKey(strategyId: string, symbol: string, closeTime: number): string {
+    return `${strategyId}:${symbol}:${closeTime}`;
   }
 
-  private markKlineAsUsed(strategyId: string, closeTime: number): boolean {
-    const key = this.slotKey(strategyId, closeTime);
+  private markKlineAsUsed(strategyId: string, symbol: string, closeTime: number): boolean {
+    const key = this.slotKey(strategyId, symbol, closeTime);
     if (this.usedFiveMinuteKlines.has(key)) return false;
     this.usedFiveMinuteKlines.add(key);
     return true;
@@ -106,18 +132,20 @@ export class TradingSignalService {
     const now = Date.now();
     const oneHourAgo = now - 60 * 60 * 1000;
 
-    // 只保留最近一小时的K线记录。键是「策略:收盘时间」。
-    this.usedFiveMinuteKlines.forEach(key => {
-      const closeTime = Number(key.slice(key.lastIndexOf(':') + 1));
-      if (closeTime < oneHourAgo) {
-        this.usedFiveMinuteKlines.delete(key);
-      }
-    });
+    // 只保留最近一小时的K线记录。键的最后一段是收盘时间。
+    const dropOld = (keys: Set<string>) => {
+      keys.forEach(key => {
+        const closeTime = Number(key.slice(key.lastIndexOf(':') + 1));
+        if (closeTime < oneHourAgo) keys.delete(key);
+      });
+    };
+    dropOld(this.usedFiveMinuteKlines);
+    dropOld(this.usedBars);
   }
 
   /**
    * 指数 K 线只跑四条趋势策略。spotKlines 是现货 + 溢价，只跑三条事后组合。
-   * 每条策略单独记一笔，同一根 K 线可以有多条。
+   * 信号各自计算，记入之前按 symbol + klineCloseTime 只留一笔。
    */
   async generateSignal(
     symbol: string = 'BTCUSDT',
@@ -140,12 +168,78 @@ export class TradingSignalService {
         return [];
       }
 
-      const saved: TradingSignal[] = [];
+      const capturedAt = Date.now();
+      const closeTimeOf = (candles: Candle[]): number | null => {
+        const last = candles[candles.length - 1];
+        if (!last) return null;
+        return last.closeTime || capturedAt;
+      };
+      const indexClose = closeTimeOf(indexCandles);
+      const spotClose = closeTimeOf(spotCandles);
+
+      interface Candidate {
+        hit: StrategySignal;
+        candles: Candle[];
+        klineCloseTime: number;
+      }
+      const candidates: Candidate[] = [];
       for (const hit of found) {
         const definition = getStrategyDefinition(hit.strategyId);
-        const candles = definition?.dataSource === 'spot' ? spotCandles : indexCandles;
-        const recorded = await this.recordHit(symbol, hit, candles);
-        if (recorded) saved.push(recorded);
+        const useSpot = definition?.dataSource === 'spot';
+        const candles = useSpot ? spotCandles : indexCandles;
+        const klineCloseTime = useSpot ? spotClose : indexClose;
+        if (klineCloseTime == null || !candles.length) continue;
+        candidates.push({ hit, candles, klineCloseTime });
+      }
+
+      const byBar = new Map<number, Candidate[]>();
+      for (const candidate of candidates) {
+        const bucket = byBar.get(candidate.klineCloseTime);
+        if (bucket) bucket.push(candidate);
+        else byBar.set(candidate.klineCloseTime, [candidate]);
+      }
+
+      const saved: TradingSignal[] = [];
+      for (const [klineCloseTime, bucket] of byBar) {
+        const qualified: Candidate[] = [];
+        for (const candidate of bucket) {
+          if (candidate.hit.confidence < this.CONFIDENCE_THRESHOLD) {
+            const name = getStrategyDefinition(candidate.hit.strategyId)?.name || candidate.hit.strategyId;
+            console.log(`策略 ${name} 置信度 ${candidate.hit.confidence}% 低于 ${this.CONFIDENCE_THRESHOLD}%，跳过`);
+            continue;
+          }
+          qualified.push(candidate);
+        }
+        if (!qualified.length) continue;
+
+        const directions = new Set(qualified.map(candidate => candidate.hit.direction));
+        if (directions.has('UP') && directions.has('DOWN')) {
+          const names = qualified.map(candidate => `${candidate.hit.strategyId}:${candidate.hit.direction}`).join(', ');
+          console.log(`同一根5分钟K线 ${new Date(klineCloseTime).toLocaleString()} 同时有做多和做空（${names}），整根跳过`);
+          continue;
+        }
+
+        qualified.sort((left, right) => {
+          const rank = klineTradeRank(left.hit.strategyId) - klineTradeRank(right.hit.strategyId);
+          if (rank !== 0) return rank;
+          return left.hit.strategyId.localeCompare(right.hit.strategyId);
+        });
+
+        if (this.barAlreadyUsed(symbol, klineCloseTime) || await this.trades.hasTradeOnKline(symbol, klineCloseTime)) {
+          console.log(`K线 ${new Date(klineCloseTime).toLocaleString()} 已有交易，不再记录`);
+          continue;
+        }
+
+        for (const candidate of qualified) {
+          const recorded = await this.recordHit(symbol, candidate.hit, candidate.candles, klineCloseTime);
+          if (!recorded) continue;
+          const skipped = qualified.slice(qualified.indexOf(candidate) + 1);
+          if (skipped.length) {
+            console.log(`同一根K线保留 ${candidate.hit.strategyId}，跳过 ${skipped.map(item => item.hit.strategyId).join(', ')}`);
+          }
+          saved.push(recorded);
+          break;
+        }
       }
       return saved;
     } catch (error) {
@@ -154,7 +248,19 @@ export class TradingSignalService {
     }
   }
 
-  private async recordHit(symbol: string, found: StrategySignal, candles: Candle[]): Promise<TradingSignal | null> {
+  private barKey(symbol: string, closeTime: number): string {
+    return `${symbol}:${closeTime}`;
+  }
+
+  private barAlreadyUsed(symbol: string, closeTime: number): boolean {
+    return this.usedBars.has(this.barKey(symbol, closeTime));
+  }
+
+  private markBarAsUsed(symbol: string, closeTime: number): void {
+    this.usedBars.add(this.barKey(symbol, closeTime));
+  }
+
+  private async recordHit(symbol: string, found: StrategySignal, candles: Candle[], klineCloseTime: number): Promise<TradingSignal | null> {
     const definition = getStrategyDefinition(found.strategyId);
     const postHoc = found.postHoc === true || definition?.postHoc === true;
     const strategyName = definition?.name || found.strategyId;
@@ -165,7 +271,6 @@ export class TradingSignalService {
 
     const last = candles[candles.length - 1];
     if (!last) return null;
-    const klineCloseTime = last.closeTime || Date.now();
     const targetSignal: 'BUY' | 'SELL' = found.direction === 'UP' ? 'BUY' : 'SELL';
 
     const openPositions = await this.trades.countOpen(symbol, found.strategyId);
@@ -185,10 +290,17 @@ export class TradingSignalService {
       return null;
     }
 
-    if (!this.markKlineAsUsed(found.strategyId, klineCloseTime)) {
+    // 名额和同向限制没过的策略不占槽。让同一根 K 线上的下一名还能记。
+    if (this.barAlreadyUsed(symbol, klineCloseTime) || await this.trades.hasTradeOnKline(symbol, klineCloseTime)) {
+      console.log(`K线 ${new Date(klineCloseTime).toLocaleString()} 已有交易，${strategyName} 跳过`);
+      return null;
+    }
+
+    if (!this.markKlineAsUsed(found.strategyId, symbol, klineCloseTime)) {
       console.log(`策略 ${strategyName} 的5分钟K线 ${new Date(klineCloseTime).toLocaleString()} 已处理，跳过`);
       return null;
     }
+    this.markBarAsUsed(symbol, klineCloseTime);
 
     const signal: TradingSignal = {
       timestamp: new Date(),

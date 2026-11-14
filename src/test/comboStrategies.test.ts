@@ -8,7 +8,7 @@ import fs from 'fs';
 import { execFileSync } from 'child_process';
 import { BinanceService } from '../services/BinanceService';
 import { alignClosedSpotAndPremium, settlementPriceForTrade, SPOT_COMBO_FETCH_LIMIT } from '../services/spotComboFeed';
-import { HOLD_DURATION_MS, TradingSignalService, formatFeishuOpenText, TradeGateway, TradeWrite } from '../services/TradingSignal';
+import { HOLD_DURATION_MS, TradingSignalService, formatFeishuOpenText, TradeGateway, TradeWrite, klineTradeRank } from '../services/TradingSignal';
 import TradeModel, { isLegacyKlineUniqueIndex } from '../models/Trade';
 import {
   evaluateStrategies,
@@ -63,6 +63,9 @@ class MemoryTrades implements TradeGateway {
   async hasRecentSameDirection(symbol: string, strategyId: string, signal: 'BUY' | 'SELL', since: Date): Promise<boolean> {
     return this.docs.some(doc => doc.symbol === symbol && doc.strategyId === strategyId && doc.signal === signal && doc.timestamp >= since);
   }
+  async hasTradeOnKline(symbol: string, klineCloseTime: number): Promise<boolean> {
+    return this.docs.some(doc => doc.symbol === symbol && doc.klineCloseTime === klineCloseTime);
+  }
   async create(doc: TradeWrite): Promise<'ok' | 'duplicate'> {
     const duplicate = this.docs.some(existing => existing.symbol === doc.symbol && existing.strategyId === doc.strategyId && existing.klineCloseTime === doc.klineCloseTime);
     if (duplicate) return 'duplicate';
@@ -96,6 +99,82 @@ function series(count: number, patchIndex?: (index: number, candle: Candle) => v
 
 function clone(candles: Candle[]): Candle[] {
   return candles.map(candle => ({ ...candle }));
+}
+
+function shiftTimes(candles: Candle[], delta: number): Candle[] {
+  return candles.map(candle => ({
+    ...candle,
+    openTime: candle.openTime == null ? undefined : candle.openTime + delta,
+    closeTime: candle.closeTime == null ? undefined : candle.closeTime + delta
+  }));
+}
+
+function alignClose(candles: Candle[], closeTime: number): Candle[] {
+  const next = clone(candles);
+  next[next.length - 1].closeTime = closeTime;
+  return next;
+}
+
+function paint(candles: Candle[], index: number, open: number, high: number, low: number, close: number): void {
+  Object.assign(candles[index], { open, high, low, close });
+}
+
+function flatIndex(count: number): Candle[] {
+  return Array.from({ length: count }, (_, index) => ({
+    openTime: index * FIVE_MIN_MS,
+    closeTime: (index + 1) * FIVE_MIN_MS - 1,
+    open: 100,
+    high: 100.2,
+    low: 99.8,
+    close: 100
+  }));
+}
+
+/** 70 根里最后几根走出多次下穿反包做空。只动价格，不改组合公式。 */
+function engulfShortIndex(): Candle[] {
+  const candles = flatIndex(70);
+  const last = candles.length - 1;
+  paint(candles, last - 3, 100, 100.2, 99.7, 99.8);
+  paint(candles, last - 2, 100, 100.2, 99.8, 99.9);
+  paint(candles, last - 1, 99.9, 100, 99.85, 99.95);
+  paint(candles, last, 99.96, 100, 99.8, 99.89);
+  return candles;
+}
+
+/** 70 根里最后几根走出多次上穿反包做多。 */
+function engulfLongIndex(): Candle[] {
+  const candles = flatIndex(70);
+  const last = candles.length - 1;
+  paint(candles, last - 3, 100, 100.3, 99.8, 100.2);
+  paint(candles, last - 2, 100, 100.2, 99.8, 100.1);
+  paint(candles, last - 1, 100.1, 100.15, 99.9, 100.05);
+  paint(candles, last, 100.04, 100.2, 100, 100.11);
+  return candles;
+}
+
+function fallingOpposite(candles: Candle[]): Candle[] {
+  const next = clone(candles);
+  const last = next.length - 1;
+  Object.assign(next[last - 2], { open: 100, high: 100, low: 98, close: 99 });
+  Object.assign(next[last - 1], { open: 99, high: 99, low: 96, close: 97 });
+  Object.assign(next[last], { open: 97, high: 97, low: 60, close: 70 });
+  return next;
+}
+
+function paperTrade(patch: Partial<TradeWrite> & Pick<TradeWrite, 'strategyId' | 'klineCloseTime'>): TradeWrite {
+  return {
+    symbol: 'BTCUSDT',
+    timestamp: new Date(),
+    price: 1,
+    signal: 'SELL',
+    tradeType: 'SHORT',
+    confidence: 85,
+    investmentAmount: 100,
+    prediction: 'DOWN',
+    strategyName: patch.strategyId,
+    orderSource: 'AUTO',
+    ...patch
+  };
 }
 
 function sampleStd(values: number[]): number {
@@ -411,24 +490,49 @@ print(repr(var ** 0.5))
     assert.equal(item.dataSource, 'spot');
   }
 
+  const priority = [
+    AND_PREM_TBR_ID,
+    AND_3SAME_PREM_ID,
+    AND_3SAME_HIGHVOL_ID,
+    ...strategies.filter(strategy => strategy.dataSource === 'index').map(strategy => strategy.id)
+  ];
+  assert.deepEqual(priority.map(klineTradeRank), priority.map((_, index) => index));
+  assert.deepEqual(priority.slice(3), indexIds);
+  assert.ok(klineTradeRank(AND_PREM_TBR_ID) < klineTradeRank(AND_3SAME_PREM_ID));
+  assert.ok(klineTradeRank(AND_3SAME_HIGHVOL_ID) < klineTradeRank('multi-cross-engulf-long'));
+
   const memory = new MemoryTrades();
   const service = new TradingSignalService(memory);
   const saved = await service.generateSignal('BTCUSDT', [], [], bothPrice);
-  assert.equal(saved.length, 3, `应记下 3 条，实际 ${saved.map(item => item.strategyId).join(',')}`);
-  assert.equal(new Set(memory.docs.map(doc => doc.klineCloseTime)).size, 1, '三条都在同一根K线');
-  assert.equal(new Set(memory.docs.map(doc => `${doc.symbol}|${doc.strategyId}|${doc.klineCloseTime}`)).size, 3);
-  assert.equal(new Set(memory.docs.map(doc => `${doc.symbol}|${doc.klineCloseTime}`)).size, 1, '旧的 symbol+klineCloseTime 会把它们挤成一笔');
-  assert.ok(memory.docs.every(doc => doc.price === bothPrice[bothPrice.length - 1].close));
-  assert.ok(memory.docs.every(doc => doc.orderSource === 'AUTO'));
-  assert.ok(saved.every(signal => signal.postHoc && signal.strategyName?.includes(POST_HOC_MARK)));
-  assert.ok(saved.every(signal => signal.recommendedAction.includes('不下单') && signal.recommendedAction.includes(POST_HOC_MARK)));
+  assert.deepEqual(saved.map(signal => signal.strategyId), [AND_PREM_TBR_ID], '同一根K线同向只留胜率最高的 and_prem_tbr');
+  assert.equal(saved[0].signal, 'SELL');
+  assert.equal(saved[0].prediction, 'DOWN');
+  assert.equal(memory.docs.length, 1);
+  assert.equal(memory.docs[0].klineCloseTime, bothPrice[300].closeTime);
+  assert.equal(memory.docs[0].price, bothPrice[bothPrice.length - 1].close);
+  assert.equal(memory.docs[0].orderSource, 'AUTO');
+  assert.ok(saved[0].postHoc && saved[0].strategyName?.includes(POST_HOC_MARK));
+  assert.ok(saved[0].recommendedAction.includes('不下单') && saved[0].recommendedAction.includes(POST_HOC_MARK));
+  assert.ok(!saved.some(signal => signal.strategyId === AND_3SAME_PREM_ID));
+  assert.ok(!saved.some(signal => signal.strategyId === AND_3SAME_HIGHVOL_ID));
   const again = await service.generateSignal('BTCUSDT', [], [], bothPrice);
   assert.equal(again.length, 0, '同一策略同一根K线不能再记一笔');
-  assert.equal(memory.docs.length, 3);
+  assert.equal(memory.docs.length, 1);
   memory.docs.length = 0;
   const blockedBySlot = await service.generateSignal('BTCUSDT', [], [], bothPrice);
-  assert.equal(blockedBySlot.length, 0, '内存里的K线槽位按策略记住这根K线，清掉记录也不会再记');
+  assert.equal(blockedBySlot.length, 0, '这根K线已经选过一笔，清掉记录也不会再让别的策略补上');
   assert.equal(memory.docs.length, 0);
+
+  const incidentClose = 1794635999999;
+  const incidentBars = clone(bothPrice);
+  incidentBars[300].closeTime = incidentClose;
+  const incidentMemory = new MemoryTrades();
+  const incidentSaved = await new TradingSignalService(incidentMemory).generateSignal('BTCUSDT', [], [], incidentBars);
+  assert.deepEqual(incidentSaved.map(signal => signal.strategyId), [AND_PREM_TBR_ID], 'and_prem_tbr 胜过 and_3same_prem');
+  assert.equal(incidentSaved[0].signal, 'SELL');
+  assert.equal(incidentMemory.docs[0].tradeType, 'SHORT');
+  assert.equal(incidentMemory.docs[0].klineCloseTime, incidentClose);
+  assert.ok(evaluateStrategies(incidentBars, 'spot').some(signal => signal.strategyId === AND_3SAME_PREM_ID && signal.direction === 'DOWN'));
 
   const premMemory = new MemoryTrades();
   const withoutPremium = await new TradingSignalService(premMemory).generateSignal('BTCUSDT', [], [], noPrem);
@@ -437,8 +541,7 @@ print(repr(var ** 0.5))
   withoutVolume[300].volume = 0;
   const volumeMemory = new MemoryTrades();
   const volumeSaved = await new TradingSignalService(volumeMemory).generateSignal('BTCUSDT', [], [], withoutVolume);
-  assert.ok(!volumeSaved.some(signal => signal.strategyId === AND_PREM_TBR_ID));
-  assert.equal(volumeSaved.length, 2);
+  assert.deepEqual(volumeSaved.map(signal => signal.strategyId), [AND_3SAME_PREM_ID], '没有 and_prem_tbr 时留下下一名');
 
   const targetClose = (bothPrice[300].closeTime as number) + HOLD_DURATION_MS;
   const spotLoader = async () => [{ closeTime: targetClose, close: '12345.5' }];
@@ -450,45 +553,118 @@ print(repr(var ** 0.5))
   assert.equal(await settlementPriceForTrade({ strategyId: AND_3SAME_PREM_ID, klineCloseTime: bothPrice[300].closeTime }, 1, targetClose + 5, async () => []), null);
 
   const capped = new MemoryTrades();
+  const aged = new Date(Date.now() - 11 * 60 * 1000);
   for (let i = 0; i < 5; i++) {
-    capped.docs.push({
-      symbol: 'BTCUSDT',
-      timestamp: new Date(),
-      price: 1,
-      signal: 'SELL',
-      tradeType: 'SHORT',
-      confidence: 85,
-      investmentAmount: 100,
-      prediction: 'DOWN',
+    capped.docs.push(paperTrade({
+      timestamp: aged,
       klineCloseTime: i,
       strategyId: AND_PREM_TBR_ID,
-      strategyName: monitorLabel(AND_PREM_TBR_NAME),
-      orderSource: 'AUTO'
-    });
+      strategyName: monitorLabel(AND_PREM_TBR_NAME)
+    }));
   }
   const cappedSaved = await new TradingSignalService(capped).generateSignal('BTCUSDT', [], [], bothPrice);
-  assert.ok(!cappedSaved.some(signal => signal.strategyId === AND_PREM_TBR_ID), '达到单策略上限的规则不能再记');
-  assert.ok(cappedSaved.some(signal => signal.strategyId === AND_3SAME_PREM_ID));
-  assert.ok(cappedSaved.some(signal => signal.strategyId === AND_3SAME_HIGHVOL_ID), '别的策略不能被这条的持仓上限挤掉');
+  assert.deepEqual(cappedSaved.map(signal => signal.strategyId), [AND_3SAME_PREM_ID], '达到单策略上限就换下一名，更低的不再记');
+  assert.equal(capped.docs.filter(doc => doc.klineCloseTime === bothPrice[300].closeTime).length, 1);
+
+  const recentTop = new MemoryTrades();
+  recentTop.docs.push(paperTrade({
+    klineCloseTime: 1,
+    strategyId: AND_PREM_TBR_ID,
+    strategyName: monitorLabel(AND_PREM_TBR_NAME)
+  }));
+  const recentSaved = await new TradingSignalService(recentTop).generateSignal('BTCUSDT', [], [], bothPrice);
+  assert.deepEqual(recentSaved.map(signal => signal.strategyId), [AND_3SAME_PREM_ID], '最近 10 分钟同向未平仓只跳过这一条策略');
 
   const blocked = new MemoryTrades();
-  blocked.docs.push({
-    symbol: 'BTCUSDT',
-    timestamp: new Date(),
-    price: 1,
-    signal: 'SELL',
-    tradeType: 'SHORT',
-    confidence: 85,
-    investmentAmount: 100,
-    prediction: 'DOWN',
+  blocked.docs.push(paperTrade({
     klineCloseTime: 1,
     strategyId: AND_3SAME_HIGHVOL_ID,
-    strategyName: monitorLabel(AND_3SAME_HIGHVOL_NAME),
-    orderSource: 'AUTO'
-  });
+    strategyName: monitorLabel(AND_3SAME_HIGHVOL_NAME)
+  }));
   const blockedSaved = await new TradingSignalService(blocked).generateSignal('BTCUSDT', [], [], bothPrice);
-  assert.ok(!blockedSaved.some(signal => signal.strategyId === AND_3SAME_HIGHVOL_ID));
-  assert.ok(blockedSaved.some(signal => signal.strategyId === AND_PREM_TBR_ID), '同向限制按策略分开');
+  assert.deepEqual(blockedSaved.map(signal => signal.strategyId), [AND_PREM_TBR_ID], '同向限制按策略分开，不挡住更高优先级');
+
+  const sharedClose = bothPrice[300].closeTime as number;
+  const indexShort = alignClose(engulfShortIndex(), sharedClose);
+  assert.ok(evaluateStrategies(indexShort, 'index').some(signal => signal.strategyId === 'multi-cross-engulf-short' && signal.direction === 'DOWN'));
+  const comboBeatsTrend = new MemoryTrades();
+  const comboBeatsTrendSaved = await new TradingSignalService(comboBeatsTrend).generateSignal('BTCUSDT', indexShort, [], bothPrice);
+  assert.deepEqual(comboBeatsTrendSaved.map(signal => signal.strategyId), [AND_PREM_TBR_ID], '同一根K线同向时组合优先于趋势策略');
+  assert.equal(comboBeatsTrend.docs[0].price, bothPrice[bothPrice.length - 1].close);
+  assert.equal(comboBeatsTrend.docs[0].klineCloseTime, sharedClose);
+  assert.equal(comboBeatsTrendSaved[0].postHoc, true);
+
+  const trendOnly = new MemoryTrades();
+  const trendSaved = await new TradingSignalService(trendOnly).generateSignal('BTCUSDT', engulfShortIndex(), [], []);
+  assert.deepEqual(trendSaved.map(signal => signal.strategyId), ['multi-cross-engulf-short']);
+  assert.equal(trendSaved[0].postHoc, false);
+  assert.equal(trendSaved[0].signal, 'SELL');
+  assert.ok(trendSaved[0].recommendedAction.includes('建议开仓做空'));
+  assert.equal(trendSaved[0].recommendedAction.includes('不下单'), false);
+
+  const indexLong = alignClose(engulfLongIndex(), sharedClose);
+  assert.ok(evaluateStrategies(indexLong, 'index').some(signal => signal.strategyId === 'multi-cross-engulf-long' && signal.direction === 'UP'));
+  const oppositeMemory = new MemoryTrades();
+  const oppositeSaved = await new TradingSignalService(oppositeMemory).generateSignal('BTCUSDT', indexLong, [], bothPrice);
+  assert.equal(oppositeSaved.length, 0, '同一根K线多空都有信号时一笔都不记');
+  assert.equal(oppositeMemory.docs.length, 0);
+
+  const opposedSpot = armPremAndTbr(fallingOpposite(history), premStd * 3, 80);
+  assert.equal(evaluateAndPremTbr(opposedSpot)?.direction, 'DOWN');
+  assert.equal(evaluateAnd3SamePrem(opposedSpot), null);
+  assert.equal(evaluateAnd3SameHighvol(opposedSpot)?.direction, 'UP');
+  const opposedMemory = new MemoryTrades();
+  const opposedService = new TradingSignalService(opposedMemory);
+  const opposedSaved = await opposedService.generateSignal('BTCUSDT', [], [], opposedSpot);
+  assert.equal(opposedSaved.length, 0, '两条组合方向相反时整根跳过，不因为优先级高就留下空单');
+  assert.equal(opposedMemory.docs.length, 0);
+  const afterDiscard = await opposedService.generateSignal('BTCUSDT', [], [], bothPrice);
+  assert.deepEqual(afterDiscard.map(signal => signal.strategyId), [AND_PREM_TBR_ID], '被整根丢掉的信号不占槽，下一轮仍可记');
+
+  const splitClose = sharedClose + FIVE_MIN_MS;
+  const splitMemory = new MemoryTrades();
+  const splitSaved = await new TradingSignalService(splitMemory).generateSignal('BTCUSDT', alignClose(engulfLongIndex(), splitClose), [], bothPrice);
+  assert.equal(splitSaved.length, 2, '收盘时间不同，多空各记一笔');
+  assert.equal(splitMemory.docs.find(doc => doc.klineCloseTime === sharedClose)?.strategyId, AND_PREM_TBR_ID);
+  assert.equal(splitMemory.docs.find(doc => doc.klineCloseTime === splitClose)?.strategyId, 'multi-cross-engulf-long');
+
+  const twoBars = new MemoryTrades();
+  const twoBarService = new TradingSignalService(twoBars);
+  const firstBar = await twoBarService.generateSignal('BTCUSDT', [], [], bothPrice);
+  assert.deepEqual(firstBar.map(signal => signal.strategyId), [AND_PREM_TBR_ID]);
+  twoBars.docs[0].timestamp = new Date(Date.now() - 11 * 60 * 1000);
+  const secondBar = await twoBarService.generateSignal('BTCUSDT', [], [], shiftTimes(bothPrice, FIVE_MIN_MS));
+  assert.deepEqual(secondBar.map(signal => signal.strategyId), [AND_PREM_TBR_ID], '另一根K线不受上一根限制');
+  assert.equal(twoBars.docs.length, 2);
+  assert.notEqual(twoBars.docs[0].klineCloseTime, twoBars.docs[1].klineCloseTime);
+
+  const nextBarWhileOpen = new MemoryTrades();
+  const nextBarService = new TradingSignalService(nextBarWhileOpen);
+  await nextBarService.generateSignal('BTCUSDT', [], [], bothPrice);
+  const whileOpen = await nextBarService.generateSignal('BTCUSDT', [], [], shiftTimes(bothPrice, FIVE_MIN_MS * 2));
+  assert.deepEqual(whileOpen.map(signal => signal.strategyId), [AND_3SAME_PREM_ID], '10 分钟同向限制只挡住同一条策略，下一根K线仍可记');
+  assert.equal(new Set(nextBarWhileOpen.docs.map(doc => doc.klineCloseTime)).size, 2);
+
+  const otherSymbol = new MemoryTrades();
+  const symbolService = new TradingSignalService(otherSymbol);
+  const btcSaved = await symbolService.generateSignal('BTCUSDT', [], [], incidentBars);
+  const ethSaved = await symbolService.generateSignal('ETHUSDT', [], [], incidentBars);
+  assert.deepEqual(btcSaved.map(signal => signal.strategyId), [AND_PREM_TBR_ID]);
+  assert.deepEqual(ethSaved.map(signal => signal.strategyId), [AND_PREM_TBR_ID]);
+  assert.deepEqual(otherSymbol.docs.map(doc => doc.symbol).sort(), ['BTCUSDT', 'ETHUSDT']);
+
+  const alreadyThere = new MemoryTrades();
+  alreadyThere.docs.push(paperTrade({
+    timestamp: aged,
+    price: 67241.29,
+    klineCloseTime: incidentClose,
+    strategyId: AND_3SAME_PREM_ID,
+    strategyName: monitorLabel(AND_3SAME_PREM_NAME)
+  }));
+  const alreadySaved = await new TradingSignalService(alreadyThere).generateSignal('BTCUSDT', [], [], incidentBars);
+  assert.equal(alreadySaved.length, 0, '这根K线已经有任意策略的交易时不再记');
+  assert.equal(alreadyThere.docs.length, 1);
+  assert.equal(alreadyThere.docs[0].strategyId, AND_3SAME_PREM_ID);
 
   const feishu = formatFeishuOpenText(saved[0], bothPrice[bothPrice.length - 1].closeTime as number);
   assert.ok(feishu.includes(POST_HOC_MARK));

@@ -1,0 +1,1751 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>BTC Oracle // 指数全自动规则平仓回测实验室</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;600;700;800&family=Share+Tech+Mono&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  
+  <!-- 前端基础运行库 (React 18 + TailwindCSS + Lightweight-Charts) -->
+  <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://unpkg.com/lightweight-charts@4.2.0/dist/lightweight-charts.standalone.production.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.6.0/dist/confetti.browser.min.js"></script>
+
+  <style>
+    body {
+      margin: 0;
+      padding: 0;
+      background-color: #04070b;
+      color: #f1f5f9;
+      font-family: 'JetBrains Mono', 'Share Tech Mono', monospace;
+      overflow-x: hidden;
+    }
+
+    ::-webkit-scrollbar {
+      width: 6px;
+      height: 6px;
+    }
+    ::-webkit-scrollbar-track {
+      background: #04070b;
+    }
+    ::-webkit-scrollbar-thumb {
+      background: #1e293b;
+      border-radius: 3px;
+    }
+    ::-webkit-scrollbar-thumb:hover {
+      background: #10b981;
+    }
+
+    .font-terminal {
+      font-family: 'JetBrains Mono', 'Share Tech Mono', monospace;
+    }
+
+    .terminal-panel {
+      background: #080d14;
+      border: 1px solid rgba(6, 182, 212, 0.2);
+      box-shadow: 0 4px 20px rgba(0, 0, 0, 0.7), inset 0 0 30px rgba(6, 182, 212, 0.02);
+    }
+
+    /* 荧光特效 */
+    .glow-green {
+      text-shadow: 0 0 10px rgba(16, 185, 129, 0.6);
+    }
+    .glow-red {
+      text-shadow: 0 0 10px rgba(244, 63, 94, 0.6);
+    }
+    .glow-cyan {
+      text-shadow: 0 0 10px rgba(6, 182, 212, 0.6);
+    }
+    .glow-amber {
+      text-shadow: 0 0 10px rgba(245, 158, 11, 0.6);
+    }
+
+    /* 范围滑动条自定义 */
+    input[type=range] {
+      accent-color: #06b6d4;
+    }
+
+    .num-tabular {
+      font-variant-numeric: tabular-nums;
+    }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+
+  <script type="text/babel">
+    const { useState, useEffect, useRef, useMemo, useCallback } = React;
+
+    // 工具函数：格式化金额
+    const formatU = (num, digits = 2) => {
+      if (num === null || num === undefined || isNaN(num)) return '0.00';
+      return Number(num).toLocaleString('zh-CN', {
+        minimumFractionDigits: digits,
+        maximumFractionDigits: digits
+      });
+    };
+
+    // 工具函数：格式化时间戳为北京时间 YYYY-MM-DD HH:mm:ss
+    const formatBeijingTime = (ts) => {
+      if (!ts) return '--';
+      const d = new Date(Number(ts));
+      if (isNaN(d.getTime())) return '--';
+      const utc = d.getTime() + d.getTimezoneOffset() * 60000;
+      const bj = new Date(utc + 8 * 3600000);
+      const Y = bj.getFullYear();
+      const M = String(bj.getMonth() + 1).padStart(2, '0');
+      const D = String(bj.getDate()).padStart(2, '0');
+      const h = String(bj.getHours()).padStart(2, '0');
+      const m = String(bj.getMinutes()).padStart(2, '0');
+      const s = String(bj.getSeconds()).padStart(2, '0');
+      return `${Y}-${M}-${D} ${h}:${m}:${s}`;
+    };
+
+    // 工具函数：格式化 datetime-local 字符串 (YYYY-MM-DDTHH:mm)
+    const toDateTimeLocal = (date) => {
+      const pad = (n) => String(n).padStart(2, '0');
+      const Y = date.getFullYear();
+      const M = pad(date.getMonth() + 1);
+      const D = pad(date.getDate());
+      const h = pad(date.getHours());
+      const m = pad(date.getMinutes());
+      return `${Y}-${M}-${D}T${h}:${m}`;
+    };
+
+    // 周期毫秒数映射
+    const INTERVAL_TO_MS = {
+      '1m': 60 * 1000,
+      '3m': 3 * 60 * 1000,
+      '5m': 5 * 60 * 1000,
+      '15m': 15 * 60 * 1000,
+      '30m': 30 * 60 * 1000,
+      '1h': 3600 * 1000,
+      '4h': 4 * 3600 * 1000,
+      '1d': 24 * 3600 * 1000
+    };
+
+    // 主应用组件
+    const BacktestApp = () => {
+      // 1. 回测参数与时间配置
+      const [symbol, setSymbol] = useState('BTCUSDT');
+      const [interval, setIntervalVal] = useState('5m');
+      const [startDate, setStartDate] = useState(() => {
+        const d = new Date(Date.now() - 3 * 24 * 3600 * 1000); // 默认3天前
+        return toDateTimeLocal(d);
+      });
+      const [endDate, setEndDate] = useState(() => {
+        return toDateTimeLocal(new Date());
+      });
+
+      // 自动平仓规则配置：
+      // autoCloseMinutes: 自动平仓持仓时长 (默认10分钟，与系统10分钟事件合约完全一致)
+      const [autoCloseMinutes, setAutoCloseMinutes] = useState(10);
+      // tradeRule: 'event' (10分钟事件合约，预测正确+80%收益，错误-100%本金) 或 'margin' (标的点差涨跌幅)
+      const [tradeRule, setTradeRule] = useState('event');
+      // 初始资金与单笔交易仓位 (USDT)
+      const [initialCapital, setInitialCapital] = useState(1000);
+      const [tradeAmount, setTradeAmount] = useState(100);
+
+      // 可选自动止盈止损保护规则
+      const [enableTpSl, setEnableTpSl] = useState(false);
+      const [takeProfitPrice, setTakeProfitPrice] = useState('');
+      const [stopLossPrice, setStopLossPrice] = useState('');
+
+      // 2. 指数K线数据与状态
+      const [allKlines, setAllKlines] = useState([]);
+      const [dataSource, setDataSource] = useState('');
+      const [loading, setLoading] = useState(false);
+      const [errorMsg, setErrorMsg] = useState('');
+      const [noticeMsg, setNoticeMsg] = useState('');
+
+      // 3. 回放/推演引擎状态
+      const [isReplayMode, setIsReplayMode] = useState(true);
+      const [replayIndex, setReplayIndex] = useState(0); // 当前推演到的K线索引 (0 ~ allKlines.length - 1)
+      const [isPlaying, setIsPlaying] = useState(false);
+      const [playSpeed, setPlaySpeed] = useState(1); // 播放速度倍率
+
+      // 4. 当前持仓与交易记录
+      // activePosition: { id, type, entryIndex, targetExitIndex, entryPrice, entryTime, expectedExitTime, amount, autoCloseMinutes, holdBars, takeProfit, stopLoss }
+      const [activePosition, setActivePosition] = useState(null);
+      const [trades, setTrades] = useState(() => {
+        try {
+          const saved = localStorage.getItem('btc_oracle_manual_backtest_trades');
+          return saved ? JSON.parse(saved) : [];
+        } catch {
+          return [];
+        }
+      });
+
+      // 5. 过滤与选中高亮
+      const [tradeFilter, setTradeFilter] = useState('ALL'); // ALL, LONG, SHORT, WIN, LOSS
+      const [selectedTradeId, setSelectedTradeId] = useState(null);
+
+      // 图表 DOM 容器引用
+      const chartContainerRef = useRef(null);
+      const equityChartContainerRef = useRef(null);
+      const chartRef = useRef(null);
+      const candleSeriesRef = useRef(null);
+      const ema50SeriesRef = useRef(null);
+      const ema200SeriesRef = useRef(null);
+      const equityChartRef = useRef(null);
+      const equitySeriesRef = useRef(null);
+
+      // 自动播放定时器
+      const playTimerRef = useRef(null);
+
+      // 当前周期对应的单根K线毫秒数
+      const curIntervalMs = useMemo(() => {
+        return INTERVAL_TO_MS[interval] || 5 * 60 * 1000;
+      }, [interval]);
+
+      // 当前设置的自动平仓所需持有K线数量 (例如 5m 周期下 10 分钟 = 2 根K线)
+      const holdBarsRequired = useMemo(() => {
+        return Math.max(1, Math.round((autoCloseMinutes * 60 * 1000) / curIntervalMs));
+      }, [autoCloseMinutes, curIntervalMs]);
+
+      // 自动保存交易记录到 localStorage
+      useEffect(() => {
+        try {
+          localStorage.setItem('btc_oracle_manual_backtest_trades', JSON.stringify(trades));
+        } catch (e) {
+          console.warn('保存到localStorage失败:', e);
+        }
+      }, [trades]);
+
+      // 当前可见K线列表 (推演模式下仅显示当前进度之前的K线)
+      const visibleKlines = useMemo(() => {
+        if (!allKlines || allKlines.length === 0) return [];
+        if (!isReplayMode) return allKlines;
+        const count = Math.min(Math.max(replayIndex + 1, 1), allKlines.length);
+        return allKlines.slice(0, count);
+      }, [allKlines, isReplayMode, replayIndex]);
+
+      // 当前K线数据
+      const currentBar = useMemo(() => {
+        if (visibleKlines.length === 0) return null;
+        return visibleKlines[visibleKlines.length - 1];
+      }, [visibleKlines]);
+
+      // 当前指数价格
+      const currentPrice = useMemo(() => {
+        if (!currentBar) return 0;
+        return Number(currentBar.close);
+      }, [currentBar]);
+
+      // 快捷预设时间
+      const setQuickPreset = (hours) => {
+        const end = new Date();
+        const start = new Date(end.getTime() - hours * 3600 * 1000);
+        setStartDate(toDateTimeLocal(start));
+        setEndDate(toDateTimeLocal(end));
+      };
+
+      // 从后端加载指数K线数据
+      const fetchIndexData = async () => {
+        setLoading(true);
+        setErrorMsg('');
+        try {
+          const startMs = new Date(startDate).getTime();
+          const endMs = new Date(endDate).getTime();
+
+          if (isNaN(startMs) || isNaN(endMs) || startMs >= endMs) {
+            setErrorMsg('请选择有效的起止时间区间（开始时间需早于结束时间）');
+            setLoading(false);
+            return;
+          }
+
+          const res = await fetch(`/api/backtest/index-klines?symbol=${symbol}&interval=${interval}&start=${startMs}&end=${endMs}&limit=2500`);
+          const data = await res.json();
+
+          if (!data.success || !data.klines || data.klines.length === 0) {
+            setErrorMsg(data.error || '未获取到对应时间段的指数数据');
+            setLoading(false);
+            return;
+          }
+
+          setAllKlines(data.klines);
+          setDataSource(data.source || 'index');
+          const initialReplay = Math.min(Math.max(20, Math.floor(data.klines.length * 0.1)), data.klines.length - 1);
+          setReplayIndex(initialReplay);
+          setIsPlaying(false);
+        } catch (err) {
+          console.error('加载指数数据失败:', err);
+          setErrorMsg('网络请求异常，无法加载指数数据: ' + (err.message || err));
+        } finally {
+          setLoading(false);
+        }
+      };
+
+      useEffect(() => {
+        fetchIndexData();
+      }, []);
+
+      // 自动播放控制
+      useEffect(() => {
+        if (!isPlaying) {
+          if (playTimerRef.current) clearInterval(playTimerRef.current);
+          return;
+        }
+
+        const baseInterval = 1000 / playSpeed;
+        playTimerRef.current = setInterval(() => {
+          setReplayIndex((prev) => {
+            if (prev >= allKlines.length - 1) {
+              setIsPlaying(false);
+              return prev;
+            }
+            return prev + 1;
+          });
+        }, Math.max(100, baseInterval));
+
+        return () => {
+          if (playTimerRef.current) clearInterval(playTimerRef.current);
+        };
+      }, [isPlaying, playSpeed, allKlines.length]);
+
+      // -------------------------------------------------------------
+      // 核心平仓逻辑：严格由规则自动触发平仓，不支持任何手动平仓
+      // -------------------------------------------------------------
+      const handleAutoClose = useCallback((pos, exitPriceVal, exitTimeVal, reason) => {
+        const exitPrice = Number(exitPriceVal);
+        const exitTime = Number(exitTimeVal);
+        const priceDiff = exitPrice - pos.entryPrice;
+        const pricePct = (priceDiff / pos.entryPrice) * 100;
+
+        let profitLoss = 0;
+        let isCorrect = false;
+
+        if (tradeRule === 'event') {
+          // 事件合约规则：按实际方向判定，胜出固定获得 80% 收益，失败亏损全部本金
+          const isWin = pos.type === 'LONG' ? (exitPrice > pos.entryPrice) : (exitPrice < pos.entryPrice);
+          isCorrect = isWin;
+          if (isWin) {
+            profitLoss = pos.amount * 0.8; // +80U
+          } else {
+            profitLoss = -pos.amount; // -100U
+          }
+        } else {
+          // 标的点差模式：按实际价格涨跌幅计算盈亏
+          const returnRate = pos.type === 'LONG' ? (priceDiff / pos.entryPrice) : (-priceDiff / pos.entryPrice);
+          profitLoss = pos.amount * returnRate;
+          isCorrect = profitLoss > 0;
+        }
+
+        const closedTrade = {
+          id: pos.id,
+          type: pos.type,
+          entryIndex: pos.entryIndex,
+          exitIndex: replayIndex,
+          entryTime: pos.entryTime,
+          exitTime: exitTime,
+          entryPrice: pos.entryPrice,
+          exitPrice: exitPrice,
+          amount: pos.amount,
+          profitLoss: Math.round(profitLoss * 100) / 100,
+          returnRate: Math.round((profitLoss / pos.amount) * 10000) / 100, // %
+          pricePct: Math.round(pricePct * 100) / 100,
+          barsHeld: Math.max(1, replayIndex - pos.entryIndex),
+          reason: reason,
+          isCorrect: isCorrect,
+          settledAt: Date.now()
+        };
+
+        setTrades((prev) => [closedTrade, ...prev]);
+        setActivePosition(null);
+
+        // 提示规则自动平仓已执行
+        setNoticeMsg(`【规则自动平仓完成】${reason}，平仓价: $${formatU(exitPrice, 1)}，盈亏: ${profitLoss >= 0 ? '+' : ''}${formatU(profitLoss)}U`);
+        setTimeout(() => setNoticeMsg(''), 5000);
+
+        if (isCorrect && typeof confetti === 'function') {
+          confetti({
+            particleCount: 50,
+            spread: 60,
+            origin: { y: 0.8 }
+          });
+        }
+      }, [tradeRule, replayIndex]);
+
+      // 自动检查持仓：单步推演中，达到规则要求的时间或触及止盈止损时自动平仓
+      useEffect(() => {
+        if (!activePosition || !currentBar) return;
+
+        const pos = activePosition;
+        const curBarTime = Number(currentBar.openTime);
+        const curClose = Number(currentBar.close);
+        const curHigh = Number(currentBar.high);
+        const curLow = Number(currentBar.low);
+
+        // 1. 检查可选止盈止损自动保护
+        if (pos.takeProfit && pos.takeProfit > 0) {
+          const hitTP = pos.type === 'LONG' ? curHigh >= pos.takeProfit : curLow <= pos.takeProfit;
+          if (hitTP) {
+            handleAutoClose(pos, pos.takeProfit, curBarTime, '止盈价自动触发平仓 (TAKE_PROFIT_AUTO)');
+            return;
+          }
+        }
+        if (pos.stopLoss && pos.stopLoss > 0) {
+          const hitSL = pos.type === 'LONG' ? curLow <= pos.stopLoss : curHigh >= pos.stopLoss;
+          if (hitSL) {
+            handleAutoClose(pos, pos.stopLoss, curBarTime, '止损价自动触发平仓 (STOP_LOSS_AUTO)');
+            return;
+          }
+        }
+
+        // 2. 检查规则到期自动平仓 (满设定持有K线数或时间满额)
+        const isBarsExpired = replayIndex >= pos.targetExitIndex;
+        const isTimeExpired = curBarTime >= pos.expectedExitTime;
+
+        if (isBarsExpired || isTimeExpired) {
+          handleAutoClose(
+            pos,
+            curClose,
+            curBarTime,
+            `规则到期自动平仓 (满${pos.autoCloseMinutes}分钟 / ${pos.holdBars}根K线)`
+          );
+        }
+      }, [replayIndex, activePosition, currentBar, handleAutoClose]);
+
+      // 执行开仓 (开多 / 开空)
+      const executeOpenPosition = (type) => {
+        if (!currentBar) {
+          alert('请先加载指数K线数据');
+          return;
+        }
+
+        // 若当前已有持仓，明确提示用户不可手动平仓，必须按规则等待自动平仓
+        if (activePosition) {
+          const remainingBars = Math.max(1, activePosition.targetExitIndex - replayIndex);
+          alert(
+            `【交易已被规则锁定】\n\n当前已有持仓正在按规则运行中（剩余 ${remainingBars} 根 K 线自动平仓结算）。\n` +
+            `本系统严格执行【按规则自动平仓，不支持手动平仓】的纪律要求，请通过“单步推进”或“自动播放”推进 K 线至到期自动平仓后再开新仓。`
+          );
+          return;
+        }
+
+        const price = Number(currentBar.close);
+        const entryTime = Number(currentBar.openTime);
+        const holdBars = holdBarsRequired;
+        const targetExitIndex = replayIndex + holdBars;
+        const expectedExitTime = entryTime + autoCloseMinutes * 60 * 1000;
+
+        // 全景自由模式下：因为所有未来K线已经加载，系统直接按规则自动寻觅未来对应K线并瞬间自动结算
+        if (!isReplayMode) {
+          const exitIdx = Math.min(targetExitIndex, allKlines.length - 1);
+          const exitBar = allKlines[exitIdx];
+          const exitClose = Number(exitBar.close);
+          const exitTime = Number(exitBar.openTime);
+
+          // 临时构建持仓对象并直接自动平仓结算
+          const tempPos = {
+            id: 'pos_' + Date.now() + '_' + Math.random().toString(36).substr(2, 5),
+            type,
+            entryIndex: replayIndex,
+            targetExitIndex: exitIdx,
+            entryPrice: price,
+            entryTime: entryTime,
+            amount: Number(tradeAmount) || 100,
+            autoCloseMinutes: autoCloseMinutes,
+            holdBars: holdBars
+          };
+
+          handleAutoClose(
+            tempPos,
+            exitClose,
+            exitTime,
+            `全景规则自动平仓 (满${autoCloseMinutes}分钟 / ${holdBars}根K线)`
+          );
+          return;
+        }
+
+        // 推演模式下：锁定当前持仓，跟随 K 线推演前进自动触发平仓
+        const newPos = {
+          id: 'pos_' + Date.now() + '_' + Math.random().toString(36).substr(2, 5),
+          type,
+          entryIndex: replayIndex,
+          targetExitIndex: targetExitIndex,
+          entryPrice: price,
+          entryTime: entryTime,
+          expectedExitTime: expectedExitTime,
+          expectedExitTimeStr: formatBeijingTime(expectedExitTime),
+          amount: Number(tradeAmount) || 100,
+          autoCloseMinutes: autoCloseMinutes,
+          holdBars: holdBars,
+          takeProfit: (enableTpSl && takeProfitPrice) ? Number(takeProfitPrice) : null,
+          stopLoss: (enableTpSl && stopLossPrice) ? Number(stopLossPrice) : null
+        };
+
+        setActivePosition(newPos);
+        setNoticeMsg(`【已按规则开仓】方向: ${type === 'LONG' ? '做多' : '做空'}，价格: $${formatU(price, 1)}。已锁定！系统将在 ${autoCloseMinutes} 分钟(${holdBars}根K线)后自动平仓结算。`);
+        setTimeout(() => setNoticeMsg(''), 5000);
+      };
+
+      // 清空回测数据
+      const resetBacktest = () => {
+        if (confirm('确定要清空当前所有回测交易记录并重置吗？')) {
+          setTrades([]);
+          setActivePosition(null);
+          localStorage.removeItem('btc_oracle_manual_backtest_trades');
+        }
+      };
+
+      // 导出 CSV 交易明细
+      const exportCSV = () => {
+        if (trades.length === 0) {
+          alert('暂无交易记录可供导出');
+          return;
+        }
+
+        const headers = [
+          '交易序号',
+          '方向',
+          '开仓时间(北京)',
+          '平仓时间(北京)',
+          '开仓指数价',
+          '平仓指数价',
+          '本金(USDT)',
+          '盈亏(USDT)',
+          '收益率(%)',
+          '持仓K线数',
+          '自动平仓规则与原因'
+        ];
+
+        const rows = trades.map((t, idx) => [
+          trades.length - idx,
+          t.type === 'LONG' ? '做多' : '做空',
+          formatBeijingTime(t.entryTime),
+          formatBeijingTime(t.exitTime),
+          t.entryPrice,
+          t.exitPrice,
+          t.amount,
+          t.profitLoss,
+          t.returnRate + '%',
+          t.barsHeld,
+          t.reason
+        ]);
+
+        const csvContent = '\uFEFF' + [headers, ...rows].map(e => e.join(',')).join('\n');
+        const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `BTC_Index_Auto_Backtest_${new Date().toISOString().slice(0, 10)}.csv`;
+        a.click();
+        URL.revokeObjectURL(url);
+      };
+
+      // -------------------------------------------------------------
+      // 数据统计计算 (Metrics & Statistics)
+      // -------------------------------------------------------------
+      const stats = useMemo(() => {
+        const totalTrades = trades.length;
+        if (totalTrades === 0) {
+          return {
+            totalTrades: 0,
+            winTrades: 0,
+            lossTrades: 0,
+            winRate: 0,
+            totalProfitLoss: 0,
+            roi: 0,
+            currentBalance: initialCapital,
+            profitFactor: 0,
+            avgTradePnL: 0,
+            avgWin: 0,
+            avgLoss: 0,
+            maxWin: 0,
+            maxLoss: 0,
+            maxConsecutiveWins: 0,
+            maxConsecutiveLosses: 0,
+            maxDrawdown: 0,
+            maxDrawdownPct: 0,
+            longTrades: 0,
+            longWinRate: 0,
+            shortTrades: 0,
+            shortWinRate: 0,
+            equityHistory: [{ time: Date.now(), balance: initialCapital }]
+          };
+        }
+
+        let winTrades = 0;
+        let lossTrades = 0;
+        let grossProfit = 0;
+        let grossLoss = 0;
+        let totalPnL = 0;
+        let maxWin = 0;
+        let maxLoss = 0;
+
+        let longTrades = 0;
+        let longWins = 0;
+        let shortTrades = 0;
+        let shortWins = 0;
+
+        let curConsecWins = 0;
+        let maxConsecWins = 0;
+        let curConsecLosses = 0;
+        let maxConsecLosses = 0;
+
+        const chronTrades = [...trades].reverse();
+        let runningBalance = initialCapital;
+        let peakBalance = initialCapital;
+        let maxDrawdown = 0;
+        let maxDrawdownPct = 0;
+
+        const equityHistory = [
+          { time: (chronTrades[0]?.entryTime || Date.now()) - 300000, balance: initialCapital }
+        ];
+
+        chronTrades.forEach((t) => {
+          totalPnL += t.profitLoss;
+          runningBalance += t.profitLoss;
+          equityHistory.push({ time: t.exitTime, balance: runningBalance });
+
+          if (runningBalance > peakBalance) {
+            peakBalance = runningBalance;
+          }
+          const dd = peakBalance - runningBalance;
+          const ddPct = peakBalance > 0 ? (dd / peakBalance) * 100 : 0;
+          if (dd > maxDrawdown) maxDrawdown = dd;
+          if (ddPct > maxDrawdownPct) maxDrawdownPct = ddPct;
+
+          if (t.profitLoss > 0) {
+            winTrades++;
+            grossProfit += t.profitLoss;
+            if (t.profitLoss > maxWin) maxWin = t.profitLoss;
+
+            curConsecWins++;
+            curConsecLosses = 0;
+            if (curConsecWins > maxConsecWins) maxConsecWins = curConsecWins;
+          } else {
+            lossTrades++;
+            grossLoss += Math.abs(t.profitLoss);
+            if (t.profitLoss < maxLoss) maxLoss = t.profitLoss;
+
+            curConsecLosses++;
+            curConsecWins = 0;
+            if (curConsecLosses > maxConsecLosses) maxConsecLosses = curConsecLosses;
+          }
+
+          if (t.type === 'LONG') {
+            longTrades++;
+            if (t.profitLoss > 0) longWins++;
+          } else {
+            shortTrades++;
+            if (t.profitLoss > 0) shortWins++;
+          }
+        });
+
+        const winRate = (winTrades / totalTrades) * 100;
+        const roi = (totalPnL / initialCapital) * 100;
+        const profitFactor = grossLoss > 0 ? grossProfit / grossLoss : (grossProfit > 0 ? 99.9 : 0);
+        const avgTradePnL = totalPnL / totalTrades;
+        const avgWin = winTrades > 0 ? grossProfit / winTrades : 0;
+        const avgLoss = lossTrades > 0 ? grossLoss / lossTrades : 0;
+
+        return {
+          totalTrades,
+          winTrades,
+          lossTrades,
+          winRate: Math.round(winRate * 10) / 10,
+          totalProfitLoss: Math.round(totalPnL * 100) / 100,
+          roi: Math.round(roi * 10) / 10,
+          currentBalance: Math.round(runningBalance * 100) / 100,
+          profitFactor: Math.round(profitFactor * 100) / 100,
+          avgTradePnL: Math.round(avgTradePnL * 100) / 100,
+          avgWin: Math.round(avgWin * 100) / 100,
+          avgLoss: Math.round(avgLoss * 100) / 100,
+          maxWin: Math.round(maxWin * 100) / 100,
+          maxLoss: Math.round(maxLoss * 100) / 100,
+          maxConsecutiveWins: maxConsecWins,
+          maxConsecutiveLosses: maxConsecLosses,
+          maxDrawdown: Math.round(maxDrawdown * 100) / 100,
+          maxDrawdownPct: Math.round(maxDrawdownPct * 10) / 10,
+          longTrades,
+          longWinRate: longTrades > 0 ? Math.round((longWins / longTrades) * 1000) / 10 : 0,
+          shortTrades,
+          shortWinRate: shortTrades > 0 ? Math.round((shortWins / shortTrades) * 1000) / 10 : 0,
+          equityHistory
+        };
+      }, [trades, initialCapital]);
+
+      // -------------------------------------------------------------
+      // K线主图表渲染与标记 (Lightweight Charts)
+      // -------------------------------------------------------------
+      useEffect(() => {
+        if (!chartContainerRef.current) return;
+
+        if (!chartRef.current) {
+          const chart = LightweightCharts.createChart(chartContainerRef.current, {
+            width: chartContainerRef.current.clientWidth,
+            height: 480,
+            layout: {
+              background: { type: 'solid', color: '#05080c' },
+              textColor: '#94a3b8'
+            },
+            grid: {
+              vertLines: { color: 'rgba(30, 41, 59, 0.4)', style: LightweightCharts.LineStyle.Dotted },
+              horzLines: { color: 'rgba(30, 41, 59, 0.4)', style: LightweightCharts.LineStyle.Dotted }
+            },
+            crosshair: {
+              mode: LightweightCharts.CrosshairMode.Normal,
+              vertLine: { color: 'rgba(6, 182, 212, 0.5)', width: 1, style: LightweightCharts.LineStyle.Dashed },
+              horzLine: { color: 'rgba(6, 182, 212, 0.5)', width: 1, style: LightweightCharts.LineStyle.Dashed }
+            },
+            timeScale: {
+              timeVisible: true,
+              secondsVisible: false,
+              borderColor: '#1e293b',
+              rightOffset: 10,
+              barSpacing: 8,
+              minBarSpacing: 3,
+              tickMarkFormatter: (t) => {
+                const d = new Date(t * 1000);
+                const iso = d.toISOString();
+                const hm = iso.slice(11, 16);
+                return hm === '00:00' ? iso.slice(5, 10) : hm;
+              }
+            },
+            rightPriceScale: {
+              borderColor: '#1e293b',
+              autoScale: true
+            }
+          });
+
+          const candleSeries = chart.addCandlestickSeries({
+            upColor: '#10b981',
+            downColor: '#f43f5e',
+            borderVisible: false,
+            wickUpColor: '#10b981',
+            wickDownColor: '#f43f5e',
+            priceLineVisible: true,
+            lastValueVisible: true
+          });
+
+          const ema50Series = chart.addLineSeries({
+            color: '#f59e0b',
+            lineWidth: 1,
+            priceLineVisible: false,
+            lastValueVisible: false,
+            title: 'EMA50'
+          });
+
+          const ema200Series = chart.addLineSeries({
+            color: '#a855f7',
+            lineWidth: 1,
+            priceLineVisible: false,
+            lastValueVisible: false,
+            title: 'EMA200'
+          });
+
+          chartRef.current = chart;
+          candleSeriesRef.current = candleSeries;
+          ema50SeriesRef.current = ema50Series;
+          ema200SeriesRef.current = ema200Series;
+
+          const handleResize = () => {
+            if (chartRef.current && chartContainerRef.current) {
+              chartRef.current.applyOptions({ width: chartContainerRef.current.clientWidth });
+            }
+          };
+          window.addEventListener('resize', handleResize);
+        }
+
+        if (visibleKlines && visibleKlines.length > 0 && candleSeriesRef.current) {
+          const chartCandles = visibleKlines.map((k) => ({
+            time: Math.floor(Number(k.openTime) / 1000),
+            open: Number(k.open),
+            high: Number(k.high),
+            low: Number(k.low),
+            close: Number(k.close)
+          }));
+
+          candleSeriesRef.current.setData(chartCandles);
+
+          const calculateEMA = (period) => {
+            if (chartCandles.length < period) return [];
+            const k = 2 / (period + 1);
+            let sum = 0;
+            for (let i = 0; i < period; i++) sum += chartCandles[i].close;
+            let prev = sum / period;
+            const res = [{ time: chartCandles[period - 1].time, value: prev }];
+            for (let i = period; i < chartCandles.length; i++) {
+              prev = chartCandles[i].close * k + prev * (1 - k);
+              res.push({ time: chartCandles[i].time, value: prev });
+            }
+            return res;
+          };
+
+          ema50SeriesRef.current.setData(calculateEMA(50));
+          ema200SeriesRef.current.setData(calculateEMA(200));
+
+          // 标记开仓与自动平仓点位
+          const markers = [];
+
+          trades.forEach((t) => {
+            const entrySec = Math.floor(t.entryTime / 1000);
+            const exitSec = Math.floor(t.exitTime / 1000);
+
+            markers.push({
+              time: entrySec,
+              position: t.type === 'LONG' ? 'belowBar' : 'aboveBar',
+              color: t.type === 'LONG' ? '#10b981' : '#f43f5e',
+              shape: t.type === 'LONG' ? 'arrowUp' : 'arrowDown',
+              text: `${t.type === 'LONG' ? '多' : '空'} $${Math.round(t.entryPrice)}`
+            });
+
+            markers.push({
+              time: exitSec,
+              position: t.type === 'LONG' ? 'aboveBar' : 'belowBar',
+              color: t.profitLoss >= 0 ? '#10b981' : '#f43f5e',
+              shape: 'circle',
+              text: `平 ${t.profitLoss >= 0 ? '+' : ''}${formatU(t.profitLoss)}U`
+            });
+          });
+
+          if (activePosition) {
+            const posSec = Math.floor(activePosition.entryTime / 1000);
+            markers.push({
+              time: posSec,
+              position: activePosition.type === 'LONG' ? 'belowBar' : 'aboveBar',
+              color: '#06b6d4',
+              shape: activePosition.type === 'LONG' ? 'arrowUp' : 'arrowDown',
+              text: `持仓锁定中 $${Math.round(activePosition.entryPrice)}`
+            });
+          }
+
+          markers.sort((a, b) => a.time - b.time);
+          candleSeriesRef.current.setMarkers(markers);
+
+          if (isReplayMode && chartRef.current) {
+            chartRef.current.timeScale().scrollToRealTime();
+          }
+        }
+      }, [visibleKlines, trades, activePosition, isReplayMode]);
+
+      // 资金净值曲线走势图渲染
+      useEffect(() => {
+        if (!equityChartContainerRef.current) return;
+
+        if (!equityChartRef.current) {
+          const eqChart = LightweightCharts.createChart(equityChartContainerRef.current, {
+            width: equityChartContainerRef.current.clientWidth,
+            height: 200,
+            layout: {
+              background: { type: 'solid', color: '#05080c' },
+              textColor: '#94a3b8'
+            },
+            grid: {
+              vertLines: { visible: false },
+              horzLines: { color: 'rgba(30, 41, 59, 0.4)', style: LightweightCharts.LineStyle.Dotted }
+            },
+            crosshair: {
+              mode: LightweightCharts.CrosshairMode.Normal
+            },
+            timeScale: {
+              timeVisible: true,
+              secondsVisible: false,
+              borderColor: '#1e293b'
+            },
+            rightPriceScale: {
+              borderColor: '#1e293b',
+              autoScale: true
+            }
+          });
+
+          const eqSeries = eqChart.addAreaSeries({
+            topColor: 'rgba(16, 185, 129, 0.4)',
+            bottomColor: 'rgba(16, 185, 129, 0.02)',
+            lineColor: '#10b981',
+            lineWidth: 2,
+            priceLineVisible: true
+          });
+
+          equityChartRef.current = eqChart;
+          equitySeriesRef.current = eqSeries;
+
+          window.addEventListener('resize', () => {
+            if (equityChartRef.current && equityChartContainerRef.current) {
+              equityChartRef.current.applyOptions({ width: equityChartContainerRef.current.clientWidth });
+            }
+          });
+        }
+
+        if (equitySeriesRef.current && stats.equityHistory && stats.equityHistory.length > 0) {
+          const eqData = stats.equityHistory.map((item) => ({
+            time: Math.floor(Number(item.time) / 1000),
+            value: Number(item.balance)
+          }));
+          const uniqueData = [];
+          const seen = new Set();
+          eqData.sort((a, b) => a.time - b.time).forEach((pt) => {
+            if (!seen.has(pt.time)) {
+              seen.add(pt.time);
+              uniqueData.push(pt);
+            }
+          });
+          equitySeriesRef.current.setData(uniqueData);
+          equityChartRef.current.timeScale().fitContent();
+        }
+      }, [stats.equityHistory]);
+
+      // 定位图表至特定交易
+      const focusOnTrade = (trade) => {
+        setSelectedTradeId(trade.id);
+        if (chartRef.current && visibleKlines.length > 0) {
+          const t1 = Math.floor(trade.entryTime / 1000);
+          const t2 = Math.floor(trade.exitTime / 1000);
+          const mid = (t1 + t2) / 2;
+          const range = Math.max(3000, (t2 - t1) * 3);
+          chartRef.current.timeScale().setVisibleRange({
+            from: mid - range,
+            to: mid + range
+          });
+        }
+      };
+
+      // 删除单笔交易
+      const deleteTrade = (id) => {
+        setTrades((prev) => prev.filter((t) => t.id !== id));
+      };
+
+      // 过滤交易明细列表
+      const filteredTrades = useMemo(() => {
+        return trades.filter((t) => {
+          if (tradeFilter === 'LONG') return t.type === 'LONG';
+          if (tradeFilter === 'SHORT') return t.type === 'SHORT';
+          if (tradeFilter === 'WIN') return t.profitLoss > 0;
+          if (tradeFilter === 'LOSS') return t.profitLoss <= 0;
+          return true;
+        });
+      }, [trades, tradeFilter]);
+
+      return (
+        <div className="min-h-screen bg-[#04070b] text-slate-100 p-3 sm:p-6 font-terminal">
+          {/* 1. 顶栏导航与状态显示 */}
+          <header className="terminal-panel p-4 rounded-xl mb-4 flex flex-wrap items-center justify-between gap-4 border border-cyan-500/30">
+            <div className="flex items-center gap-3">
+              <div className="w-3 h-3 rounded-full bg-emerald-400 animate-pulse shadow-md shadow-emerald-400"></div>
+              <div>
+                <h1 className="text-lg sm:text-xl font-bold tracking-wider text-slate-100 flex items-center gap-2">
+                  <span>BTC ORACLE</span>
+                  <span className="text-xs px-2 py-0.5 rounded bg-cyan-950/80 text-cyan-400 border border-cyan-700 font-mono">
+                    RULE_AUTO_BACKTEST
+                  </span>
+                </h1>
+                <p className="text-xs text-slate-400 flex items-center gap-2 mt-0.5">
+                  <span>币安事件合约标的综合指数</span>
+                  <span className="text-amber-400 font-bold">// 严格按规则自动平仓 (不支持手动平仓)</span>
+                </p>
+              </div>
+            </div>
+
+            {/* 跨页面导航切换按钮 */}
+            <div className="flex items-center gap-2 flex-wrap">
+              <a
+                href="/"
+                className="px-3 py-1.5 text-xs rounded bg-slate-900/80 hover:bg-slate-800 text-slate-300 border border-slate-700 transition-all font-mono"
+              >
+                [ 监控面板 MONITOR ]
+              </a>
+              <a
+                href="/strategies"
+                className="px-3 py-1.5 text-xs rounded bg-slate-900/80 hover:bg-slate-800 text-slate-300 border border-slate-700 transition-all font-mono"
+              >
+                [ 策略统计 TELEMETRY ]
+              </a>
+              <span className="px-3 py-1.5 text-xs rounded bg-emerald-500/20 text-emerald-300 border border-emerald-400 shadow-sm shadow-emerald-500/30 font-bold font-mono">
+                [ 手动回测 BACKTEST ]
+              </span>
+            </div>
+          </header>
+
+          {/* 全局通知浮条 */}
+          {noticeMsg && (
+            <div className="mb-4 p-3 rounded-lg bg-cyan-950/80 border border-cyan-400 text-cyan-200 text-xs font-mono flex items-center justify-between shadow-lg shadow-black/60 animate-bounce">
+              <div className="flex items-center gap-2">
+                <i className="fa-solid fa-bell text-amber-400"></i>
+                <span>{noticeMsg}</span>
+              </div>
+              <button onClick={() => setNoticeMsg('')} className="text-slate-400 hover:text-white">✕</button>
+            </div>
+          )}
+
+          {/* 2. 回测时间与指数数据配置面板 */}
+          <section className="terminal-panel p-4 rounded-xl mb-4 border border-cyan-500/25">
+            <div className="flex items-center justify-between pb-3 mb-3 border-b border-slate-800 flex-wrap gap-2">
+              <div className="flex items-center gap-2">
+                <i className="fa-solid fa-sliders text-cyan-400 text-sm"></i>
+                <span className="text-xs font-bold uppercase tracking-wider text-cyan-300">
+                  01_INDEX_CONFIG // 指数回测时间与自动平仓规则配置
+                </span>
+              </div>
+              <div className="flex items-center gap-2 text-xs">
+                <span className="text-slate-400">数据源:</span>
+                <span className="px-2 py-0.5 rounded bg-cyan-500/10 text-cyan-300 border border-cyan-500/30 font-mono">
+                  {dataSource === 'binance_index' ? '● 币安事件合约综合指数 (LIVE)' :
+                   dataSource === 'db_index' ? '● 本地数据库指数记录 (DB)' :
+                   dataSource === 'simulated_index' ? '● 仿真标的指数走势 (SIM)' : '● 就绪待载入'}
+                </span>
+                <span className="text-slate-400 ml-2">总K线数:</span>
+                <span className="font-bold text-emerald-400 font-mono">{allKlines.length} 根</span>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-6 gap-3 items-end">
+              {/* 标的指数 */}
+              <div>
+                <label className="block text-[11px] text-slate-400 mb-1">标的指数代码</label>
+                <div className="px-3 py-1.5 rounded bg-slate-950 border border-slate-800 text-xs font-bold text-slate-200">
+                  BTCUSDT (综合指数)
+                </div>
+              </div>
+
+              {/* K线周期 */}
+              <div>
+                <label className="block text-[11px] text-slate-400 mb-1">K线周期 (Interval)</label>
+                <select
+                  value={interval}
+                  onChange={(e) => setIntervalVal(e.target.value)}
+                  className="w-full px-3 py-1.5 rounded bg-slate-950 border border-slate-800 text-xs text-cyan-300 font-mono focus:border-cyan-400 focus:outline-none"
+                >
+                  <option value="1m">1分钟 (1m)</option>
+                  <option value="3m">3分钟 (3m)</option>
+                  <option value="5m">5分钟 (5m - 推荐标准)</option>
+                  <option value="15m">15分钟 (15m)</option>
+                  <option value="30m">30分钟 (30m)</option>
+                  <option value="1h">1小时 (1h)</option>
+                  <option value="4h">4小时 (4h)</option>
+                  <option value="1d">日线 (1d)</option>
+                </select>
+              </div>
+
+              {/* 自动平仓规则时长 */}
+              <div>
+                <label className="block text-[11px] text-amber-400 font-bold mb-1 flex items-center gap-1">
+                  <i className="fa-solid fa-clock-rotate-left"></i>
+                  <span>自动平仓规则 (持仓时长)</span>
+                </label>
+                <select
+                  value={autoCloseMinutes}
+                  onChange={(e) => setAutoCloseMinutes(Number(e.target.value))}
+                  className="w-full px-3 py-1.5 rounded bg-slate-950 border border-amber-500/60 text-xs text-amber-300 font-mono font-bold focus:border-amber-400 focus:outline-none"
+                >
+                  <option value={5}>5分钟自动平仓 (持有1根5mK线)</option>
+                  <option value={10}>10分钟自动平仓 (持有2根5mK线 / 标准事件合约)</option>
+                  <option value={15}>15分钟自动平仓 (持有3根5mK线)</option>
+                  <option value={30}>30分钟自动平仓 (持有6根5mK线)</option>
+                  <option value={60}>60分钟自动平仓 (持有12根5mK线)</option>
+                </select>
+              </div>
+
+              {/* 开始时间 */}
+              <div>
+                <label className="block text-[11px] text-slate-400 mb-1">回测开始时间 (Start)</label>
+                <input
+                  type="datetime-local"
+                  value={startDate}
+                  onChange={(e) => setStartDate(e.target.value)}
+                  className="w-full px-2 py-1.5 rounded bg-slate-950 border border-slate-800 text-xs text-slate-200 font-mono focus:border-cyan-400 focus:outline-none"
+                />
+              </div>
+
+              {/* 结束时间 */}
+              <div>
+                <label className="block text-[11px] text-slate-400 mb-1">回测结束时间 (End)</label>
+                <input
+                  type="datetime-local"
+                  value={endDate}
+                  onChange={(e) => setEndDate(e.target.value)}
+                  className="w-full px-2 py-1.5 rounded bg-slate-950 border border-slate-800 text-xs text-slate-200 font-mono focus:border-cyan-400 focus:outline-none"
+                />
+              </div>
+
+              {/* 操作按钮 */}
+              <div>
+                <button
+                  onClick={fetchIndexData}
+                  disabled={loading}
+                  className="w-full px-4 py-2 bg-cyan-600/30 hover:bg-cyan-600/50 border border-cyan-400 rounded text-cyan-200 text-xs font-bold font-mono tracking-wider transition-all flex items-center justify-center gap-1.5 shadow-md shadow-cyan-900/30 disabled:opacity-50"
+                >
+                  {loading ? (
+                    <>
+                      <i className="fa-solid fa-spinner fa-spin"></i>
+                      <span>加载中...</span>
+                    </>
+                  ) : (
+                    <>
+                      <i className="fa-solid fa-bolt"></i>
+                      <span>载入指数数据</span>
+                    </>
+                  )}
+                </button>
+              </div>
+            </div>
+
+            {/* 快捷时间预设按钮与规则提示 */}
+            <div className="flex items-center justify-between mt-3 pt-2 border-t border-slate-900 flex-wrap gap-2 text-xs">
+              <div className="flex items-center gap-2">
+                <span className="text-slate-500 text-[11px]">快捷时间:</span>
+                {[
+                  { label: '最近12小时', h: 12 },
+                  { label: '最近24小时', h: 24 },
+                  { label: '最近3天', h: 72 },
+                  { label: '最近7天', h: 168 },
+                  { label: '最近14天', h: 336 },
+                  { label: '最近30天', h: 720 }
+                ].map((p) => (
+                  <button
+                    key={p.h}
+                    onClick={() => setQuickPreset(p.h)}
+                    className="px-2 py-0.5 rounded bg-slate-900 hover:bg-slate-800 text-slate-300 text-[11px] border border-slate-800 transition-all font-mono"
+                  >
+                    {p.label}
+                  </button>
+                ))}
+              </div>
+
+              {/* 核心规则提示标语 */}
+              <div className="text-[11px] text-amber-300/90 font-mono flex items-center gap-1.5 bg-amber-950/30 px-2.5 py-1 rounded border border-amber-600/30">
+                <i className="fa-solid fa-shield-halved text-amber-400"></i>
+                <span>系统规则：开仓后严格持满 {holdBarsRequired} 根K线 ({autoCloseMinutes}分钟) 自动平仓，严禁且不支持手动平仓</span>
+              </div>
+            </div>
+
+            {errorMsg && (
+              <div className="mt-2 p-2 rounded bg-rose-950/60 border border-rose-800 text-rose-300 text-xs font-mono">
+                <i className="fa-solid fa-triangle-exclamation mr-1"></i>
+                {errorMsg}
+              </div>
+            )}
+          </section>
+
+          {/* 3. 回放推演控制与交易执行面板 */}
+          <section className="terminal-panel p-4 rounded-xl mb-4 border border-cyan-500/25">
+            <div className="flex flex-col lg:flex-row items-stretch lg:items-center justify-between gap-4">
+              
+              {/* 左侧：推演与回放控制 */}
+              <div className="flex-1 space-y-3">
+                <div className="flex items-center justify-between flex-wrap gap-2">
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs font-bold text-amber-400 flex items-center gap-1 font-mono">
+                      <i className="fa-solid fa-film"></i>
+                      <span>02_REPLAY_ENGINE // K线推演控制器</span>
+                    </span>
+                    <button
+                      onClick={() => setIsReplayMode(!isReplayMode)}
+                      className={`px-2 py-0.5 text-[11px] rounded border font-mono transition-all ${
+                        isReplayMode
+                          ? 'bg-amber-500/20 text-amber-300 border-amber-400'
+                          : 'bg-slate-900 text-slate-400 border-slate-800'
+                      }`}
+                    >
+                      {isReplayMode ? '● 步进推演模式 (防窥未来)' : '○ 全景全显模式'}
+                    </button>
+                  </div>
+
+                  <div className="text-xs font-mono text-slate-400">
+                    进度: <span className="text-cyan-300 font-bold">{replayIndex + 1}</span> / {allKlines.length} 根
+                    {currentBar && (
+                      <span className="ml-2 text-slate-400">
+                        ({formatBeijingTime(currentBar.openTime)})
+                      </span>
+                    )}
+                  </div>
+                </div>
+
+                {/* 进度滑块 */}
+                <div className="flex items-center gap-3">
+                  <span className="text-[11px] text-slate-500 font-mono">起点</span>
+                  <input
+                    type="range"
+                    min="0"
+                    max={Math.max(0, allKlines.length - 1)}
+                    value={replayIndex}
+                    onChange={(e) => {
+                      setReplayIndex(Number(e.target.value));
+                      setIsPlaying(false);
+                    }}
+                    className="flex-1 h-1.5 bg-slate-900 rounded-lg appearance-none cursor-pointer"
+                  />
+                  <span className="text-[11px] text-slate-500 font-mono">末尾</span>
+                </div>
+
+                {/* 控制按钮组 */}
+                <div className="flex items-center gap-2 flex-wrap text-xs font-mono">
+                  <button
+                    onClick={() => {
+                      setReplayIndex(Math.min(20, allKlines.length - 1));
+                      setIsPlaying(false);
+                    }}
+                    className="px-2.5 py-1.5 rounded bg-slate-900 hover:bg-slate-800 text-slate-300 border border-slate-700"
+                    title="重置到起点"
+                  >
+                    <i className="fa-solid fa-backward-step mr-1"></i> 起点
+                  </button>
+
+                  <button
+                    onClick={() => setIsPlaying(!isPlaying)}
+                    className={`px-4 py-1.5 rounded font-bold border transition-all ${
+                      isPlaying
+                        ? 'bg-amber-600/30 text-amber-300 border-amber-400 shadow-md shadow-amber-900/30'
+                        : 'bg-cyan-600/30 text-cyan-300 border-cyan-400 shadow-md shadow-cyan-900/30'
+                    }`}
+                  >
+                    {isPlaying ? (
+                      <>
+                        <i className="fa-solid fa-pause mr-1"></i> 暂停推演
+                      </>
+                    ) : (
+                      <>
+                        <i className="fa-solid fa-play mr-1"></i> 自动播放
+                      </>
+                    )}
+                  </button>
+
+                  <button
+                    onClick={() => {
+                      setIsPlaying(false);
+                      setReplayIndex((prev) => Math.min(prev + 1, allKlines.length - 1));
+                    }}
+                    className="px-3 py-1.5 rounded bg-slate-900 hover:bg-slate-800 text-cyan-300 border border-slate-700"
+                    title="推进一步 (+1根K线)"
+                  >
+                    <i className="fa-solid fa-forward-step mr-1"></i> 单步+1
+                  </button>
+
+                  <button
+                    onClick={() => {
+                      setIsPlaying(false);
+                      setReplayIndex((prev) => Math.min(prev + 5, allKlines.length - 1));
+                    }}
+                    className="px-3 py-1.5 rounded bg-slate-900 hover:bg-slate-800 text-cyan-300 border border-slate-700"
+                    title="前进5根K线"
+                  >
+                    <i className="fa-solid fa-forward mr-1"></i> 快进+5
+                  </button>
+
+                  <button
+                    onClick={() => {
+                      setIsPlaying(false);
+                      setReplayIndex(allKlines.length - 1);
+                    }}
+                    className="px-2.5 py-1.5 rounded bg-slate-900 hover:bg-slate-800 text-slate-400 border border-slate-700"
+                    title="跳至最后一根K线"
+                  >
+                    <i className="fa-solid fa-forward-fast mr-1"></i> 末端
+                  </button>
+
+                  {/* 速度选择 */}
+                  <div className="flex items-center gap-1 ml-auto">
+                    <span className="text-[11px] text-slate-500">倍速:</span>
+                    {[0.5, 1, 2, 5, 10].map((s) => (
+                      <button
+                        key={s}
+                        onClick={() => setPlaySpeed(s)}
+                        className={`px-1.5 py-0.5 text-[11px] rounded font-mono ${
+                          playSpeed === s
+                            ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-500'
+                            : 'text-slate-500 hover:text-slate-300'
+                        }`}
+                      >
+                        {s}x
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </div>
+
+              {/* 右侧：交易操作面板 (Trading Desk) - 仅支持开仓，平仓严格按规则自动触发 */}
+              <div className="lg:w-96 p-3 rounded-lg bg-slate-950 border border-cyan-500/30 flex flex-col justify-between">
+                <div>
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="text-xs font-bold text-slate-300 font-mono flex items-center gap-1">
+                      <span>03_TRADING_DESK // 开仓执行</span>
+                    </span>
+                    <span className="text-xs font-mono text-cyan-400">
+                      当前指数: <strong className="text-sm font-bold text-slate-100">${formatU(currentPrice, 1)}</strong>
+                    </span>
+                  </div>
+
+                  {/* 仓位金额设置 */}
+                  <div className="grid grid-cols-2 gap-2 mb-2 text-xs">
+                    <div>
+                      <span className="text-[11px] text-slate-400">单笔本金 (USDT)</span>
+                      <input
+                        type="number"
+                        value={tradeAmount}
+                        onChange={(e) => setTradeAmount(Number(e.target.value))}
+                        className="w-full px-2 py-1 rounded bg-slate-900 border border-slate-800 text-slate-200 font-mono text-xs mt-0.5 focus:border-cyan-400 focus:outline-none"
+                      />
+                    </div>
+                    <div>
+                      <span className="text-[11px] text-slate-400">快捷本金</span>
+                      <div className="flex items-center gap-1 mt-0.5">
+                        {[50, 100, 200, 500].map((amt) => (
+                          <button
+                            key={amt}
+                            onClick={() => setTradeAmount(amt)}
+                            className={`flex-1 py-1 text-[10px] rounded border font-mono ${
+                              tradeAmount === amt
+                                ? 'bg-cyan-500/20 text-cyan-300 border-cyan-500'
+                                : 'bg-slate-900 text-slate-400 border-slate-800 hover:text-slate-200'
+                            }`}
+                          >
+                            {amt}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* 规则说明条 */}
+                  <div className="mb-2 p-1.5 rounded bg-slate-900/80 border border-slate-800 text-[11px] text-slate-400 flex items-center justify-between font-mono">
+                    <span>规则结算赔率: <strong className="text-emerald-400">0.80倍 (+80%)</strong></span>
+                    <span>平仓机制: <strong className="text-amber-400">{autoCloseMinutes}分钟自动平仓</strong></span>
+                  </div>
+
+                  {/* 开多 / 开空 按钮 (无任何手动平仓按钮) */}
+                  <div className="grid grid-cols-2 gap-2 mt-2">
+                    <button
+                      onClick={() => executeOpenPosition('LONG')}
+                      disabled={!!activePosition || !currentBar}
+                      className="py-2.5 rounded bg-emerald-600/30 hover:bg-emerald-600/50 border border-emerald-400 text-emerald-300 text-xs font-bold font-mono tracking-wider transition-all flex items-center justify-center gap-1 shadow-md shadow-emerald-950 disabled:opacity-40"
+                    >
+                      <i className="fa-solid fa-arrow-trend-up"></i>
+                      <span>开多 BUY LONG ▲</span>
+                    </button>
+
+                    <button
+                      onClick={() => executeOpenPosition('SHORT')}
+                      disabled={!!activePosition || !currentBar}
+                      className="py-2.5 rounded bg-rose-600/30 hover:bg-rose-600/50 border border-rose-400 text-rose-300 text-xs font-bold font-mono tracking-wider transition-all flex items-center justify-center gap-1 shadow-md shadow-rose-950 disabled:opacity-40"
+                    >
+                      <i className="fa-solid fa-arrow-trend-down"></i>
+                      <span>开空 SELL SHORT ▼</span>
+                    </button>
+                  </div>
+                </div>
+
+                {/* 当前持仓状态卡片 (严格锁定，展示倒计时进度，不支持手动平仓) */}
+                {activePosition ? (
+                  <div className="mt-3 p-2.5 rounded bg-amber-950/30 border border-amber-500/50 font-mono text-xs">
+                    <div className="flex items-center justify-between mb-1">
+                      <span className="font-bold flex items-center gap-1.5">
+                        <span className="w-2 h-2 rounded-full bg-amber-400 animate-ping"></span>
+                        <span className={activePosition.type === 'LONG' ? 'text-emerald-400' : 'text-rose-400'}>
+                          持仓中 [{activePosition.type === 'LONG' ? '多单' : '空单'}]
+                        </span>
+                      </span>
+                      <span className="text-amber-400 font-bold text-[11px] flex items-center gap-1">
+                        <i className="fa-solid fa-lock text-[10px]"></i>
+                        <span>按规则锁定中</span>
+                      </span>
+                    </div>
+
+                    <div className="flex items-center justify-between text-[11px] text-slate-300 my-1">
+                      <span>开仓价: ${formatU(activePosition.entryPrice, 1)}</span>
+                      <span>
+                        实时点差: {activePosition.type === 'LONG'
+                          ? (currentPrice >= activePosition.entryPrice ? '+' : '')
+                          : (currentPrice <= activePosition.entryPrice ? '+' : '')
+                        }
+                        {formatU(
+                          activePosition.type === 'LONG'
+                            ? currentPrice - activePosition.entryPrice
+                            : activePosition.entryPrice - currentPrice,
+                          1
+                        )}
+                      </span>
+                    </div>
+
+                    {/* 自动平仓进度条与剩余K线倒计时 */}
+                    <div className="mt-2 pt-2 border-t border-amber-500/20 space-y-1">
+                      <div className="flex items-center justify-between text-[11px]">
+                        <span className="text-amber-300">
+                          自动平仓倒计时:
+                        </span>
+                        <span className="font-bold text-cyan-300">
+                          剩余 {Math.max(0, activePosition.targetExitIndex - replayIndex)} 根 K 线
+                        </span>
+                      </div>
+
+                      <div className="w-full bg-slate-900 rounded-full h-1.5 overflow-hidden border border-slate-800">
+                        <div
+                          className="bg-amber-400 h-full transition-all duration-300"
+                          style={{
+                            width: `${Math.min(100, Math.max(5, ((replayIndex - activePosition.entryIndex) / Math.max(1, activePosition.targetExitIndex - activePosition.entryIndex)) * 100))}%`
+                          }}
+                        ></div>
+                      </div>
+
+                      <div className="text-[10px] text-slate-400 flex items-center justify-between pt-0.5">
+                        <span>预计平仓时刻:</span>
+                        <span className="text-slate-300">{activePosition.expectedExitTimeStr?.slice(11) || '--'}</span>
+                      </div>
+
+                      <div className="text-[10px] text-amber-400/80 text-center pt-1">
+                        🔒 系统将在到期时自动按收盘价结算 (不支持手动平仓)
+                      </div>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="mt-2 text-center py-2 text-[11px] text-slate-500 font-mono">
+                    -- 当前无未平仓头寸，可选择开多或开空 --
+                  </div>
+                )}
+              </div>
+            </div>
+          </section>
+
+          {/* 4. 核心图表区域 (Lightweight Charts) */}
+          <section className="terminal-panel p-4 rounded-xl mb-4 border border-cyan-500/25">
+            <div className="flex items-center justify-between pb-2 mb-2 border-b border-slate-800 flex-wrap gap-2">
+              <div className="flex items-center gap-2">
+                <i className="fa-solid fa-chart-candlestick text-emerald-400 text-sm"></i>
+                <span className="text-xs font-bold uppercase tracking-wider text-slate-200">
+                  BTCUSDT 币安综合标的指数 // K线走势与开平仓标记
+                </span>
+                <span className="text-[11px] text-amber-400 font-mono ml-2">
+                  <span className="inline-block w-2 h-0.5 bg-amber-400 mr-1"></span>EMA50
+                </span>
+                <span className="text-[11px] text-purple-400 font-mono">
+                  <span className="inline-block w-2 h-0.5 bg-purple-400 mr-1"></span>EMA200
+                </span>
+              </div>
+
+              {/* 图表操作与标记说明 */}
+              <div className="flex items-center gap-3 text-[11px] text-slate-400 font-mono">
+                <span className="flex items-center gap-1 text-emerald-400">
+                  <span>▲</span> 开多标记
+                </span>
+                <span className="flex items-center gap-1 text-rose-400">
+                  <span>▼</span> 开空标记
+                </span>
+                <span className="flex items-center gap-1 text-cyan-300">
+                  <span>●</span> 规则自动平仓点
+                </span>
+              </div>
+            </div>
+
+            {/* 图表挂载容器 */}
+            <div
+              ref={chartContainerRef}
+              className="w-full rounded bg-[#05080c] relative overflow-hidden"
+              style={{ minHeight: '480px' }}
+            >
+              {loading && (
+                <div className="absolute inset-0 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center z-10">
+                  <div className="text-center font-mono">
+                    <i className="fa-solid fa-circle-notch fa-spin text-2xl text-cyan-400 mb-2"></i>
+                    <p className="text-xs text-cyan-300">正在获取币安标的指数历史K线数据...</p>
+                  </div>
+                </div>
+              )}
+            </div>
+          </section>
+
+          {/* 5. 数据统计大屏 (8大核心表现卡片 & 资金净值曲线) */}
+          <section className="terminal-panel p-4 rounded-xl mb-4 border border-cyan-500/25">
+            <div className="flex items-center justify-between pb-3 mb-3 border-b border-slate-800 flex-wrap gap-2">
+              <div className="flex items-center gap-2">
+                <i className="fa-solid fa-square-poll-vertical text-cyan-400 text-sm"></i>
+                <span className="text-xs font-bold uppercase tracking-wider text-cyan-300">
+                  04_PERFORMANCE_METRICS // 自动规则回测数据统计分析
+                </span>
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={exportCSV}
+                  className="px-2.5 py-1 text-xs rounded bg-slate-900 hover:bg-slate-800 text-cyan-300 border border-slate-700 font-mono flex items-center gap-1"
+                >
+                  <i className="fa-solid fa-file-csv"></i>
+                  <span>导出CSV</span>
+                </button>
+                <button
+                  onClick={resetBacktest}
+                  className="px-2.5 py-1 text-xs rounded bg-rose-950/40 hover:bg-rose-900/60 text-rose-300 border border-rose-800 font-mono flex items-center gap-1"
+                >
+                  <i className="fa-solid fa-trash-can"></i>
+                  <span>重置回测</span>
+                </button>
+              </div>
+            </div>
+
+            {/* 统计指标卡片网格 */}
+            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 mb-4">
+              {/* 卡片 1: 账户资金 */}
+              <div className="p-3 rounded-lg bg-slate-950/80 border border-slate-800 font-mono">
+                <div className="text-[11px] text-slate-400 mb-1">当前账户资金</div>
+                <div className="text-lg sm:text-xl font-bold text-slate-100 num-tabular">
+                  ${formatU(stats.currentBalance)}
+                </div>
+                <div className="text-[10px] text-slate-500 mt-1">初始: ${formatU(initialCapital)}</div>
+              </div>
+
+              {/* 卡片 2: 累计净盈亏 */}
+              <div className="p-3 rounded-lg bg-slate-950/80 border border-slate-800 font-mono">
+                <div className="text-[11px] text-slate-400 mb-1">总净盈亏 (Net PnL)</div>
+                <div className={`text-lg sm:text-xl font-bold num-tabular ${stats.totalProfitLoss >= 0 ? 'text-emerald-400 glow-green' : 'text-rose-400 glow-red'}`}>
+                  {stats.totalProfitLoss >= 0 ? '+' : ''}${formatU(stats.totalProfitLoss)}
+                </div>
+                <div className="text-[10px] text-slate-500 mt-1">
+                  收益率: <span className={stats.roi >= 0 ? 'text-emerald-400' : 'text-rose-400'}>{stats.roi >= 0 ? '+' : ''}{stats.roi}%</span>
+                </div>
+              </div>
+
+              {/* 卡片 3: 胜率 */}
+              <div className="p-3 rounded-lg bg-slate-950/80 border border-slate-800 font-mono">
+                <div className="text-[11px] text-slate-400 mb-1">交易胜率 (Win Rate)</div>
+                <div className="text-lg sm:text-xl font-bold text-cyan-300 glow-cyan num-tabular">
+                  {stats.winRate}%
+                </div>
+                <div className="text-[10px] text-slate-500 mt-1">
+                  胜 <span className="text-emerald-400">{stats.winTrades}</span> / 负 <span className="text-rose-400">{stats.lossTrades}</span> (共{stats.totalTrades}笔)
+                </div>
+              </div>
+
+              {/* 卡片 4: 盈亏比 / 获利因子 */}
+              <div className="p-3 rounded-lg bg-slate-950/80 border border-slate-800 font-mono">
+                <div className="text-[11px] text-slate-400 mb-1">获利因子 (Profit Factor)</div>
+                <div className="text-lg sm:text-xl font-bold text-amber-300 num-tabular">
+                  {stats.profitFactor}
+                </div>
+                <div className="text-[10px] text-slate-500 mt-1">
+                  单笔均值: ${formatU(stats.avgTradePnL)}
+                </div>
+              </div>
+
+              {/* 卡片 5: 均赢 vs 均亏 */}
+              <div className="p-3 rounded-lg bg-slate-950/80 border border-slate-800 font-mono">
+                <div className="text-[11px] text-slate-400 mb-1">平均盈利 / 亏损</div>
+                <div className="text-sm font-bold text-slate-200 num-tabular">
+                  <span className="text-emerald-400">+${formatU(stats.avgWin, 1)}</span>
+                  <span className="text-slate-600 mx-1">/</span>
+                  <span className="text-rose-400">-${formatU(stats.avgLoss, 1)}</span>
+                </div>
+                <div className="text-[10px] text-slate-500 mt-1">
+                  连胜: {stats.maxConsecutiveWins} | 连亏: {stats.maxConsecutiveLosses}
+                </div>
+              </div>
+
+              {/* 卡片 6: 最大回撤 */}
+              <div className="p-3 rounded-lg bg-slate-950/80 border border-slate-800 font-mono">
+                <div className="text-[11px] text-slate-400 mb-1">最大回撤 (Max DD)</div>
+                <div className="text-lg sm:text-xl font-bold text-rose-400 num-tabular">
+                  -{stats.maxDrawdownPct}%
+                </div>
+                <div className="text-[10px] text-slate-500 mt-1">金额: -${formatU(stats.maxDrawdown)}</div>
+              </div>
+            </div>
+
+            {/* 多空胜率分布与资金净值曲线走势 */}
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+              {/* 多空分解比例条 */}
+              <div className="p-3 rounded-lg bg-slate-950/80 border border-slate-800 font-mono flex flex-col justify-between">
+                <div>
+                  <div className="text-xs font-bold text-slate-300 mb-2">多空方向策略表现对比</div>
+                  <div className="space-y-3">
+                    <div>
+                      <div className="flex justify-between text-xs mb-1">
+                        <span className="text-emerald-400">多单胜率 ({stats.longTrades}笔)</span>
+                        <span className="font-bold text-emerald-300">{stats.longWinRate}%</span>
+                      </div>
+                      <div className="w-full h-2 rounded bg-slate-900 overflow-hidden">
+                        <div
+                          className="h-full bg-emerald-500 transition-all duration-300"
+                          style={{ width: `${Math.min(100, stats.longWinRate)}%` }}
+                        ></div>
+                      </div>
+                    </div>
+
+                    <div>
+                      <div className="flex justify-between text-xs mb-1">
+                        <span className="text-rose-400">空单胜率 ({stats.shortTrades}笔)</span>
+                        <span className="font-bold text-rose-300">{stats.shortWinRate}%</span>
+                      </div>
+                      <div className="w-full h-2 rounded bg-slate-900 overflow-hidden">
+                        <div
+                          className="h-full bg-rose-500 transition-all duration-300"
+                          style={{ width: `${Math.min(100, stats.shortWinRate)}%` }}
+                        ></div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="text-[11px] text-slate-500 pt-3 border-t border-slate-900 mt-3">
+                  最大单笔收益: <span className="text-emerald-400">+${formatU(stats.maxWin)}</span> | 最大单笔亏损: <span className="text-rose-400">${formatU(stats.maxLoss)}</span>
+                </div>
+              </div>
+
+              {/* 资金净值走势折线图 */}
+              <div className="lg:col-span-2 p-3 rounded-lg bg-slate-950/80 border border-slate-800 font-mono">
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-xs font-bold text-slate-300">
+                    资金净值走势曲线 (EQUITY CURVE)
+                  </span>
+                  <span className="text-[11px] text-slate-500">
+                    基准本金: ${formatU(initialCapital)}
+                  </span>
+                </div>
+                <div
+                  ref={equityChartContainerRef}
+                  className="w-full rounded bg-[#05080c] relative"
+                  style={{ minHeight: '200px' }}
+                ></div>
+              </div>
+            </div>
+          </section>
+
+          {/* 6. 回测交易明细流水表 */}
+          <section className="terminal-panel p-4 rounded-xl border border-cyan-500/25">
+            <div className="flex items-center justify-between pb-3 mb-3 border-b border-slate-800 flex-wrap gap-2">
+              <div className="flex items-center gap-2">
+                <i className="fa-solid fa-list-check text-cyan-400 text-sm"></i>
+                <span className="text-xs font-bold uppercase tracking-wider text-cyan-300">
+                  05_TRADE_HISTORY // 回测交易流水明细 (全自动平仓)
+                </span>
+                <span className="text-xs text-slate-500 font-mono">({filteredTrades.length} 条记录)</span>
+              </div>
+
+              {/* 筛选标签 */}
+              <div className="flex items-center gap-1 text-xs font-mono">
+                {[
+                  { id: 'ALL', label: '全部' },
+                  { id: 'LONG', label: '仅看多单' },
+                  { id: 'SHORT', label: '仅看空单' },
+                  { id: 'WIN', label: '盈利单' },
+                  { id: 'LOSS', label: '亏损单' }
+                ].map((f) => (
+                  <button
+                    key={f.id}
+                    onClick={() => setTradeFilter(f.id)}
+                    className={`px-2.5 py-1 rounded transition-all ${
+                      tradeFilter === f.id
+                        ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-500 font-bold'
+                        : 'bg-slate-900 text-slate-400 hover:text-slate-200 border border-transparent'
+                    }`}
+                  >
+                    {f.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* 表格 */}
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-xs font-mono border-collapse">
+                <thead>
+                  <tr className="border-b border-slate-800 text-slate-400 bg-slate-950/60">
+                    <th className="p-2.5">#</th>
+                    <th className="p-2.5">方向</th>
+                    <th className="p-2.5">开仓时间</th>
+                    <th className="p-2.5">平仓时间</th>
+                    <th className="p-2.5 text-right">开仓指数价</th>
+                    <th className="p-2.5 text-right">平仓指数价</th>
+                    <th className="p-2.5 text-right">投入本金</th>
+                    <th className="p-2.5 text-right">净盈亏</th>
+                    <th className="p-2.5 text-right">收益率</th>
+                    <th className="p-2.5 text-center">持仓K线</th>
+                    <th className="p-2.5">自动平仓规则与原因</th>
+                    <th className="p-2.5 text-center">操作</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {filteredTrades.length === 0 ? (
+                    <tr>
+                      <td colSpan="12" className="p-8 text-center text-slate-500">
+                        -- 暂无匹配的回测交易记录 --
+                      </td>
+                    </tr>
+                  ) : (
+                    filteredTrades.map((t, idx) => {
+                      const isWin = t.profitLoss > 0;
+                      const isSelected = selectedTradeId === t.id;
+
+                      return (
+                        <tr
+                          key={t.id}
+                          className={`border-b border-slate-900 hover:bg-slate-900/50 transition-all ${
+                            isSelected ? 'bg-cyan-950/40 border-l-2 border-l-cyan-400' : ''
+                          }`}
+                        >
+                          <td className="p-2.5 text-slate-500">{trades.length - idx}</td>
+                          <td className="p-2.5 font-bold">
+                            {t.type === 'LONG' ? (
+                              <span className="text-emerald-400 flex items-center gap-1">
+                                <span>▲</span> 做多
+                              </span>
+                            ) : (
+                              <span className="text-rose-400 flex items-center gap-1">
+                                <span>▼</span> 做空
+                              </span>
+                            )}
+                          </td>
+                          <td className="p-2.5 text-slate-300">{formatBeijingTime(t.entryTime)}</td>
+                          <td className="p-2.5 text-slate-300">{formatBeijingTime(t.exitTime)}</td>
+                          <td className="p-2.5 text-right font-bold text-slate-200">
+                            ${formatU(t.entryPrice, 1)}
+                          </td>
+                          <td className="p-2.5 text-right font-bold text-slate-200">
+                            ${formatU(t.exitPrice, 1)}
+                          </td>
+                          <td className="p-2.5 text-right text-slate-300">${formatU(t.amount)}</td>
+                          <td
+                            className={`p-2.5 text-right font-bold num-tabular ${
+                              isWin ? 'text-emerald-400' : 'text-rose-400'
+                            }`}
+                          >
+                            {isWin ? '+' : ''}${formatU(t.profitLoss)}
+                          </td>
+                          <td
+                            className={`p-2.5 text-right font-bold num-tabular ${
+                              isWin ? 'text-emerald-400' : 'text-rose-400'
+                            }`}
+                          >
+                            {isWin ? '+' : ''}{t.returnRate}%
+                          </td>
+                          <td className="p-2.5 text-center text-slate-400">{t.barsHeld} 根</td>
+                          <td className="p-2.5 text-amber-300/90 text-[11px] font-mono flex items-center gap-1">
+                            <i className="fa-solid fa-robot text-cyan-400 text-[10px]"></i>
+                            <span>{t.reason}</span>
+                          </td>
+                          <td className="p-2.5 text-center">
+                            <div className="flex items-center justify-center gap-2">
+                              <button
+                                onClick={() => focusOnTrade(t)}
+                                className="text-cyan-400 hover:text-cyan-300"
+                                title="在图表上聚焦定位此交易"
+                              >
+                                <i className="fa-solid fa-magnifying-glass"></i>
+                              </button>
+                              <button
+                                onClick={() => deleteTrade(t.id)}
+                                className="text-slate-600 hover:text-rose-400"
+                                title="删除该笔交易"
+                              >
+                                <i className="fa-solid fa-trash"></i>
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </section>
+        </div>
+      );
+    };
+
+    ReactDOM.render(<BacktestApp />, document.getElementById('root'));
+  </script>
+</body>
+</html>

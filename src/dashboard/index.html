@@ -3525,11 +3525,16 @@
                   { id: 'dashboard', label: '[ 监控面板 MONITOR ]' },
                   { id: 'strategies', label: '[ 策略统计 TELEMETRY ]' },
                   { id: 'calendar', label: '[ 盈利日历 CALENDAR ]' },
-                  { id: 'trades', label: '[ 交易查询 QUERY ]' }
+                  { id: 'trades', label: '[ 交易查询 QUERY ]' },
+                  { id: 'backtest', label: '[ 手动回测 BACKTEST ]', isLink: true, url: '/backtest' }
                 ].map(tab => (
                   <button
                     key={tab.id}
                     onClick={() => {
+                      if (tab.isLink) {
+                        window.location.href = tab.url;
+                        return;
+                      }
                       if (tab.id === 'trades') {
                         setTradesQueryRange(null);
                         setSelectedStrategyKeyword('');

@@ -1913,7 +1913,7 @@
             </section>
 
             {/* 右侧：推演与开仓控制台 (占 4 列或 3 列，垂直紧凑排列) */}
-            <section className="lg:col-span-4 xl:col-span-3 terminal-panel p-3.5 rounded-xl border border-cyan-500/30 bg-slate-950/95 flex flex-col justify-between space-y-3">
+            <section className="lg:col-span-4 xl:col-span-3 terminal-panel p-3.5 rounded-xl border border-cyan-500/30 bg-slate-950/95 flex flex-col justify-between space-y-2.5">
               {/* 顶栏：标题与模式切换 */}
               <div>
                 <div className="flex items-center justify-between pb-2 border-b border-slate-800">
@@ -1936,11 +1936,61 @@
                   </button>
                 </div>
 
-                {/* 实时标的指数价格 */}
-                <div className="mt-2.5 p-2.5 rounded bg-slate-900 border border-cyan-500/40 flex items-center justify-between font-mono">
+                {/* 1. 右侧顶部：核心回测战绩 (盈亏、笔数和胜率) 实时看板 */}
+                <div className="mt-2 p-2.5 rounded-lg bg-slate-900/90 border border-cyan-500/30 shadow-md">
+                  <div className="flex items-center justify-between text-[11px] font-mono text-slate-400 pb-1.5 border-b border-slate-800/80">
+                    <span className="font-bold text-slate-200 flex items-center gap-1">
+                      <i className="fa-solid fa-chart-line text-cyan-400"></i>
+                      <span>实时回测战绩</span>
+                    </span>
+                    <span className="text-[10px] text-slate-400">本金: ${formatU(stats.currentBalance)}</span>
+                  </div>
+
+                  <div className="grid grid-cols-3 gap-1.5 mt-2 font-mono text-center">
+                    {/* 总盈亏 */}
+                    <div className="p-1.5 rounded bg-slate-950 border border-slate-800/90">
+                      <div className="text-[10px] text-slate-400">总盈亏</div>
+                      <div className={`text-sm sm:text-base font-bold ${
+                        stats.totalProfitLoss >= 0 ? 'text-emerald-400' : 'text-rose-400'
+                      }`}>
+                        {stats.totalProfitLoss >= 0 ? '+' : ''}${formatU(stats.totalProfitLoss)}
+                      </div>
+                      <div className={`text-[9px] ${stats.roi >= 0 ? 'text-emerald-400/80' : 'text-rose-400/80'}`}>
+                        {stats.roi >= 0 ? '+' : ''}{stats.roi}%
+                      </div>
+                    </div>
+
+                    {/* 交易笔数 */}
+                    <div className="p-1.5 rounded bg-slate-950 border border-slate-800/90">
+                      <div className="text-[10px] text-slate-400">交易笔数</div>
+                      <div className="text-sm sm:text-base font-bold text-slate-100">
+                        {stats.totalTrades} <span className="text-[10px] font-normal text-slate-400">笔</span>
+                      </div>
+                      <div className="text-[9px] text-slate-400">
+                        <span className="text-emerald-400">{stats.winTrades}胜</span>/<span className="text-rose-400">{stats.lossTrades}负</span>
+                      </div>
+                    </div>
+
+                    {/* 回测胜率 */}
+                    <div className="p-1.5 rounded bg-slate-950 border border-slate-800/90">
+                      <div className="text-[10px] text-slate-400">回测胜率</div>
+                      <div className={`text-sm sm:text-base font-bold ${
+                        stats.winRate >= 50 ? 'text-cyan-300' : (stats.totalTrades > 0 ? 'text-amber-400' : 'text-slate-400')
+                      }`}>
+                        {stats.winRate}%
+                      </div>
+                      <div className="text-[9px] text-slate-400">
+                        {stats.totalTrades > 0 ? (stats.winRate >= 60 ? '🔥高胜率' : '统计中') : '待开仓'}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* 2. 实时标的指数价格与自动平仓规则 */}
+                <div className="mt-2 p-2 rounded bg-slate-900 border border-cyan-500/40 flex items-center justify-between font-mono">
                   <div>
-                    <div className="text-[10px] text-slate-400">当前指数现价</div>
-                    <div className="text-lg font-bold text-slate-100 tracking-wider">
+                    <div className="text-[10px] text-slate-400">指数现价 (BTCUSDT)</div>
+                    <div className="text-base font-bold text-slate-100 tracking-wider">
                       ${formatU(currentPrice, 1)}
                     </div>
                   </div>
@@ -1951,60 +2001,97 @@
                     </div>
                   </div>
                 </div>
+              </div>
 
-                {/* 推演进度与时间 */}
-                <div className="mt-2 text-xs font-mono text-slate-400 flex items-center justify-between">
-                  <span>进度: <strong className="text-cyan-300">{replayIndex + 1}</strong> / {allKlines.length} 根</span>
-                  {currentBar && (
-                    <span className="text-[11px] text-slate-400">
-                      {formatBeijingTime(currentBar.openTime).slice(5)}
-                    </span>
-                  )}
+              {/* 3. 交易开仓按钮区 (放在右侧醒目位置) */}
+              <div className="border-t border-slate-800/80 pt-2 font-mono">
+                {/* 本金设置 */}
+                <div className="p-2 rounded bg-slate-900/90 border border-slate-800 mb-2">
+                  <div className="flex items-center justify-between text-[11px] text-slate-400 mb-1">
+                    <span>单笔本金 (USDT)</span>
+                    <input
+                      type="number"
+                      value={tradeAmount}
+                      onChange={(e) => setTradeAmount(Number(e.target.value))}
+                      className="w-20 px-2 py-0.5 rounded bg-slate-950 border border-slate-700 text-slate-200 font-mono text-xs text-right focus:border-cyan-400 focus:outline-none"
+                    />
+                  </div>
+                  <div className="grid grid-cols-4 gap-1">
+                    {[50, 100, 200, 500].map((amt) => (
+                      <button
+                        key={amt}
+                        type="button"
+                        onClick={() => setTradeAmount(amt)}
+                        className={`py-0.5 text-[10px] rounded border font-mono transition-all text-center ${
+                          tradeAmount === amt
+                            ? 'bg-cyan-500/30 text-cyan-300 border-cyan-400 font-bold'
+                            : 'bg-slate-950 text-slate-400 border-slate-800 hover:text-slate-200'
+                        }`}
+                      >
+                        {amt}
+                      </button>
+                    ))}
+                  </div>
                 </div>
 
-                {/* 进度拖拽滑块 */}
-                <div className="py-1 flex items-center gap-2">
-                  <span className="text-[9px] text-slate-500 font-mono">起点</span>
-                  <input
-                    type="range"
-                    min="0"
-                    max={Math.max(0, allKlines.length - 1)}
-                    value={replayIndex}
-                    onChange={(e) => {
-                      setReplayIndex(Number(e.target.value));
-                      setIsPlaying(false);
-                    }}
-                    className="flex-1 h-1.5 bg-slate-900 rounded-lg appearance-none cursor-pointer accent-cyan-400"
-                  />
-                  <span className="text-[9px] text-slate-500 font-mono">末端</span>
-                </div>
-
-                {/* 核心高频单步按钮 */}
-                <div className="mt-2">
+                {/* 开多 / 开空 按钮 (放在右侧，大按钮极速操作) */}
+                <div className="grid grid-cols-2 gap-2">
                   <button
                     type="button"
-                    onClick={() => {
-                      setIsPlaying(false);
-                      setReplayIndex((prev) => Math.min(prev + 1, allKlines.length - 1));
-                    }}
-                    className="w-full py-2.5 rounded bg-cyan-950/90 hover:bg-cyan-900 text-cyan-200 border border-cyan-400 font-bold text-sm shadow-md shadow-cyan-950 flex items-center justify-center gap-1.5 transition-all"
-                    title="推进一步 (+1根K线，快捷键: → 方向右键)"
+                    onClick={() => executeOpenPosition('LONG')}
+                    disabled={!!activePosition || !currentBar}
+                    className="py-2.5 rounded bg-emerald-600/30 hover:bg-emerald-600/50 border border-emerald-400 text-emerald-300 text-xs font-bold tracking-wider transition-all flex flex-col items-center justify-center gap-0.5 shadow-md shadow-emerald-950 disabled:opacity-40"
+                    title="开多买涨 (快捷键: B)"
                   >
-                    <i className="fa-solid fa-forward-step text-cyan-400"></i>
-                    <span>单步推演 (+1根K线)</span>
-                    <span className="text-xs text-cyan-400/80 font-normal">[→]</span>
+                    <div className="flex items-center gap-1">
+                      <i className="fa-solid fa-arrow-trend-up text-emerald-400"></i>
+                      <span>开多 BUY ▲</span>
+                    </div>
+                    <span className="text-[10px] text-emerald-400/70 font-normal">[快捷键 B]</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => executeOpenPosition('SHORT')}
+                    disabled={!!activePosition || !currentBar}
+                    className="py-2.5 rounded bg-rose-600/30 hover:bg-rose-600/50 border border-rose-400 text-rose-300 text-xs font-bold tracking-wider transition-all flex flex-col items-center justify-center gap-0.5 shadow-md shadow-rose-950 disabled:opacity-40"
+                    title="开空买跌 (快捷键: S)"
+                  >
+                    <div className="flex items-center gap-1">
+                      <i className="fa-solid fa-arrow-trend-down text-rose-400"></i>
+                      <span>开空 SELL ▼</span>
+                    </div>
+                    <span className="text-[10px] text-rose-400/70 font-normal">[快捷键 S]</span>
                   </button>
                 </div>
+              </div>
+
+              {/* 4. 推演控制器按钮区 (紧随开仓按钮，单手轻松协同) */}
+              <div className="border-t border-slate-800/80 pt-2 font-mono">
+                {/* 核心高频单步按钮 */}
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsPlaying(false);
+                    setReplayIndex((prev) => Math.min(prev + 1, allKlines.length - 1));
+                  }}
+                  className="w-full py-2 rounded bg-cyan-950/90 hover:bg-cyan-900 text-cyan-200 border border-cyan-400 font-bold text-xs shadow-md shadow-cyan-950 flex items-center justify-center gap-1.5 transition-all"
+                  title="推进一步 (+1根K线，快捷键: → 方向右键)"
+                >
+                  <i className="fa-solid fa-forward-step text-cyan-400"></i>
+                  <span>单步推演 (+1根K线)</span>
+                  <span className="text-xs text-cyan-400/80 font-normal">[→]</span>
+                </button>
 
                 {/* 推演辅助按钮组 */}
-                <div className="grid grid-cols-4 gap-1.5 mt-2 font-mono text-xs">
+                <div className="grid grid-cols-4 gap-1.5 mt-1.5 text-xs">
                   <button
                     type="button"
                     onClick={() => {
                       setReplayIndex(Math.min(20, allKlines.length - 1));
                       setIsPlaying(false);
                     }}
-                    className="py-1.5 rounded bg-slate-900 hover:bg-slate-800 text-slate-300 border border-slate-800 text-[11px] flex items-center justify-center gap-1"
+                    className="py-1 rounded bg-slate-900 hover:bg-slate-800 text-slate-300 border border-slate-800 text-[10px] flex items-center justify-center gap-0.5"
                     title="重置到起点"
                   >
                     <i className="fa-solid fa-backward-step"></i> 起点
@@ -2013,7 +2100,7 @@
                   <button
                     type="button"
                     onClick={() => setIsPlaying(!isPlaying)}
-                    className={`col-span-2 py-1.5 rounded font-bold border transition-all text-[11px] flex items-center justify-center gap-1 ${
+                    className={`col-span-2 py-1 rounded font-bold border transition-all text-[10px] flex items-center justify-center gap-0.5 ${
                       isPlaying
                         ? 'bg-amber-600/30 text-amber-300 border-amber-400 shadow-md shadow-amber-950'
                         : 'bg-cyan-600/30 text-cyan-300 border-cyan-400 shadow-md shadow-cyan-950'
@@ -2037,23 +2124,48 @@
                       setIsPlaying(false);
                       setReplayIndex((prev) => Math.min(prev + 5, allKlines.length - 1));
                     }}
-                    className="py-1.5 rounded bg-slate-900 hover:bg-slate-800 text-slate-300 border border-slate-800 text-[11px] flex items-center justify-center gap-1"
+                    className="py-1 rounded bg-slate-900 hover:bg-slate-800 text-slate-300 border border-slate-800 text-[10px] flex items-center justify-center gap-0.5"
                     title="前进5根K线"
                   >
                     <i className="fa-solid fa-forward"></i> +5根
                   </button>
                 </div>
 
+                {/* 进度滑块与信息 */}
+                <div className="mt-1.5 flex items-center justify-between text-[10px] text-slate-400">
+                  <span>进度: <strong className="text-cyan-300">{replayIndex + 1}</strong> / {allKlines.length} 根</span>
+                  {currentBar && (
+                    <span className="text-[10px] text-slate-500">
+                      {formatBeijingTime(currentBar.openTime).slice(5)}
+                    </span>
+                  )}
+                </div>
+                <div className="py-1 flex items-center gap-2">
+                  <span className="text-[9px] text-slate-500">起点</span>
+                  <input
+                    type="range"
+                    min="0"
+                    max={Math.max(0, allKlines.length - 1)}
+                    value={replayIndex}
+                    onChange={(e) => {
+                      setReplayIndex(Number(e.target.value));
+                      setIsPlaying(false);
+                    }}
+                    className="flex-1 h-1.5 bg-slate-900 rounded-lg appearance-none cursor-pointer accent-cyan-400"
+                  />
+                  <span className="text-[9px] text-slate-500">末端</span>
+                </div>
+
                 {/* 倍速控制 */}
-                <div className="flex items-center justify-between mt-2 pt-1.5 border-t border-slate-900 text-xs font-mono">
-                  <span className="text-[11px] text-slate-500">推演倍速:</span>
+                <div className="flex items-center justify-between pt-1 border-t border-slate-900 text-xs">
+                  <span className="text-[10px] text-slate-500">倍速:</span>
                   <div className="flex items-center gap-1">
                     {[0.5, 1, 2, 5, 10].map((s) => (
                       <button
                         key={s}
                         type="button"
                         onClick={() => setPlaySpeed(s)}
-                        className={`px-1.5 py-0.5 text-[10px] rounded font-mono transition-all ${
+                        className={`px-1.5 py-0.5 text-[9px] rounded font-mono transition-all ${
                           playSpeed === s
                             ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-500 font-bold'
                             : 'text-slate-500 hover:text-slate-300'
@@ -2066,75 +2178,7 @@
                 </div>
               </div>
 
-              {/* 中部：交易开仓执行面板 */}
-              <div className="border-t border-slate-800/80 pt-2.5">
-                <div className="flex items-center justify-between text-xs font-mono mb-2">
-                  <span className="font-bold text-slate-200">交易开仓 (自动平仓)</span>
-                  <span className="text-[10px] text-slate-500">仅支持开仓</span>
-                </div>
-
-                {/* 本金设置 */}
-                <div className="p-2 rounded bg-slate-900/90 border border-slate-800 font-mono mb-2.5">
-                  <div className="flex items-center justify-between text-[11px] text-slate-400 mb-1">
-                    <span>单笔本金 (USDT)</span>
-                    <input
-                      type="number"
-                      value={tradeAmount}
-                      onChange={(e) => setTradeAmount(Number(e.target.value))}
-                      className="w-20 px-2 py-0.5 rounded bg-slate-950 border border-slate-700 text-slate-200 font-mono text-xs text-right focus:border-cyan-400 focus:outline-none"
-                    />
-                  </div>
-                  <div className="grid grid-cols-4 gap-1 mt-1">
-                    {[50, 100, 200, 500].map((amt) => (
-                      <button
-                        key={amt}
-                        type="button"
-                        onClick={() => setTradeAmount(amt)}
-                        className={`py-0.5 text-[10px] rounded border font-mono transition-all text-center ${
-                          tradeAmount === amt
-                            ? 'bg-cyan-500/30 text-cyan-300 border-cyan-400 font-bold'
-                            : 'bg-slate-950 text-slate-400 border-slate-800 hover:text-slate-200'
-                        }`}
-                      >
-                        {amt}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-
-                {/* 开多 / 开空 按钮 (大按钮，极佳触达) */}
-                <div className="grid grid-cols-2 gap-2">
-                  <button
-                    type="button"
-                    onClick={() => executeOpenPosition('LONG')}
-                    disabled={!!activePosition || !currentBar}
-                    className="py-3 rounded bg-emerald-600/30 hover:bg-emerald-600/50 border border-emerald-400 text-emerald-300 text-xs font-bold font-mono tracking-wider transition-all flex flex-col items-center justify-center gap-0.5 shadow-md shadow-emerald-950 disabled:opacity-40"
-                    title="开多买涨 (快捷键: B)"
-                  >
-                    <div className="flex items-center gap-1">
-                      <i className="fa-solid fa-arrow-trend-up text-emerald-400"></i>
-                      <span>开多 BUY ▲</span>
-                    </div>
-                    <span className="text-[10px] text-emerald-400/70 font-normal">[快捷键 B]</span>
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() => executeOpenPosition('SHORT')}
-                    disabled={!!activePosition || !currentBar}
-                    className="py-3 rounded bg-rose-600/30 hover:bg-rose-600/50 border border-rose-400 text-rose-300 text-xs font-bold font-mono tracking-wider transition-all flex flex-col items-center justify-center gap-0.5 shadow-md shadow-rose-950 disabled:opacity-40"
-                    title="开空买跌 (快捷键: S)"
-                  >
-                    <div className="flex items-center gap-1">
-                      <i className="fa-solid fa-arrow-trend-down text-rose-400"></i>
-                      <span>开空 SELL ▼</span>
-                    </div>
-                    <span className="text-[10px] text-rose-400/70 font-normal">[快捷键 S]</span>
-                  </button>
-                </div>
-              </div>
-
-              {/* 底部：持仓状态卡片 (如有持仓) 或 空仓待命提示 */}
+              {/* 5. 底部：持仓状态卡片 (如有持仓) 或 空仓待命提示 */}
               <div className="border-t border-slate-800/80 pt-2">
                 {activePosition ? (
                   <div className="p-2.5 rounded bg-amber-950/30 border border-amber-500/50 font-mono text-xs space-y-1.5">
@@ -2195,19 +2239,19 @@
                     </div>
                   </div>
                 ) : (
-                  <div className="p-2 rounded bg-slate-900/60 border border-slate-800/80 text-[11px] text-slate-400 font-mono space-y-1">
+                  <div className="p-2 rounded bg-slate-900/60 border border-slate-800/80 text-[11px] text-slate-400 font-mono space-y-0.5">
                     <div className="text-slate-300 flex items-center gap-1.5">
                       <span className="w-1.5 h-1.5 rounded-full bg-emerald-400"></span>
                       <span>空仓待命中，可推进K线</span>
                     </div>
                     <div className="text-[10px] text-slate-500">
-                      持满 {holdBarsRequired} 根K线 ({autoCloseMinutes}分钟) 自动平仓，严守纪律
+                      持满 {holdBarsRequired} 根K线 ({autoCloseMinutes}分钟) 自动平仓
                     </div>
                   </div>
                 )}
 
                 {/* 快捷键提示条 */}
-                <div className="mt-2 text-[10px] text-slate-500 font-mono text-center">
+                <div className="mt-1.5 text-[10px] text-slate-500 font-mono text-center">
                   快捷键: [空格]播放 [→]单步 [B]开多 [S]开空
                 </div>
               </div>

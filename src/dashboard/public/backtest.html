@@ -589,10 +589,12 @@
       // 核心交易规则：单根K线只能成交一次，第二根就允许开仓
       const hasTradedOnCurrentBar = useMemo(() => {
         if (!currentBar) return false;
-        const inActive = activePositions.some((p) => p.entryIndex === replayIndex);
-        const inTrades = trades.some((t) => t.entryIndex === replayIndex);
+        const curBarTime = Number(currentBar.openTime);
+        // 严格以当前K线的真实时间戳 (openTime) 校验，彻底消除旧回测记录中数组索引 (entryIndex) 导致的跨时间段误判
+        const inActive = activePositions.some((p) => Number(p.entryTime) === curBarTime);
+        const inTrades = trades.some((t) => Number(t.entryTime) === curBarTime);
         return inActive || inTrades;
-      }, [activePositions, trades, replayIndex, currentBar]);
+      }, [activePositions, trades, currentBar]);
 
       // 快捷设置预设起止时间
       const setQuickPresetHours = (hours) => {

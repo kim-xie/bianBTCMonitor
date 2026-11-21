@@ -632,7 +632,8 @@ app.get('/api/backtest/index-klines', async (req, res) => {
     const intervalMs = intervalToMs[interval] || 5 * 60 * 1000;
 
     const isRandom = req.query.random === 'true' || req.query.random === '1000' || req.query.isRandom === 'true';
-    const maxRequested = isRandom ? 1000 : Math.min(parseInt(String(req.query.limit), 10) || 1000, 3000);
+    const isRealtime = req.query.realtime === 'true' || req.query.isRealtime === 'true' || req.query.mode === 'realtime';
+    const maxRequested = isRandom ? 1000 : (isRealtime ? Math.min(parseInt(String(req.query.limit), 10) || 300, 1000) : Math.min(parseInt(String(req.query.limit), 10) || 1000, 3000));
 
     const now = Date.now();
     let startMs: number | undefined;
@@ -649,6 +650,10 @@ app.get('/api/backtest/index-klines', async (req, res) => {
       const pickedStart = safeMinStart + Math.floor(Math.random() * Math.max(1, maxStart - safeMinStart));
       startMs = Math.floor(pickedStart / intervalMs) * intervalMs;
       endMs = startMs + spanMs;
+    } else if (isRealtime) {
+      // 实时回测模式：直接获取截至当前最新的 K 线数据
+      endMs = now;
+      startMs = now - maxRequested * intervalMs;
     } else {
       // 解析时间戳（支持毫秒数字、YYYY-MM-DD 或 ISO字符串）
       if (req.query.start) {
@@ -674,24 +679,33 @@ app.get('/api/backtest/index-klines', async (req, res) => {
     let dataSource = 'binance_index';
 
     try {
-      // 1. 尝试从币安事件合约综合标的指数 API 分页获取
-      let currentStart = startMs;
-      while (currentStart < endMs && klines.length < maxRequested) {
-        const batchLimit = Math.min(1000, maxRequested - klines.length);
-        const batch = await binanceService.getIndexPriceKlines(symbol, interval, batchLimit, currentStart, endMs);
-        if (!batch || batch.length === 0) break;
+      if (isRealtime) {
+        // 实时模式优先一次性获取截至当前最新的K线
+        const realBatch = await binanceService.getIndexPriceKlines(symbol, interval, maxRequested);
+        if (realBatch && realBatch.length > 0) {
+          klines = realBatch;
+          dataSource = 'binance_index';
+        }
+      } else {
+        // 1. 尝试从币安事件合约综合标的指数 API 分页获取
+        let currentStart = startMs;
+        while (currentStart < endMs && klines.length < maxRequested) {
+          const batchLimit = Math.min(1000, maxRequested - klines.length);
+          const batch = await binanceService.getIndexPriceKlines(symbol, interval, batchLimit, currentStart, endMs);
+          if (!batch || batch.length === 0) break;
 
-        for (const k of batch) {
-          if (klines.length === 0 || k.openTime > klines[klines.length - 1].openTime) {
-            klines.push(k);
+          for (const k of batch) {
+            if (klines.length === 0 || k.openTime > klines[klines.length - 1].openTime) {
+              klines.push(k);
+            }
           }
-        }
 
-        const lastBar = batch[batch.length - 1];
-        if (!lastBar || lastBar.closeTime <= currentStart || batch.length < batchLimit) {
-          break;
+          const lastBar = batch[batch.length - 1];
+          if (!lastBar || lastBar.closeTime <= currentStart || batch.length < batchLimit) {
+            break;
+          }
+          currentStart = lastBar.closeTime + 1;
         }
-        currentStart = lastBar.closeTime + 1;
       }
     } catch (binanceErr: any) {
       console.warn('币安标的指数API获取失败，启动本地聚合与高保真模拟机制:', binanceErr.message);
